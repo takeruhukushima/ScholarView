@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "sci.peer.article",
+  "defs": {
+    "block": {
+      "type": "object",
+      "required": ["level", "heading", "content"],
+      "properties": {
+        "level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6,
+          "description": "階層の深さ。1:section, 2:subsection, 3:subsubsection..."
+        },
+        "heading": { "type": "string", "description": "セクションの見出し" },
+        "content": { "type": "string", "description": "TeXまたはMarkdown形式の本文" }
+      }
+    },
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["title", "blocks", "createdAt"],
+        "properties": {
+          "title": { "type": "string", "maxLength": 300, "description": "論文または実験計画のタイトル" },
+          "blocks": {
+            "type": "array",
+            "description": "論文を構成する任意のセクション配列（フラット構造）",
+            "items": { "type": "ref", "ref": "#block" }
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

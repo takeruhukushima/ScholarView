@@ -1,26 +1,36 @@
 {
-  "name": "jagora",
+  "name": "scholarview",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "pnpm migrate && next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "pnpm migrate && next start",
+    "lint": "eslint",
+    "migrate": "node --import tsx src/scripts/migrate.ts"
   },
   "dependencies": {
+    "@atproto/common-web": "^0.4.16",
+    "@atproto/lex": "^0.0.16",
+    "@atproto/oauth-client-node": "^0.3.16",
+    "@atproto/syntax": "^0.4.3",
+    "@atproto/tap": "^0.2.4",
+    "better-sqlite3": "^12.6.2",
+    "kysely": "^0.28.11",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tsx": "^4.21.0",
     "typescript": "^5"
   }
 }
