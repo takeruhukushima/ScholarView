@@ -8,7 +8,7 @@ AT Protocol上で論文・実験計画を公開し、Blueskyリプライを使�
 - `sci.peer.article` レコード投稿
 - 投稿時の `app.bsky.feed.post` 告知投稿
 - テキスト選択からのインラインコメント投稿（Bluesky reply + `embed.external`）
-- Tap webhook経由のリアルタイム同期
+- Tap webhook経由のリアルタイム同期（`reply.root` が告知投稿なら取り込み。`embed.external` / quote は任意）
 - 論文一覧、詳細、コメント表示
 
 ## セットアップ
@@ -73,3 +73,4 @@ curl -H 'Content-Type: application/json' \
 
 - OAuth scope: `atproto repo:sci.peer.article repo:app.bsky.feed.post`
 - 論文本文入力は現状Markdownベースです。
+- Webhook保護のため、`TAP_ADMIN_PASSWORD` は必ず設定してください（Tap側と同じ値）。

@@ -83,7 +83,7 @@ export function parseMarkdownToBlocks(markdown: string): ArticleBlock[] {
       return;
     }
 
-    const heading = currentHeading ?? "Overview";
+    const heading = currentHeading ?? `Section ${blocks.length + 1}`;
     const content = contentLines.join("\n");
 
     blocks.push(
@@ -109,6 +109,74 @@ export function parseMarkdownToBlocks(markdown: string): ArticleBlock[] {
 
       currentLevel = headingMatch[1].length as 1 | 2 | 3 | 4 | 5 | 6;
       currentHeading = headingMatch[2];
+      continue;
+    }
+
+    contentLines.push(line);
+  }
+
+  flush();
+
+  return blocks.slice(0, MAX_BLOCKS);
+}
+
+export function parseTexToBlocks(tex: string): ArticleBlock[] {
+  const source = tex.replace(/\r\n?/g, "\n");
+  const lines = source.split("\n");
+
+  const blocks: ArticleBlock[] = [];
+  let currentHeading: string | null = null;
+  let currentLevel: 1 | 2 | 3 | 4 | 5 | 6 = 1;
+  let contentLines: string[] = [];
+
+  const flush = () => {
+    const hasText = contentLines.some((line) => line.trim().length > 0);
+    if (!hasText && currentHeading === null) {
+      contentLines = [];
+      return;
+    }
+
+    blocks.push(
+      normalizeBlock(
+        {
+          level: currentLevel,
+          heading: currentHeading ?? `Section ${blocks.length + 1}`,
+          content: contentLines.join("\n"),
+        },
+        blocks.length,
+      ),
+    );
+    contentLines = [];
+  };
+
+  for (const line of lines) {
+    const section = line.match(/^\\section\{(.+?)\}\s*$/);
+    if (section) {
+      if (currentHeading !== null || contentLines.some((l) => l.trim().length > 0)) {
+        flush();
+      }
+      currentHeading = section[1];
+      currentLevel = 1;
+      continue;
+    }
+
+    const subsection = line.match(/^\\subsection\{(.+?)\}\s*$/);
+    if (subsection) {
+      if (currentHeading !== null || contentLines.some((l) => l.trim().length > 0)) {
+        flush();
+      }
+      currentHeading = subsection[1];
+      currentLevel = 2;
+      continue;
+    }
+
+    const subsubsection = line.match(/^\\subsubsection\{(.+?)\}\s*$/);
+    if (subsubsection) {
+      if (currentHeading !== null || contentLines.some((l) => l.trim().length > 0)) {
+        flush();
+      }
+      currentHeading = subsubsection[1];
+      currentLevel = 3;
       continue;
     }
 

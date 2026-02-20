@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -15,6 +16,8 @@ interface ArticleViewerProps {
   blocks: ArticleBlock[];
   comments: InlineCommentView[];
   canComment: boolean;
+  canEdit: boolean;
+  editHref: string;
   initialHighlightQuote: string | null;
 }
 
@@ -31,20 +34,80 @@ function timeAgo(dateString: string): string {
   return `${days}d`;
 }
 
-function renderWithHighlight(content: string, quote: string | null) {
-  if (!quote) return content;
-  const idx = content.indexOf(quote);
-  if (idx === -1) return content;
+function renderInlineMarkdown(text: string, keyPrefix: string) {
+  const nodes: React.ReactNode[] = [];
+  const regex = /\*\*(.+?)\*\*/g;
+  let last = 0;
+  let idx = 0;
 
-  return (
-    <>
-      {content.slice(0, idx)}
-      <mark className="rounded bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-700/40">
-        {quote}
-      </mark>
-      {content.slice(idx + quote.length)}
-    </>
-  );
+  for (;;) {
+    const match = regex.exec(text);
+    if (!match) break;
+
+    const before = text.slice(last, match.index);
+    if (before) {
+      nodes.push(<span key={`${keyPrefix}-t-${idx++}`}>{before}</span>);
+    }
+
+    nodes.push(
+      <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold">
+        {match[1]}
+      </strong>,
+    );
+
+    last = match.index + match[0].length;
+  }
+
+  const rest = text.slice(last);
+  if (rest) {
+    nodes.push(<span key={`${keyPrefix}-t-${idx++}`}>{rest}</span>);
+  }
+
+  if (nodes.length === 0) {
+    nodes.push(<span key={`${keyPrefix}-empty`}>{text}</span>);
+  }
+
+  return nodes;
+}
+
+function renderMarkdownWithHighlight(content: string, quote: string | null, keyPrefix: string) {
+  const lines = content.split("\n");
+
+  return lines.map((line, lineIdx) => {
+    if (!quote) {
+      return (
+        <span key={`${keyPrefix}-line-${lineIdx}`}>
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`)}
+          {lineIdx < lines.length - 1 ? <br /> : null}
+        </span>
+      );
+    }
+
+    const pos = line.indexOf(quote);
+    if (pos === -1) {
+      return (
+        <span key={`${keyPrefix}-line-${lineIdx}`}>
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`)}
+          {lineIdx < lines.length - 1 ? <br /> : null}
+        </span>
+      );
+    }
+
+    const before = line.slice(0, pos);
+    const match = line.slice(pos, pos + quote.length);
+    const after = line.slice(pos + quote.length);
+
+    return (
+      <span key={`${keyPrefix}-line-${lineIdx}`}>
+        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`) : null}
+        <mark className="rounded bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-700/40">
+          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`)}
+        </mark>
+        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`) : null}
+        {lineIdx < lines.length - 1 ? <br /> : null}
+      </span>
+    );
+  });
 }
 
 function headingClass(level: number): string {
@@ -61,11 +124,15 @@ export function ArticleViewer({
   blocks,
   comments,
   canComment,
+  canEdit,
+  editHref,
   initialHighlightQuote,
 }: ArticleViewerProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedQuote, setSelectedQuote] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const effectiveHighlight = selectedQuote ?? initialHighlightQuote;
 
@@ -95,6 +162,34 @@ export function ArticleViewer({
     setSelectedQuote(text.slice(0, 280));
   }
 
+  async function handleDelete() {
+    if (!canEdit || deleting) return;
+
+    const ok = window.confirm("この論文を削除します。よろしいですか？");
+    if (!ok) return;
+
+    setDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(
+        `/api/articles/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}`,
+        { method: "DELETE" },
+      );
+
+      const data = (await response.json()) as { success?: boolean; error?: string };
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Failed to delete article");
+      }
+
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete article");
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <article
@@ -103,14 +198,41 @@ export function ArticleViewer({
         className="space-y-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
       >
         <header className="space-y-2 border-b border-zinc-200 dark:border-zinc-800 pb-4">
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-            {title}
-          </h1>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+              {title}
+            </h1>
+            {canEdit ? (
+              <div className="flex items-center gap-2">
+                <Link
+                  href={editHref}
+                  className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
+                >
+                  Edit
+                </Link>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+
           {canComment ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               本文テキストを選択すると、インラインコメントを投稿できます。
             </p>
-          ) : null}
+          ) : (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              この論文は告知投稿がないため、Bluesky連携コメントは利用できません。
+            </p>
+          )}
+
+          {deleteError ? <p className="text-sm text-red-600">{deleteError}</p> : null}
         </header>
 
         <div className="space-y-5">
@@ -120,7 +242,11 @@ export function ArticleViewer({
                 {block.heading}
               </h2>
               <p className="whitespace-pre-wrap leading-7 text-zinc-700 dark:text-zinc-300">
-                {renderWithHighlight(block.content, effectiveHighlight)}
+                {renderMarkdownWithHighlight(
+                  block.content,
+                  effectiveHighlight,
+                  `block-${idx}`,
+                )}
               </p>
             </section>
           ))}
@@ -155,9 +281,15 @@ export function ArticleViewer({
                 key={comment.uri}
                 className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3"
               >
-                <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                  {comment.quote}
-                </p>
+                {comment.quote ? (
+                  <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                    {comment.quote}
+                  </p>
+                ) : (
+                  <p className="mb-2 inline-flex rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Bsky返信（引用なし）
+                  </p>
+                )}
                 <p className="whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">
                   {comment.text}
                 </p>

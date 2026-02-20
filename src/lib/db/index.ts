@@ -25,6 +25,7 @@ export interface DatabaseSchema {
   article: ArticleTable;
   article_announcement: ArticleAnnouncementTable;
   inline_comment: InlineCommentTable;
+  draft_article: DraftArticleTable;
 }
 
 interface AuthStateTable {
@@ -48,6 +49,8 @@ export interface ArticleTable {
   authorDid: string;
   title: string;
   blocksJson: string;
+  sourceFormat: SourceFormat;
+  broadcasted: 0 | 1;
   createdAt: string;
   indexedAt: string;
 }
@@ -69,4 +72,15 @@ export interface InlineCommentTable {
   externalUri: string;
   createdAt: string;
   indexedAt: string;
+}
+
+export type SourceFormat = "markdown" | "tex";
+
+export interface DraftArticleTable {
+  id: string;
+  title: string;
+  content: string;
+  sourceFormat: SourceFormat;
+  createdAt: string;
+  updatedAt: string;
 }

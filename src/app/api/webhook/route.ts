@@ -8,7 +8,7 @@ import { serializeBlocks } from "@/lib/articles/blocks";
 import {
   deleteAccount,
   deleteAnnouncementByUri,
-  deleteArticle,
+  deleteArticleCascade,
   deleteInlineComment,
   getAnnouncementByUri,
   upsertAccount,
@@ -38,6 +38,7 @@ function parseInlineCommentRecord(record: unknown): ParsedInlineCommentRecord | 
 
   const text = typeof obj.text === "string" ? obj.text.trim() : "";
   if (!text) return null;
+  if (text.length > 2_000) return null;
 
   const createdAt =
     typeof obj.createdAt === "string" && obj.createdAt
@@ -50,15 +51,14 @@ function parseInlineCommentRecord(record: unknown): ParsedInlineCommentRecord | 
   if (!rootUri) return null;
 
   const embed = asObject(obj.embed);
-  if (!embed || embed.$type !== "app.bsky.embed.external") return null;
-
-  const external = asObject(embed.external);
+  const external =
+    embed && embed.$type === "app.bsky.embed.external"
+      ? asObject(embed.external)
+      : null;
   const externalUri =
-    external && typeof external.uri === "string" ? external.uri : null;
-  if (!externalUri) return null;
+    external && typeof external.uri === "string" ? external.uri : "";
 
-  const quote = extractQuoteFromExternalUri(externalUri);
-  if (!quote) return null;
+  const quote = externalUri ? extractQuoteFromExternalUri(externalUri) ?? "" : "";
 
   return {
     text,
@@ -120,11 +120,13 @@ export async function POST(request: NextRequest) {
         authorDid: evt.did,
         title: record.title,
         blocksJson: serializeBlocks(record.blocks),
+        sourceFormat: "markdown",
+        broadcasted: 0,
         createdAt: record.createdAt,
         indexedAt: new Date().toISOString(),
       });
     } else if (evt.action === "delete") {
-      await deleteArticle(uri);
+      await deleteArticleCascade(uri);
     }
 
     return NextResponse.json({ success: true });

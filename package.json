@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "pnpm migrate && next start",
     "lint": "eslint",
-    "migrate": "node --import tsx src/scripts/migrate.ts"
+    "migrate": "node --import tsx src/scripts/migrate.ts",
+    "gen-key": "tsx src/scripts/gen-key.ts"
   },
   "dependencies": {
     "@atproto/common-web": "^0.4.16",

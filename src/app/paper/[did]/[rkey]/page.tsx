@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ArticleViewer } from "@/components/ArticleViewer";
-import { decodeRouteParam } from "@/lib/articles/uri";
+import {
+  buildAtprotoAtArticleUrl,
+  buildPaperPath,
+  decodeRouteParam,
+} from "@/lib/articles/uri";
 import { getSession } from "@/lib/auth/session";
 import {
   getArticleByDidAndRkey,
@@ -32,6 +36,9 @@ export default async function PaperPage({ params, searchParams }: PaperPageProps
   ]);
 
   const initialQuote = typeof query.quote === "string" ? query.quote : null;
+  const canEdit = session?.did === article.authorDid;
+  const canComment = Boolean(session && article.announcementUri);
+  const canonicalUrl = buildAtprotoAtArticleUrl(article.did, article.rkey);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -43,7 +50,18 @@ export default async function PaperPage({ params, searchParams }: PaperPageProps
         </div>
 
         <div className="mb-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 text-sm text-zinc-600 dark:text-zinc-300">
-          Author: @{article.handle ?? article.authorDid}
+          <p>Author: @{article.handle ?? article.authorDid}</p>
+          <p className="mt-1">
+            Canonical:{" "}
+            <a
+              href={canonicalUrl}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-blue-700 hover:underline dark:text-blue-400 break-all"
+            >
+              {canonicalUrl}
+            </a>
+          </p>
         </div>
 
         <ArticleViewer
@@ -52,7 +70,9 @@ export default async function PaperPage({ params, searchParams }: PaperPageProps
           title={article.title}
           blocks={article.blocks}
           comments={comments}
-          canComment={Boolean(session)}
+          canComment={canComment}
+          canEdit={canEdit}
+          editHref={`${buildPaperPath(article.did, article.rkey)}/edit`}
           initialHighlightQuote={initialQuote}
         />
       </main>

@@ -1,7 +1,11 @@
 import { Client } from "@atproto/lex";
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildArticleUri, buildPaperUrl, decodeRouteParam } from "@/lib/articles/uri";
+import {
+  buildArticleUri,
+  buildAtprotoAtArticleUrl,
+  decodeRouteParam,
+} from "@/lib/articles/uri";
 import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
 import {
@@ -9,7 +13,6 @@ import {
   upsertInlineComment,
 } from "@/lib/db/queries";
 
-const PUBLIC_URL = process.env.PUBLIC_URL || "http://127.0.0.1:3000";
 const MAX_QUOTE_LENGTH = 280;
 const MAX_COMMENT_LENGTH = 2_000;
 
@@ -35,8 +38,8 @@ export async function POST(
   const announcement = await getAnnouncementByArticleUri(articleUri);
   if (!announcement) {
     return NextResponse.json(
-      { error: "Announcement post not found for this article" },
-      { status: 404 },
+      { error: "Inline comments require an announcement post" },
+      { status: 409 },
     );
   }
 
@@ -71,7 +74,7 @@ export async function POST(
   const lexClient = new Client(oauthSession);
 
   const createdAt = new Date().toISOString();
-  const externalUri = buildPaperUrl(PUBLIC_URL, did, rkey, normalizedQuote);
+  const externalUri = buildAtprotoAtArticleUrl(did, rkey, normalizedQuote);
 
   const created = await lexClient.createRecord({
     $type: "app.bsky.feed.post",

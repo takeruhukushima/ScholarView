@@ -20,10 +20,17 @@ function timeAgo(dateString: string): string {
   return `${days}d`;
 }
 
-export default async function Home() {
+interface HomeProps {
+  searchParams: Promise<{ q?: string }>;
+}
+
+export default async function Home({ searchParams }: HomeProps) {
   const session = await getSession();
+  const { q } = await searchParams;
+  const query = typeof q === "string" ? q.trim() : "";
+
   const [articles, accountHandle] = await Promise.all([
-    getRecentArticles(20),
+    getRecentArticles(50, query),
     session ? getAccountHandle(session.did) : Promise.resolve(null),
   ]);
 
@@ -56,13 +63,32 @@ export default async function Home() {
         </section>
 
         <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-          <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Recent Articles
-          </h2>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Local Viewer
+            </h2>
+            <form className="flex items-center gap-2" action="/" method="GET">
+              <input
+                type="text"
+                name="q"
+                defaultValue={query}
+                placeholder="タイトル / 本文検索"
+                className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm"
+              >
+                Search
+              </button>
+            </form>
+          </div>
 
           {articles.length === 0 ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              まだ投稿がありません。最初の論文を公開してください。
+              {query
+                ? `"${query}" に一致する論文はありません。`
+                : "まだ投稿がありません。最初の論文を公開してください。"}
             </p>
           ) : (
             <ul className="space-y-3">
@@ -80,9 +106,17 @@ export default async function Home() {
                   <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
                     @{article.handle ?? article.authorDid}
                   </p>
-                  <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                    {timeAgo(article.createdAt)}
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
+                      {article.sourceFormat}
+                    </span>
+                    <span className="rounded bg-zinc-100 px-2 py-1 dark:bg-zinc-800">
+                      {article.broadcasted ? "broadcast:on" : "broadcast:off"}
+                    </span>
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      {timeAgo(article.createdAt)}
+                    </span>
+                  </div>
                 </li>
               ))}
             </ul>

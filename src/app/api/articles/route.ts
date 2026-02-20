@@ -3,18 +3,26 @@ import { AtUri } from "@atproto/syntax";
 import { NextRequest, NextResponse } from "next/server";
 
 import * as sci from "@/lexicons/sci";
-import { parseMarkdownToBlocks, normalizeBlocks, serializeBlocks } from "@/lib/articles/blocks";
-import { buildPaperUrl } from "@/lib/articles/uri";
+import {
+  normalizeBlocks,
+  parseMarkdownToBlocks,
+  parseTexToBlocks,
+  serializeBlocks,
+} from "@/lib/articles/blocks";
+import { buildAtprotoAtArticleUrl } from "@/lib/articles/uri";
 import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
+import type { SourceFormat } from "@/lib/db";
 import { upsertArticle, upsertArticleAnnouncement } from "@/lib/db/queries";
 
-const PUBLIC_URL = process.env.PUBLIC_URL || "http://127.0.0.1:3000";
 const MAX_TITLE_LENGTH = 300;
 
 interface CreateArticleRequest {
   title?: unknown;
+  sourceFormat?: unknown;
+  broadcastToBsky?: unknown;
   markdown?: unknown;
+  tex?: unknown;
   blocks?: unknown;
 }
 
@@ -42,11 +50,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const sourceFormat: SourceFormat =
+    body.sourceFormat === "tex" ? "tex" : "markdown";
+  const broadcastToBsky = body.broadcastToBsky === true;
+
+  const textInput =
+    sourceFormat === "tex"
+      ? typeof body.tex === "string"
+        ? body.tex
+        : ""
+      : typeof body.markdown === "string"
+        ? body.markdown
+        : "";
+
   const blocks =
     body.blocks !== undefined
       ? normalizeBlocks(body.blocks)
-      : typeof body.markdown === "string"
-        ? parseMarkdownToBlocks(body.markdown)
+      : textInput
+        ? sourceFormat === "tex"
+          ? parseTexToBlocks(textInput)
+          : parseMarkdownToBlocks(textInput)
         : [];
 
   if (blocks.length === 0) {
@@ -72,46 +95,62 @@ export async function POST(request: NextRequest) {
   });
 
   const articleUri = new AtUri(article.uri);
-  const paperUrl = buildPaperUrl(PUBLIC_URL, session.did, articleUri.rkey);
+  const atprotoAtUrl = buildAtprotoAtArticleUrl(session.did, articleUri.rkey);
 
-  const announcementText = `新しい論文/実験計画を公開しました：『${title}』 ${paperUrl}`;
+  let announcement: { uri: string; cid: string } | null = null;
+  if (broadcastToBsky) {
+    const announcementText = `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
 
-  const announcement = await lexClient.createRecord({
-    $type: "app.bsky.feed.post",
-    text: announcementText,
-    createdAt,
-    embed: {
-      $type: "app.bsky.embed.external",
-      external: {
-        uri: paperUrl,
-        title,
-        description: "ScholarViewで論文を公開しました",
+    const createdAnnouncement = await lexClient.createRecord({
+      $type: "app.bsky.feed.post",
+      text: announcementText,
+      createdAt,
+      embed: {
+        $type: "app.bsky.embed.external",
+        external: {
+          uri: atprotoAtUrl,
+          title,
+          description: "ScholarViewで論文を公開しました",
+        },
       },
-    },
-  });
+    });
+
+    announcement = {
+      uri: createdAnnouncement.body.uri,
+      cid: createdAnnouncement.body.cid,
+    };
+  }
 
   await upsertArticle({
     uri: article.uri,
     authorDid: session.did,
     title,
     blocksJson: serializeBlocks(blocks),
+    sourceFormat,
+    broadcasted: broadcastToBsky ? 1 : 0,
     createdAt,
     indexedAt: createdAt,
   });
 
-  await upsertArticleAnnouncement({
-    articleUri: article.uri,
-    announcementUri: announcement.body.uri,
-    announcementCid: announcement.body.cid,
-    authorDid: session.did,
-    createdAt,
-  });
+  if (announcement) {
+    await upsertArticleAnnouncement({
+      articleUri: article.uri,
+      announcementUri: announcement.uri,
+      announcementCid: announcement.cid,
+      authorDid: session.did,
+      createdAt,
+    });
+  }
 
   return NextResponse.json({
     success: true,
     articleUri: article.uri,
-    announcementUri: announcement.body.uri,
-    announcementCid: announcement.body.cid,
+    ...(announcement
+      ? {
+          announcementUri: announcement.uri,
+          announcementCid: announcement.cid,
+        }
+      : {}),
     did: session.did,
     rkey: articleUri.rkey,
   });

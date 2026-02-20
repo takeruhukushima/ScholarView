@@ -93,6 +93,42 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable("account").execute();
     },
   },
+  "003": {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable("article")
+        .addColumn("sourceFormat", "text", (col) =>
+          col.notNull().defaultTo("markdown"),
+        )
+        .execute();
+
+      await db.schema
+        .alterTable("article")
+        .addColumn("broadcasted", "integer", (col) =>
+          col.notNull().defaultTo(1),
+        )
+        .execute();
+
+      await db.schema
+        .createTable("draft_article")
+        .addColumn("id", "text", (col) => col.primaryKey())
+        .addColumn("title", "text", (col) => col.notNull())
+        .addColumn("content", "text", (col) => col.notNull())
+        .addColumn("sourceFormat", "text", (col) => col.notNull())
+        .addColumn("createdAt", "text", (col) => col.notNull())
+        .addColumn("updatedAt", "text", (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex("draft_article_updatedAt_idx")
+        .on("draft_article")
+        .column("updatedAt")
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable("draft_article").execute();
+    },
+  },
 };
 
 export function getMigrator() {

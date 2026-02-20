@@ -12,6 +12,19 @@ export function buildPaperPath(did: string, rkey: string): string {
   return `/paper/${didParam}/${rkeyParam}`;
 }
 
+export function buildAtprotoAtArticleUrl(
+  did: string,
+  rkey: string,
+  quote?: string,
+): string {
+  const url = new URL("https://atproto.at/viewer");
+  url.searchParams.set("uri", `${did}/${ARTICLE_COLLECTION}/${rkey}`);
+  if (quote) {
+    url.searchParams.set("quote", quote);
+  }
+  return url.toString();
+}
+
 export function buildPaperUrl(
   publicUrl: string,
   did: string,
