@@ -1,14 +1,30 @@
 "use client";
 
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import {
+  Fragment,
+  type DragEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import katex from "katex";
 
 import { LoginForm } from "@/components/LoginForm";
 import { LogoutButton } from "@/components/LogoutButton";
 import type { ArticleBlock } from "@/lib/articles/blocks";
 import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
+import {
+  extractCitationKeysFromText,
+  formatBibliographyIEEE,
+  parseBibtexEntries,
+  type BibliographyEntry,
+} from "@/lib/articles/citations";
 import type { SourceFormat } from "@/lib/db";
 import type { ArticleSummary } from "@/lib/db/queries";
+import { exportSource } from "@/lib/export/document";
 
 interface WorkspaceAppProps {
   initialArticles: ArticleSummary[];
@@ -60,6 +76,7 @@ interface ArticleDetailPayload {
   authorDid: string;
   title: string;
   blocks: ArticleBlock[];
+  bibliography?: BibliographyEntry[];
   sourceFormat: SourceFormat;
   broadcasted: 0 | 1;
   announcementUri: string | null;
@@ -73,6 +90,16 @@ interface EditorBlock {
   kind: BlockKind;
   text: string;
 }
+
+interface CitationMenuState {
+  blockId: string;
+  start: number;
+  end: number;
+  query: string;
+}
+
+type TreeDropPosition = "before" | "after" | "inside";
+type NewFileType = "markdown" | "tex" | "bib";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -112,6 +139,77 @@ function kindToTexPrefix(kind: BlockKind): string {
   if (kind === "h2") return "\\subsection{";
   if (kind === "h3") return "\\subsubsection{";
   return "";
+}
+
+function headingHashToKind(value: string): BlockKind {
+  if (value.length <= 1) return "h1";
+  if (value.length === 2) return "h2";
+  return "h3";
+}
+
+function normalizeEditedBlockInput(
+  block: EditorBlock,
+  rawText: string,
+  sourceFormat: SourceFormat,
+): Pick<EditorBlock, "kind" | "text"> {
+  if (sourceFormat === "markdown") {
+    const headingMatch = rawText.match(/^(#{1,3})\s+(.+)$/);
+    if (headingMatch) {
+      return {
+        kind: headingHashToKind(headingMatch[1]),
+        text: headingMatch[2],
+      };
+    }
+
+    const inlineMathWrapped = rawText.match(/^\\\((.+)\\\)$/);
+    if (inlineMathWrapped) {
+      return { kind: block.kind, text: `$${inlineMathWrapped[1]}$` };
+    }
+    return { kind: block.kind, text: rawText };
+  }
+
+  const texHeading = rawText.match(/^\\(section|subsection|subsubsection)\{([^}]*)\}\s*$/);
+  if (texHeading) {
+    const command = texHeading[1];
+    const kind =
+      command === "section"
+        ? "h1"
+        : command === "subsection"
+          ? "h2"
+          : "h3";
+    return {
+      kind,
+      text: texHeading[2],
+    };
+  }
+
+  const mathWrapped = rawText.match(/^\\\[(.+)\\\]$/);
+  if (mathWrapped) {
+    return { kind: block.kind, text: `$$${mathWrapped[1]}$$` };
+  }
+
+  return { kind: block.kind, text: rawText };
+}
+
+function detectCitationTrigger(
+  text: string,
+  cursor: number,
+): { start: number; end: number; query: string } | null {
+  const before = text.slice(0, cursor);
+  const at = before.lastIndexOf("@");
+  if (at < 0) return null;
+
+  const prefix = at === 0 ? "" : before[at - 1];
+  if (prefix && !/[\s([{"'`]/.test(prefix)) {
+    return null;
+  }
+
+  const query = before.slice(at + 1);
+  if (/[^A-Za-z0-9:_-]/.test(query)) {
+    return null;
+  }
+
+  return { start: at, end: cursor, query };
 }
 
 function sourceToEditorBlocks(source: string, sourceFormat: SourceFormat): EditorBlock[] {
@@ -208,6 +306,122 @@ function makeFileTree(files: WorkspaceFile[]) {
   return walk(null, "");
 }
 
+function ensureFileExtension(name: string, type: NewFileType): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  if (/\.[A-Za-z0-9]+$/.test(trimmed)) return trimmed;
+  if (type === "tex") return `${trimmed}.tex`;
+  if (type === "bib") return `${trimmed}.bib`;
+  return `${trimmed}.md`;
+}
+
+function findProjectRootFolderId(files: WorkspaceFile[], activeFileId: string | null): string | null {
+  const byId = new Map<string, WorkspaceFile>();
+  for (const file of files) {
+    byId.set(file.id, file);
+  }
+  if (!activeFileId) return null;
+
+  const activeFile = byId.get(activeFileId);
+  if (!activeFile) return null;
+
+  let folderId: string | null = activeFile.kind === "folder" ? activeFile.id : activeFile.parentId;
+  if (!folderId) return null;
+
+  while (folderId) {
+    const nextParentId: string | null = byId.get(folderId)?.parentId ?? null;
+    if (!nextParentId) return folderId;
+    folderId = nextParentId;
+  }
+
+  return null;
+}
+
+function isDescendantOfFolder(
+  byId: Map<string, WorkspaceFile>,
+  parentId: string | null,
+  ancestorFolderId: string,
+): boolean {
+  let cursor = parentId;
+  while (cursor) {
+    if (cursor === ancestorFolderId) return true;
+    cursor = byId.get(cursor)?.parentId ?? null;
+  }
+  return false;
+}
+
+function collectProjectBibFiles(files: WorkspaceFile[], activeFileId: string | null): WorkspaceFile[] {
+  const byId = new Map<string, WorkspaceFile>();
+  for (const file of files) {
+    byId.set(file.id, file);
+  }
+  const bibFiles = files
+    .filter((file) => file.kind === "file" && file.name.toLowerCase().endsWith(".bib"))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+  if (bibFiles.length === 0) return [];
+
+  const projectRootFolderId = findProjectRootFolderId(files, activeFileId);
+  if (!projectRootFolderId) {
+    return bibFiles.filter((file) => file.parentId === null);
+  }
+
+  return bibFiles.filter((file) => isDescendantOfFolder(byId, file.parentId, projectRootFolderId));
+}
+
+function buildFilePathMap(files: WorkspaceFile[]): Map<string, string> {
+  const byId = new Map<string, WorkspaceFile>();
+  for (const file of files) {
+    byId.set(file.id, file);
+  }
+
+  const memo = new Map<string, string>();
+  const resolve = (id: string): string => {
+    const cached = memo.get(id);
+    if (cached) return cached;
+    const file = byId.get(id);
+    if (!file) return "";
+    const parentPath = file.parentId ? resolve(file.parentId) : "";
+    const path = `${parentPath}/${file.name}`.replace(/\/{2,}/g, "/");
+    memo.set(id, path);
+    return path;
+  };
+
+  for (const file of files) {
+    resolve(file.id);
+  }
+  return memo;
+}
+
+function sanitizeFileStem(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return cleaned || "image";
+}
+
+function inferImageExtension(name: string, mimeType: string): string {
+  const fromName = name.toLowerCase().match(/\.(png|jpe?g|gif|webp|svg)$/);
+  if (fromName) return fromName[1] === "jpeg" ? "jpg" : fromName[1];
+  if (mimeType.includes("png")) return "png";
+  if (mimeType.includes("jpeg")) return "jpg";
+  if (mimeType.includes("gif")) return "gif";
+  if (mimeType.includes("webp")) return "webp";
+  if (mimeType.includes("svg")) return "svg";
+  return "png";
+}
+
+function toFigureLabel(input: string): string {
+  const base = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  return `fig:${base || "image"}`;
+}
+
 function timeAgo(dateString: string): string {
   const now = Date.now();
   const then = new Date(dateString).getTime();
@@ -246,10 +460,35 @@ function linkHref(input: string): string | null {
   }
 }
 
-function renderInlineText(text: string, keyPrefix: string): ReactNode[] {
+function renderMathHtml(expression: string, displayMode: boolean): string | null {
+  try {
+    return katex.renderToString(expression, {
+      displayMode,
+      throwOnError: false,
+      strict: "ignore",
+      output: "html",
+    });
+  } catch {
+    return null;
+  }
+}
+
+function referenceAnchorId(prefix: string, key: string): string {
+  return `${prefix}-${key.replace(/[^A-Za-z0-9_-]+/g, "-")}`;
+}
+
+function renderInlineText(
+  text: string,
+  keyPrefix: string,
+  options?: {
+    citationLookup?: Map<string, BibliographyEntry>;
+    citationNumberByKey?: Map<string, number>;
+    referenceAnchorPrefix?: string;
+  },
+): ReactNode[] {
   const nodes: ReactNode[] = [];
   const tokenRegex =
-    /(`[^`]+`|\$\$[^$]+\$\$|\$[^$\n]+\$|\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s]+)/g;
+    /(`[^`]+`|\$\$[\s\S]+?\$\$|\$(?:\\.|[^$\n])+\$|\[@[A-Za-z0-9:_-]+\]|\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s]+)/g;
   let cursor = 0;
   let matchIndex = 0;
 
@@ -271,23 +510,75 @@ function renderInlineText(text: string, keyPrefix: string): ReactNode[] {
         </code>,
       );
     } else if (token.startsWith("$$") && token.endsWith("$$")) {
-      nodes.push(
-        <span
-          key={key}
-          className="select-text rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-900"
-        >
-          {token.slice(2, -2)}
-        </span>,
-      );
+      const expr = token.slice(2, -2).trim();
+      const mathHtml = renderMathHtml(expr, true);
+      if (mathHtml) {
+        nodes.push(
+          <span
+            key={key}
+            className="my-1 block overflow-x-auto rounded border border-blue-100 bg-blue-50 px-2 py-1"
+            dangerouslySetInnerHTML={{ __html: mathHtml }}
+          />,
+        );
+      } else {
+        nodes.push(
+          <span
+            key={key}
+            className="select-text rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-900"
+          >
+            {expr}
+          </span>,
+        );
+      }
     } else if (token.startsWith("$") && token.endsWith("$")) {
-      nodes.push(
-        <span
-          key={key}
-          className="select-text rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-900"
-        >
-          {token.slice(1, -1)}
-        </span>,
-      );
+      const expr = token.slice(1, -1).trim();
+      const mathHtml = renderMathHtml(expr, false);
+      if (mathHtml) {
+        nodes.push(
+          <span
+            key={key}
+            className="inline-block align-middle"
+            dangerouslySetInnerHTML={{ __html: mathHtml }}
+          />,
+        );
+      } else {
+        nodes.push(
+          <span
+            key={key}
+            className="select-text rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[0.9em] text-blue-900"
+          >
+            {expr}
+          </span>,
+        );
+      }
+    } else if (token.startsWith("[@") && token.endsWith("]")) {
+      const keyValue = token.slice(2, -1);
+      const matched = options?.citationLookup?.get(keyValue);
+      const number = options?.citationNumberByKey?.get(keyValue);
+      if (number) {
+        const anchorPrefix = options?.referenceAnchorPrefix ?? "ref";
+        const href = `#${referenceAnchorId(anchorPrefix, keyValue)}`;
+        nodes.push(
+          <a
+            key={key}
+            href={href}
+            className="inline-flex rounded px-1 py-0.5 font-mono text-[0.85em] text-[#0085FF] hover:underline"
+            title={matched?.title ?? keyValue}
+          >
+            [{number}]
+          </a>,
+        );
+      } else {
+        nodes.push(
+          <span
+            key={key}
+            className="inline-flex rounded bg-amber-100 px-1.5 py-0.5 text-[0.85em] text-amber-900"
+            title={matched?.title ?? `Missing citation: ${keyValue}`}
+          >
+            [?]
+          </span>,
+        );
+      }
     } else if (token.startsWith("**") && token.endsWith("**")) {
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("_") && token.endsWith("_")) {
@@ -339,7 +630,16 @@ function renderInlineText(text: string, keyPrefix: string): ReactNode[] {
   return nodes;
 }
 
-function renderRichParagraphs(text: string, keyPrefix: string) {
+function renderRichParagraphs(
+  text: string,
+  keyPrefix: string,
+  options?: {
+    citationLookup?: Map<string, BibliographyEntry>;
+    citationNumberByKey?: Map<string, number>;
+    referenceAnchorPrefix?: string;
+    resolveImageSrc?: (input: string) => string;
+  },
+) {
   const nodes: ReactNode[] = [];
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   let i = 0;
@@ -392,12 +692,20 @@ function renderRichParagraphs(text: string, keyPrefix: string) {
       }
 
       nodes.push(
-        <pre
+        <div
           key={`${keyPrefix}-math-${i}`}
-          className="overflow-x-auto rounded-md border border-blue-100 bg-blue-50 px-3 py-2 font-mono text-xs text-blue-900"
+          className="overflow-x-auto rounded-md border border-blue-100 bg-blue-50 px-3 py-2"
         >
-          {mathLines.join("\n")}
-        </pre>,
+          {(() => {
+            const mathHtml = renderMathHtml(mathLines.join("\n").trim(), true);
+            if (mathHtml) {
+              return <span dangerouslySetInnerHTML={{ __html: mathHtml }} />;
+            }
+            return (
+              <span className="font-mono text-xs text-blue-900">{mathLines.join("\n")}</span>
+            );
+          })()}
+        </div>,
       );
       continue;
     }
@@ -416,11 +724,51 @@ function renderRichParagraphs(text: string, keyPrefix: string) {
         >
           {quoteLines.map((quoteLine, quoteIndex) => (
             <p key={`${keyPrefix}-quote-line-${quoteIndex}`}>
-              {renderInlineText(quoteLine, `${keyPrefix}-quote-inline-${quoteIndex}`)}
+              {renderInlineText(
+                quoteLine,
+                `${keyPrefix}-quote-inline-${quoteIndex}`,
+                {
+                  citationLookup: options?.citationLookup,
+                  citationNumberByKey: options?.citationNumberByKey,
+                  referenceAnchorPrefix: options?.referenceAnchorPrefix,
+                },
+              )}
             </p>
           ))}
         </blockquote>,
       );
+      continue;
+    }
+
+    const imageMatch = line
+      .trim()
+      .match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\{([^}]*)\})?$/);
+    if (imageMatch) {
+      const alt = imageMatch[1].trim();
+      const rawSrc = imageMatch[2].trim();
+      const attrs = imageMatch[3] ?? "";
+      const labelMatch = attrs.match(/#([^\s}]+)/);
+      const widthMatch = attrs.match(/width=([0-9.]+)/);
+      const src = options?.resolveImageSrc ? options.resolveImageSrc(rawSrc) : rawSrc;
+      const width = widthMatch ? Number(widthMatch[1]) : 0.8;
+      nodes.push(
+        <figure key={`${keyPrefix}-img-${i}`} className="space-y-1">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt || "figure"}
+            style={{ maxWidth: `${Math.min(1, Math.max(0.1, width)) * 100}%` }}
+            className="rounded border"
+          />
+          {(alt || labelMatch) ? (
+            <figcaption className="text-xs text-slate-600">
+              {alt}
+              {labelMatch ? <span className="ml-1 font-mono text-slate-500">({labelMatch[1]})</span> : null}
+            </figcaption>
+          ) : null}
+        </figure>,
+      );
+      i += 1;
       continue;
     }
 
@@ -434,7 +782,15 @@ function renderRichParagraphs(text: string, keyPrefix: string) {
         <ul key={`${keyPrefix}-ul-${i}`} className="list-disc space-y-1 pl-6">
           {unorderedItems.map((item, itemIndex) => (
             <li key={`${keyPrefix}-ul-item-${itemIndex}`}>
-              {renderInlineText(item, `${keyPrefix}-ul-inline-${itemIndex}`)}
+              {renderInlineText(
+                item,
+                `${keyPrefix}-ul-inline-${itemIndex}`,
+                {
+                  citationLookup: options?.citationLookup,
+                  citationNumberByKey: options?.citationNumberByKey,
+                  referenceAnchorPrefix: options?.referenceAnchorPrefix,
+                },
+              )}
             </li>
           ))}
         </ul>,
@@ -452,7 +808,15 @@ function renderRichParagraphs(text: string, keyPrefix: string) {
         <ol key={`${keyPrefix}-ol-${i}`} className="list-decimal space-y-1 pl-6">
           {orderedItems.map((item, itemIndex) => (
             <li key={`${keyPrefix}-ol-item-${itemIndex}`}>
-              {renderInlineText(item, `${keyPrefix}-ol-inline-${itemIndex}`)}
+              {renderInlineText(
+                item,
+                `${keyPrefix}-ol-inline-${itemIndex}`,
+                {
+                  citationLookup: options?.citationLookup,
+                  citationNumberByKey: options?.citationNumberByKey,
+                  referenceAnchorPrefix: options?.referenceAnchorPrefix,
+                },
+              )}
             </li>
           ))}
         </ol>,
@@ -473,7 +837,15 @@ function renderRichParagraphs(text: string, keyPrefix: string) {
       <p key={`${keyPrefix}-p-${i}`} className="whitespace-pre-wrap">
         {paragraphLines.map((paragraphLine, paragraphIndex) => (
           <Fragment key={`${keyPrefix}-p-line-${paragraphIndex}`}>
-            {renderInlineText(paragraphLine, `${keyPrefix}-p-inline-${paragraphIndex}`)}
+            {renderInlineText(
+              paragraphLine,
+              `${keyPrefix}-p-inline-${paragraphIndex}`,
+              {
+                citationLookup: options?.citationLookup,
+                citationNumberByKey: options?.citationNumberByKey,
+                referenceAnchorPrefix: options?.referenceAnchorPrefix,
+              },
+            )}
             {paragraphIndex < paragraphLines.length - 1 ? <br /> : null}
           </Fragment>
         ))}
@@ -523,28 +895,85 @@ function FileTree({
   activeFileId,
   onSelect,
   onToggleFolder,
+  onRename,
   onDelete,
+  onMove,
+  draggable,
 }: {
   files: WorkspaceFile[];
   activeFileId: string | null;
   onSelect: (file: WorkspaceFile) => void;
   onToggleFolder: (file: WorkspaceFile) => void;
+  onRename?: (file: WorkspaceFile) => void;
   onDelete: (file: WorkspaceFile) => void;
+  onMove?: (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => void;
+  draggable?: boolean;
 }) {
   const tree = useMemo(() => makeFileTree(files), [files]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
   const renderNode = (node: ReturnType<typeof makeFileTree>[number], depth: number) => {
     const isFolder = node.file.kind === "folder";
     const isActive = activeFileId === node.file.id;
     const expanded = node.file.expanded === 1;
+    const getDropPosition = (event: DragEvent<HTMLDivElement>): TreeDropPosition => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      const offsetY = event.clientY - rect.top;
+      if (isFolder && offsetY >= rect.height * 0.25 && offsetY <= rect.height * 0.75) {
+        return "inside";
+      }
+      return offsetY < rect.height / 2 ? "before" : "after";
+    };
 
     return (
       <li key={node.file.id}>
         <div
           className={`group flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
             isActive ? "bg-[#E7F2FF]" : "hover:bg-slate-100"
+          } ${
+            dragOverKey === `${node.file.id}:before`
+              ? "border-t-2 border-[#0085FF]"
+              : dragOverKey === `${node.file.id}:after`
+                ? "border-b-2 border-[#0085FF]"
+                : dragOverKey === `${node.file.id}:inside`
+                  ? "bg-[#E7F2FF] ring-1 ring-inset ring-[#0085FF]"
+                : ""
           }`}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
+          draggable={Boolean(draggable)}
+          onDragStart={(event) => {
+            if (!draggable) return;
+            setDraggingId(node.file.id);
+            event.dataTransfer.setData("text/plain", node.file.id);
+            event.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={() => {
+            setDraggingId(null);
+            setDragOverKey(null);
+          }}
+          onDragOver={(event) => {
+            if (!onMove || !draggable) return;
+            const dragId = event.dataTransfer.getData("text/plain") || draggingId;
+            if (!dragId || dragId === node.file.id) return;
+            event.preventDefault();
+            const position = getDropPosition(event);
+            setDragOverKey(`${node.file.id}:${position}`);
+          }}
+          onDrop={(event) => {
+            if (!onMove || !draggable) return;
+            const dragId = event.dataTransfer.getData("text/plain") || draggingId;
+            if (!dragId || dragId === node.file.id) {
+              setDragOverKey(null);
+              setDraggingId(null);
+              return;
+            }
+            event.preventDefault();
+            const position = getDropPosition(event);
+            onMove(dragId, node.file, position);
+            setDragOverKey(null);
+            setDraggingId(null);
+          }}
         >
           {isFolder ? (
             <button
@@ -569,6 +998,21 @@ function FileTree({
 
           {node.file.kind === "file" && node.file.linkedArticleUri ? (
             <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">pub</span>
+          ) : null}
+
+          {onRename ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRename(node.file);
+              }}
+              className="rounded px-1 text-xs text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
+              title={`Rename ${node.file.kind}`}
+              aria-label={`Rename ${node.file.kind}`}
+            >
+              ✎
+            </button>
           ) : null}
 
           <button
@@ -769,13 +1213,16 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [title, setTitle] = useState("");
   const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
   const [editorBlocks, setEditorBlocks] = useState<EditorBlock[]>([{ id: newId(), kind: "paragraph", text: "" }]);
+  const [articleBibliography, setArticleBibliography] = useState<BibliographyEntry[]>([]);
+  const [citationMenu, setCitationMenu] = useState<CitationMenuState | null>(null);
+  const [citationMenuIndex, setCitationMenuIndex] = useState(0);
   const [broadcastToBsky, setBroadcastToBsky] = useState(true);
 
   const [currentDid, setCurrentDid] = useState<string | null>(null);
   const [currentRkey, setCurrentRkey] = useState<string | null>(null);
   const [currentAuthorDid, setCurrentAuthorDid] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<RightTab>("preview");
+  const [tab, setTab] = useState<RightTab>("discussion");
   const [discussionRoot, setDiscussionRoot] = useState<DiscussionRoot | null>(null);
   const [discussionPosts, setDiscussionPosts] = useState<DiscussionPost[]>([]);
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
@@ -785,6 +1232,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [statusMessage, setStatusMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showLoginBox, setShowLoginBox] = useState(false);
+  const [showNewFileForm, setShowNewFileForm] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
+  const [newFileType, setNewFileType] = useState<NewFileType>("markdown");
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [blockMenuForId, setBlockMenuForId] = useState<string | null>(null);
   const [savingFile, setSavingFile] = useState(false);
@@ -803,10 +1254,80 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     () => files.find((file) => file.id === activeFileId) ?? null,
     [files, activeFileId],
   );
+  const filePathMap = useMemo(() => buildFilePathMap(files), [files]);
+  const projectBibFiles = useMemo(
+    () => collectProjectBibFiles(files, activeFileId),
+    [activeFileId, files],
+  );
+  const projectBibEntries = useMemo(() => {
+    const merged = new Map<string, BibliographyEntry>();
+    for (const file of projectBibFiles) {
+      const entries = parseBibtexEntries(file.content ?? "");
+      for (const entry of entries) {
+        if (!merged.has(entry.key)) {
+          merged.set(entry.key, entry);
+        }
+      }
+    }
+    return Array.from(merged.values());
+  }, [projectBibFiles]);
+  const activeBibByKey = useMemo(() => {
+    const map = new Map<string, BibliographyEntry>();
+    for (const entry of projectBibEntries) map.set(entry.key, entry);
+    return map;
+  }, [projectBibEntries]);
+  const persistedBibByKey = useMemo(() => {
+    const map = new Map<string, BibliographyEntry>();
+    for (const entry of articleBibliography) map.set(entry.key, entry);
+    return map;
+  }, [articleBibliography]);
 
   const sourceText = useMemo(
     () => editorBlocksToSource(editorBlocks, sourceFormat),
     [editorBlocks, sourceFormat],
+  );
+  const citationKeys = useMemo(() => extractCitationKeysFromText(sourceText), [sourceText]);
+  const resolvedBibliography = useMemo(() => {
+    const resolved: BibliographyEntry[] = [];
+    for (const key of citationKeys) {
+      const fromBib = activeBibByKey.get(key);
+      if (fromBib) {
+        resolved.push(fromBib);
+        continue;
+      }
+      const fromPersisted = persistedBibByKey.get(key);
+      if (fromPersisted) resolved.push(fromPersisted);
+    }
+    return resolved;
+  }, [activeBibByKey, citationKeys, persistedBibByKey]);
+  const missingCitationKeys = useMemo(
+    () =>
+      citationKeys.filter(
+        (key) => !activeBibByKey.has(key) && !persistedBibByKey.has(key),
+      ),
+    [activeBibByKey, citationKeys, persistedBibByKey],
+  );
+  const citationNumberByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    for (let i = 0; i < resolvedBibliography.length; i += 1) {
+      map.set(resolvedBibliography[i].key, i + 1);
+    }
+    return map;
+  }, [resolvedBibliography]);
+  const renderCitationLookup = useMemo(() => {
+    const map = new Map<string, BibliographyEntry>();
+    for (const entry of resolvedBibliography) map.set(entry.key, entry);
+    return map;
+  }, [resolvedBibliography]);
+  const resolveWorkspaceImageSrc = useCallback(
+    (input: string) => {
+      const match = input.match(/^workspace:\/\/(.+)$/);
+      if (!match) return input;
+      const file = files.find((item) => item.id === match[1]);
+      if (!file || file.kind !== "file" || !file.content) return input;
+      return file.content;
+    },
+    [files],
   );
 
   const previewBlocks = useMemo(() => parseSourceToBlocks(sourceText, sourceFormat), [
@@ -822,6 +1343,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const isExistingArticle = Boolean(currentDid && currentRkey);
   const canEditArticle = Boolean(isLoggedIn && (!isExistingArticle || currentAuthorDid === sessionDid));
   const canEditCurrentFile = Boolean(canEditArticle && activeFile?.kind === "file");
+  const isBibWorkspaceFile = Boolean(
+    activeFile?.kind === "file" && activeFile.name.toLowerCase().endsWith(".bib"),
+  );
+  const canPublishCurrentFile = canEditCurrentFile && !isBibWorkspaceFile;
   const hasOpenDocument = Boolean((activeFile && activeFile.kind === "file") || activeArticleUri);
   const isDirtyFile = useMemo(() => {
     if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
@@ -947,6 +1472,33 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         setCurrentAuthorDid(sessionDid ?? null);
         setTitle(defaultTitleFromFileName(file.name));
         setBroadcastToBsky(true);
+        setArticleBibliography([]);
+      }
+
+      if (linked || (file.linkedArticleDid && file.linkedArticleRkey)) {
+        const detailDid = linked?.did ?? file.linkedArticleDid;
+        const detailRkey = linked?.rkey ?? file.linkedArticleRkey;
+        if (detailDid && detailRkey) {
+          try {
+            const response = await fetch(
+              `/api/articles/${encodeURIComponent(detailDid)}/${encodeURIComponent(detailRkey)}`,
+              { cache: "no-store" },
+            );
+            const data = (await response.json()) as {
+              success?: boolean;
+              article?: Partial<ArticleDetailPayload>;
+            };
+            if (response.ok && data.success && data.article) {
+              setArticleBibliography(
+                Array.isArray(data.article.bibliography) ? data.article.bibliography : [],
+              );
+            } else {
+              setArticleBibliography([]);
+            }
+          } catch {
+            setArticleBibliography([]);
+          }
+        }
       }
 
       setSelectedQuote("");
@@ -954,6 +1506,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setShowMoreMenu(false);
       setActiveBlockId(null);
       setBlockMenuForId(null);
+      setCitationMenu(null);
       setStatusMessage("");
     },
     [articleByUri, sessionDid],
@@ -1009,12 +1562,15 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           (typeof detail.announcementUri === "string" && detail.announcementUri.length > 0) ||
           Boolean(article.announcementUri),
       );
-      setTab("preview");
+      setArticleBibliography(
+        Array.isArray(detail.bibliography) ? detail.bibliography : [],
+      );
       setSelectedQuote("");
       setQuoteComment("");
       setShowMoreMenu(false);
       setActiveBlockId(null);
       setBlockMenuForId(null);
+      setCitationMenu(null);
       setStatusMessage("");
     },
     [files, loadFiles, openFile, sessionDid, syncLegacyArticles],
@@ -1090,12 +1646,20 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     });
   }, [loadDiscussion, tab]);
 
-  const createWorkspaceItem = async (kind: "folder" | "file") => {
+  const createWorkspaceItem = async (
+    kind: "folder" | "file",
+    options?: {
+      name?: string;
+      format?: SourceFormat;
+      content?: string;
+    },
+  ) => {
     if (!sessionDid) {
       throw new Error("Login required");
     }
 
-    const name = window.prompt(kind === "folder" ? "Folder name" : "File name");
+    const name =
+      options?.name ?? window.prompt(kind === "folder" ? "Folder name" : "File name");
     if (!name) return;
 
     const parentId = activeFile?.kind === "folder" ? activeFile.id : activeFile?.parentId ?? null;
@@ -1103,7 +1667,13 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     const response = await fetch("/api/workspace/files", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parentId, name, kind }),
+      body: JSON.stringify({
+        parentId,
+        name,
+        kind,
+        ...(kind === "file" && options?.format ? { format: options.format } : {}),
+        ...(kind === "file" && options?.content !== undefined ? { content: options.content } : {}),
+      }),
     });
 
     const data = (await response.json()) as {
@@ -1118,6 +1688,77 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
     await loadFiles();
     await openFile(data.file);
+  };
+
+  const createWorkspaceFileFromForm = async () => {
+    const name = ensureFileExtension(newFileName, newFileType);
+    if (!name) {
+      setStatusMessage("File name is required.");
+      return;
+    }
+    const format: SourceFormat = newFileType === "tex" ? "tex" : "markdown";
+    await createWorkspaceItem("file", {
+      name,
+      format,
+      content: "",
+    });
+    setShowNewFileForm(false);
+    setNewFileName("");
+    setNewFileType("markdown");
+  };
+
+  const deleteWorkspaceItem = async (file: WorkspaceFile) => {
+    const label = file.kind === "folder" ? "folder and all children" : "file";
+    const confirmed = window.confirm(`Delete this ${label}?`);
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
+      method: "DELETE",
+    });
+    const data = (await response.json()) as { success?: boolean; error?: string };
+    if (!response.ok || !data.success) {
+      throw new Error(data.error ?? "Failed to delete item");
+    }
+
+    const latestFiles = await loadFiles();
+    if (activeFileId && !latestFiles.some((item) => item.id === activeFileId)) {
+      setActiveFileId(null);
+      if (!activeArticleUri) {
+        setCurrentDid(null);
+        setCurrentRkey(null);
+        setEditorBlocks([{ id: newId(), kind: "paragraph", text: "" }]);
+        setTitle("");
+        setSelectedQuote("");
+        setQuoteComment("");
+      }
+    }
+  };
+
+  const renameWorkspaceItem = async (file: WorkspaceFile) => {
+    if (!sessionDid) return;
+    const requestedName = window.prompt(
+      file.kind === "folder" ? "Rename folder" : "Rename file",
+      file.name,
+    );
+    if (!requestedName) return;
+    const trimmed = requestedName.trim();
+    if (!trimmed) return;
+
+    const isBibFile = file.kind === "file" && file.name.toLowerCase().endsWith(".bib");
+    const nextName = isBibFile ? ensureFileExtension(trimmed, "bib") : trimmed;
+    if (!nextName || nextName === file.name) return;
+
+    const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: nextName }),
+    });
+    const data = (await response.json()) as { success?: boolean; error?: string };
+    if (!response.ok || !data.success) {
+      throw new Error(data.error ?? "Failed to rename item");
+    }
+    await loadFiles();
+    setStatusMessage(`Renamed to ${nextName}`);
   };
 
   const saveCurrentFile = useCallback(async (options?: { silent?: boolean }) => {
@@ -1179,6 +1820,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setStatusMessage("Select a file and ensure you have edit permission.");
       return;
     }
+    if (activeFile.name.toLowerCase().endsWith(".bib")) {
+      setStatusMessage("BibTeX files are citation data and cannot be published.");
+      return;
+    }
 
     if (!title.trim()) {
       setStatusMessage("Title is required.");
@@ -1197,6 +1842,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           body: JSON.stringify({
             title,
             broadcastToBsky,
+            bibliography: resolvedBibliography.map((entry) => ({
+              key: entry.key,
+              rawBibtex: entry.rawBibtex,
+            })),
           }),
         },
       );
@@ -1232,6 +1881,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
       if (data.diagnostics && data.diagnostics.length > 0) {
         setStatusMessage(`Published with ${data.diagnostics.length} import warning(s).`);
+      } else if (missingCitationKeys.length > 0) {
+        setStatusMessage(`Published with ${missingCitationKeys.length} missing citation warning(s).`);
       } else {
         setStatusMessage("Published article.");
       }
@@ -1257,6 +1908,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             sourceFormat,
             broadcastToBsky: false,
             ...(sourceFormat === "tex" ? { tex: sourceText } : { markdown: sourceText }),
+            bibliography: resolvedBibliography.map((entry) => ({
+              key: entry.key,
+              rawBibtex: entry.rawBibtex,
+            })),
           }),
         },
       );
@@ -1340,6 +1995,292 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     await loadDiscussion();
   };
 
+  const updateCitationMenu = useCallback(
+    (blockId: string, text: string, cursor: number) => {
+      const trigger = detectCitationTrigger(text, cursor);
+      if (!trigger) {
+        setCitationMenu((prev) => (prev?.blockId === blockId ? null : prev));
+        return;
+      }
+      setCitationMenu({
+        blockId,
+        start: trigger.start,
+        end: trigger.end,
+        query: trigger.query,
+      });
+      setCitationMenuIndex(0);
+    },
+    [],
+  );
+
+  const filteredCitationEntries = useMemo(() => {
+    if (!citationMenu) return [] as BibliographyEntry[];
+    const query = citationMenu.query.trim().toLowerCase();
+    const searchPool = projectBibEntries.length > 0 ? projectBibEntries : articleBibliography;
+    if (!query) return searchPool.slice(0, 8);
+    return searchPool
+      .filter((entry) => {
+        const haystack = `${entry.key} ${entry.title ?? ""} ${entry.author ?? ""}`.toLowerCase();
+        return haystack.includes(query);
+      })
+      .slice(0, 8);
+  }, [articleBibliography, citationMenu, projectBibEntries]);
+
+  const applyCitationSuggestion = useCallback(
+    (entry: BibliographyEntry) => {
+      if (!citationMenu) return;
+      const replacement = `[@${entry.key}]`;
+      const targetId = citationMenu.blockId;
+
+      setEditorBlocks((prev) =>
+        prev.map((block) => {
+          if (block.id !== targetId) return block;
+          const before = block.text.slice(0, citationMenu.start);
+          const after = block.text.slice(citationMenu.end);
+          return {
+            ...block,
+            text: `${before}${replacement}${after}`,
+          };
+        }),
+      );
+
+      setCitationMenu(null);
+
+      window.setTimeout(() => {
+        const textarea = textareaRefs.current[targetId];
+        if (!textarea) return;
+        const nextPos = citationMenu.start + replacement.length;
+        textarea.focus();
+        textarea.setSelectionRange(nextPos, nextPos);
+      }, 0);
+    },
+    [citationMenu],
+  );
+
+  const normalizeWorkspaceImageUrisForExport = useCallback(
+    (input: string) =>
+      input.replace(/!\[([^\]]*)\]\(workspace:\/\/([^)]+)\)(\{[^}]*\})?/g, (_all, alt, id, attrs) => {
+        const file = files.find((item) => item.id === id);
+        if (!file || file.kind !== "file") return _all;
+        const path = filePathMap.get(file.id) ?? `/assets/${file.name}`;
+        return `![${alt}](${path})${attrs ?? ""}`;
+      }),
+    [filePathMap, files],
+  );
+
+  const downloadTextAsFile = (filename: string, text: string, mimeType = "text/plain;charset=utf-8") => {
+    const blob = new Blob([text], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = (target: "md" | "tex") => {
+    const normalizedSource = normalizeWorkspaceImageUrisForExport(sourceText);
+    const result = exportSource(normalizedSource, sourceFormat, target, resolvedBibliography);
+    const base = sanitizeFileStem(title || activeFile?.name || "untitled");
+    downloadTextAsFile(`${base}.${target}`, result.content);
+    if (missingCitationKeys.length > 0) {
+      setStatusMessage(`Exported with ${missingCitationKeys.length} unresolved citation warning(s).`);
+    } else {
+      setStatusMessage(`Exported ${base}.${target}`);
+    }
+  };
+
+  const handleSourceFormatChange = useCallback(
+    (nextFormat: SourceFormat) => {
+      if (nextFormat === sourceFormat) return;
+      const currentSource = editorBlocksToSource(editorBlocks, sourceFormat);
+      const nextBlocks = sourceToEditorBlocks(currentSource, nextFormat);
+      setSourceFormat(nextFormat);
+      setEditorBlocks(nextBlocks);
+      setCitationMenu(null);
+      setBlockMenuForId(null);
+      setActiveBlockId(null);
+    },
+    [editorBlocks, sourceFormat],
+  );
+
+  const readFileAsDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error("Failed to read image file"));
+      };
+      reader.onerror = () => reject(new Error("Failed to read image file"));
+      reader.readAsDataURL(file);
+    });
+
+  const ensureAssetsFolder = async () => {
+    const existing = files.find(
+      (file) => file.kind === "folder" && file.parentId === null && file.name === "assets",
+    );
+    if (existing) return existing.id;
+
+    const response = await fetch("/api/workspace/files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "assets", kind: "folder", parentId: null }),
+    });
+    const data = (await response.json()) as { success?: boolean; file?: WorkspaceFile; error?: string };
+    if (!response.ok || !data.success || !data.file) {
+      throw new Error(data.error ?? "Failed to create assets folder");
+    }
+    await loadFiles();
+    return data.file.id;
+  };
+
+  const handleImageDrop = async (event: DragEvent<HTMLElement>) => {
+    if (!canEditCurrentFile || !sessionDid) return;
+    const dropped = Array.from(event.dataTransfer.files ?? []).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+    if (dropped.length === 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      const assetsFolderId = await ensureAssetsFolder();
+      const activeId = activeBlockId ?? editorBlocks[editorBlocks.length - 1]?.id;
+      for (const image of dropped) {
+        const dataUrl = await readFileAsDataUrl(image);
+        const ext = inferImageExtension(image.name, image.type);
+        const stem = sanitizeFileStem(image.name);
+        const fileName = `${stem}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}.${ext}`;
+        const response = await fetch("/api/workspace/files", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            parentId: assetsFolderId,
+            name: fileName,
+            kind: "file",
+            format: "markdown",
+            content: dataUrl,
+          }),
+        });
+        const data = (await response.json()) as { success?: boolean; file?: WorkspaceFile; error?: string };
+        if (!response.ok || !data.success || !data.file) {
+          throw new Error(data.error ?? "Failed to store image");
+        }
+
+        const figureLabel = toFigureLabel(stem);
+        const token = `![${stem}](workspace://${data.file.id}){#${figureLabel} width=0.8}`;
+        setEditorBlocks((prev) => {
+          if (!activeId) {
+            return [...prev, { id: newId(), kind: "paragraph", text: token }];
+          }
+          const idx = prev.findIndex((block) => block.id === activeId);
+          if (idx === -1) return [...prev, { id: newId(), kind: "paragraph", text: token }];
+          const next = [...prev];
+          next.splice(idx + 1, 0, { id: newId(), kind: "paragraph", text: token });
+          return next;
+        });
+      }
+      await loadFiles();
+      setStatusMessage("Inserted image figure block(s).");
+    } catch (err: unknown) {
+      setStatusMessage(err instanceof Error ? err.message : "Failed to insert image");
+    }
+  };
+
+  const handleMoveWorkspaceItem = useCallback(
+    async (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => {
+      if (!sessionDid) return;
+      if (draggedId === target.id) return;
+
+      const byId = new Map(files.map((file) => [file.id, file]));
+      const dragged = byId.get(draggedId);
+      const targetFile = byId.get(target.id);
+      if (!dragged || !targetFile) return;
+
+      const nextParentId =
+        position === "inside" && targetFile.kind === "folder" ? targetFile.id : targetFile.parentId;
+      let cursor = nextParentId;
+      while (cursor) {
+        if (cursor === dragged.id) {
+          setStatusMessage("Cannot move a folder into its descendant.");
+          return;
+        }
+        cursor = byId.get(cursor)?.parentId ?? null;
+      }
+
+      const siblingSorter = (a: WorkspaceFile, b: WorkspaceFile) =>
+        a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+
+      const nextSiblings = files
+        .filter((file) => file.parentId === nextParentId && file.id !== dragged.id)
+        .sort(siblingSorter);
+      if (position === "inside" && targetFile.kind === "folder") {
+        nextSiblings.push({ ...dragged, parentId: nextParentId });
+      } else {
+        const targetIndex = nextSiblings.findIndex((file) => file.id === targetFile.id);
+        if (targetIndex === -1) return;
+        const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
+        nextSiblings.splice(insertIndex, 0, { ...dragged, parentId: nextParentId });
+      }
+
+      const oldParentSiblings =
+        dragged.parentId === nextParentId
+          ? []
+          : files
+              .filter((file) => file.parentId === dragged.parentId && file.id !== dragged.id)
+              .sort(siblingSorter);
+
+      const updates: Array<{ id: string; parentId?: string | null; sortOrder: number }> = [];
+      for (let i = 0; i < nextSiblings.length; i += 1) {
+        const file = nextSiblings[i];
+        updates.push({
+          id: file.id,
+          sortOrder: i,
+          ...(file.id === dragged.id ? { parentId: nextParentId } : {}),
+        });
+      }
+      for (let i = 0; i < oldParentSiblings.length; i += 1) {
+        updates.push({
+          id: oldParentSiblings[i].id,
+          sortOrder: i,
+        });
+      }
+
+      const deduped = new Map<string, { id: string; parentId?: string | null; sortOrder: number }>();
+      for (const update of updates) {
+        deduped.set(update.id, update);
+      }
+
+      const responses = await Promise.all(
+        Array.from(deduped.values()).map(async (update) => {
+          const response = await fetch(`/api/workspace/files/${encodeURIComponent(update.id)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...(update.parentId !== undefined ? { parentId: update.parentId } : {}),
+              sortOrder: update.sortOrder,
+            }),
+          });
+          const data = (await response.json()) as { success?: boolean; error?: string };
+          if (!response.ok || !data.success) {
+            throw new Error(data.error ?? "Failed to reorder file tree");
+          }
+        }),
+      );
+      void responses;
+
+      await loadFiles();
+      setStatusMessage("Updated file order.");
+    },
+    [files, loadFiles, sessionDid],
+  );
+
   const updateBlock = (id: string, patch: Partial<EditorBlock>) => {
     setEditorBlocks((prev) => prev.map((block) => (block.id === id ? { ...block, ...patch } : block)));
   };
@@ -1351,10 +2292,25 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       next.splice(index + 1, 0, block);
       return next;
     });
+    setActiveBlockId(block.id);
+    setBlockMenuForId(null);
+    setCitationMenu(null);
 
     window.setTimeout(() => {
-      textareaRefs.current[block.id]?.focus();
-      resizeTextarea(textareaRefs.current[block.id] ?? null);
+      const textarea = textareaRefs.current[block.id];
+      if (!textarea) {
+        window.setTimeout(() => {
+          const retry = textareaRefs.current[block.id];
+          if (!retry) return;
+          retry.focus();
+          retry.setSelectionRange(0, 0);
+          resizeTextarea(retry);
+        }, 0);
+        return;
+      }
+      textarea.focus();
+      textarea.setSelectionRange(0, 0);
+      resizeTextarea(textarea);
     }, 0);
   };
 
@@ -1365,7 +2321,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       const fallback = next[Math.max(0, index - 1)];
       window.setTimeout(() => {
         if (fallback) {
-          textareaRefs.current[fallback.id]?.focus();
+          setActiveBlockId(fallback.id);
+          window.setTimeout(() => {
+            textareaRefs.current[fallback.id]?.focus();
+          }, 0);
         }
       }, 0);
       return next;
@@ -1412,64 +2371,78 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setSelectedQuote(quote.slice(0, 280));
   };
 
-  const shouldShowStatus = Boolean(
-    statusMessage &&
-      /failed|required|forbidden|unauthorized|error|invalid|not found|can't|cannot/i.test(
-        statusMessage,
-      ),
-  );
+  const shouldShowStatus = Boolean(statusMessage);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6">
       <OnboardingTour />
 
-      <header className="mb-4 rounded-xl border bg-white px-4 py-3 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">ScholarView Workspace</h1>
-            <p className="text-sm text-slate-500">{"File -> Edit -> Publish workflow"}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/articles"
-              className="rounded-md border px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
-              aria-label="Search all articles"
-              title="Search all articles"
-            >
-              ⌕
-            </Link>
-            <button
-              type="button"
-              onClick={() => {
-                window.localStorage.removeItem(TUTORIAL_STORAGE_KEY);
-                window.location.reload();
-              }}
-              className="rounded-md border px-3 py-1.5 text-sm"
-            >
-              Show Tutorial
-            </button>
-          </div>
-        </div>
-      </header>
-
       {shouldShowStatus ? (
         <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">{statusMessage}</p>
       ) : null}
 
-      <div className="grid min-h-[calc(100vh-10rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_360px]">
+      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_1fr_360px]">
         <aside data-tour-id="sidebar" className="rounded-xl border bg-white p-3 shadow-sm">
-          <section className="mb-4 rounded-lg border bg-slate-50 p-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Account</h2>
-            {sessionDid ? (
-              <div className="mt-2 space-y-1">
-                <p className="text-sm text-slate-700">@{accountHandle ?? sessionDid}</p>
-                <LogoutButton />
-              </div>
-            ) : (
-              <div className="mt-2">
-                <LoginForm />
-              </div>
-            )}
+          <section className="mb-4 space-y-3 rounded-lg border bg-slate-50 p-3">
+            <div>
+              <h1 className="text-lg font-semibold text-slate-900">ScholarView Workspace</h1>
+            </div>
+            <form method="GET" action="/articles" className="flex gap-2">
+              <input
+                type="search"
+                name="q"
+                placeholder="Search published articles..."
+                className="w-full rounded border px-2 py-1 text-xs outline-none focus:border-[#0085FF]"
+              />
+              <button type="submit" className="rounded border px-2 py-1 text-xs hover:bg-white">
+                Search
+              </button>
+            </form>
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  window.localStorage.removeItem(TUTORIAL_STORAGE_KEY);
+                  window.location.reload();
+                }}
+                className="rounded border px-2 py-1 text-xs hover:bg-white"
+                title="Show tutorial"
+              >
+                ?
+              </button>
+              {sessionDid ? (
+                <div className="flex items-center gap-2">
+                  <span className="max-w-[8rem] truncate text-xs text-slate-700">@{accountHandle ?? sessionDid}</span>
+                  <LogoutButton />
+                </div>
+              ) : (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginBox((prev) => !prev)}
+                    className="rounded border px-2 py-1 text-xs hover:bg-white"
+                  >
+                    Sign in
+                  </button>
+                  {showLoginBox ? (
+                    <div className="absolute right-0 top-9 z-30 w-64 rounded-md border bg-white p-2 shadow-lg">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-xs font-semibold text-slate-700">Login</p>
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginBox(false)}
+                          className="rounded px-1 text-xs text-slate-500 hover:bg-slate-100"
+                          aria-label="Close login panel"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <LoginForm />
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
           </section>
 
           <section>
@@ -1491,9 +2464,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   <button
                     type="button"
                     onClick={() => {
-                      void createWorkspaceItem("file").catch((err: unknown) => {
-                        setStatusMessage(err instanceof Error ? err.message : "Failed to create file");
-                      });
+                      setShowNewFileForm((prev) => !prev);
                     }}
                     className="rounded border px-2 py-0.5 text-xs"
                   >
@@ -1502,6 +2473,50 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                 </div>
               ) : null}
             </div>
+            {sessionDid && showNewFileForm ? (
+              <form
+                className="mb-2 space-y-2 rounded border bg-slate-50 p-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void createWorkspaceFileFromForm().catch((err: unknown) => {
+                    setStatusMessage(err instanceof Error ? err.message : "Failed to create file");
+                  });
+                }}
+              >
+                <input
+                  value={newFileName}
+                  onChange={(event) => setNewFileName(event.target.value)}
+                  placeholder="File name"
+                  className="w-full rounded border px-2 py-1 text-xs"
+                  autoFocus
+                />
+                <div className="flex items-center gap-2">
+                  <select
+                    value={newFileType}
+                    onChange={(event) => setNewFileType(event.target.value as NewFileType)}
+                    className="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
+                  >
+                    <option value="markdown">Markdown (.md)</option>
+                    <option value="tex">TeX (.tex)</option>
+                    <option value="bib">BibTeX (.bib)</option>
+                  </select>
+                  <button type="submit" className="rounded border px-2 py-1 text-xs">
+                    Create
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewFileForm(false);
+                      setNewFileName("");
+                      setNewFileType("markdown");
+                    }}
+                    className="rounded border px-2 py-1 text-xs text-slate-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
             {sessionDid ? (
               <FileTree
@@ -1523,39 +2538,22 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                       setStatusMessage(err instanceof Error ? err.message : "Failed to toggle folder");
                     });
                 }}
-                onDelete={(file) => {
-                  const label = file.kind === "folder" ? "folder and all children" : "file";
-                  const confirmed = window.confirm(`Delete this ${label}?`);
-                  if (!confirmed) return;
-
-                  void fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
-                    method: "DELETE",
-                  })
-                    .then(async (response) => {
-                      const data = (await response.json()) as { success?: boolean; error?: string };
-                      if (!response.ok || !data.success) {
-                        throw new Error(data.error ?? "Failed to delete item");
-                      }
-                      const latestFiles = await loadFiles();
-                      if (
-                        activeFileId &&
-                        !latestFiles.some((item) => item.id === activeFileId)
-                      ) {
-                        setActiveFileId(null);
-                        if (!activeArticleUri) {
-                          setCurrentDid(null);
-                          setCurrentRkey(null);
-                          setEditorBlocks([{ id: newId(), kind: "paragraph", text: "" }]);
-                          setTitle("");
-                          setSelectedQuote("");
-                          setQuoteComment("");
-                        }
-                      }
-                    })
-                    .catch((err: unknown) => {
-                      setStatusMessage(err instanceof Error ? err.message : "Failed to delete item");
-                    });
+                onRename={(file) => {
+                  void renameWorkspaceItem(file).catch((err: unknown) => {
+                    setStatusMessage(err instanceof Error ? err.message : "Failed to rename item");
+                  });
                 }}
+                onDelete={(file) => {
+                  void deleteWorkspaceItem(file).catch((err: unknown) => {
+                    setStatusMessage(err instanceof Error ? err.message : "Failed to delete item");
+                  });
+                }}
+                onMove={(draggedId, target, position) => {
+                  void handleMoveWorkspaceItem(draggedId, target, position).catch((err: unknown) => {
+                    setStatusMessage(err instanceof Error ? err.message : "Failed to reorder file tree");
+                  });
+                }}
+                draggable={Boolean(sessionDid)}
               />
             ) : (
               <p className="text-xs text-slate-500">Login to access your private workspace files.</p>
@@ -1583,7 +2581,19 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
         </aside>
 
-        <section data-tour-id="editor" className="rounded-xl border bg-white p-4 shadow-sm">
+        <section
+          data-tour-id="editor"
+          className="rounded-xl border bg-white p-4 shadow-sm"
+          onDragOver={(event) => {
+            if (!canEditCurrentFile) return;
+            if (Array.from(event.dataTransfer.items ?? []).some((item) => item.type.startsWith("image/"))) {
+              event.preventDefault();
+            }
+          }}
+          onDrop={(event) => {
+            void handleImageDrop(event);
+          }}
+        >
           {!hasOpenDocument ? (
             <div className="flex h-full min-h-[26rem] items-center justify-center rounded-xl border border-dashed text-sm text-slate-500">
               Select a file or article from the sidebar.
@@ -1606,7 +2616,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                     </span>
                   ) : null}
 
-                  {canEditCurrentFile ? (
+                  {canPublishCurrentFile ? (
                     <button
                       type="button"
                       disabled={busy}
@@ -1636,7 +2646,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                             Format
                             <select
                               value={sourceFormat}
-                              onChange={(e) => setSourceFormat(e.target.value as SourceFormat)}
+                              onChange={(e) => handleSourceFormatChange(e.target.value as SourceFormat)}
                               className="mt-1 w-full rounded-md border px-2 py-1 text-sm font-normal"
                             >
                               <option value="markdown">Markdown</option>
@@ -1652,6 +2662,23 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                             />
                             Bluesky Sync
                           </label>
+
+                          <div className="mb-2 space-y-1">
+                            <button
+                              type="button"
+                              onClick={() => handleExport("md")}
+                              className="w-full rounded border px-2 py-1 text-left text-xs hover:bg-slate-50"
+                            >
+                              Export .md
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleExport("tex")}
+                              className="w-full rounded border px-2 py-1 text-left text-xs hover:bg-slate-50"
+                            >
+                              Export .tex
+                            </button>
+                          </div>
 
                           {currentDid && currentRkey ? (
                             <button
@@ -1742,58 +2769,215 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                       )}
                     </div>
 
-                    <textarea
-                      ref={(el) => {
-                        textareaRefs.current[block.id] = el;
-                        resizeTextarea(el);
-                      }}
-                      value={block.text}
-                      readOnly={!canEditCurrentFile}
-                      rows={1}
-                      onFocus={() => {
-                        setActiveBlockId(block.id);
-                      }}
-                      onChange={(e) => {
-                        updateBlock(block.id, { text: e.target.value });
-                        resizeTextarea(e.target);
-                      }}
-                      onSelect={(e) => {
-                        const target = e.currentTarget;
-                        const quote = target.value.slice(target.selectionStart, target.selectionEnd).trim();
-                        setSelectedQuote(quote.slice(0, 280));
-                      }}
-                      onKeyDown={(e) => {
-                        if (!canEditCurrentFile) return;
+                    <div className="w-full">
+                      {canEditCurrentFile && activeBlockId === block.id ? (
+                        <>
+                          <textarea
+                            ref={(el) => {
+                              textareaRefs.current[block.id] = el;
+                              resizeTextarea(el);
+                            }}
+                            value={block.text}
+                            readOnly={!canEditCurrentFile}
+                            rows={1}
+                            onFocus={() => {
+                              setActiveBlockId(block.id);
+                            }}
+                            onBlur={() => {
+                              window.setTimeout(() => {
+                                if (citationMenu?.blockId === block.id) return;
+                                setActiveBlockId((prev) => (prev === block.id ? null : prev));
+                              }, 0);
+                            }}
+                            onChange={(e) => {
+                              const nextValue = e.target.value;
+                              const normalized = normalizeEditedBlockInput(
+                                block,
+                                nextValue,
+                                sourceFormat,
+                              );
+                              updateBlock(block.id, normalized);
+                              resizeTextarea(e.target);
+                              updateCitationMenu(block.id, normalized.text, e.target.selectionStart);
+                            }}
+                            onSelect={(e) => {
+                              const target = e.currentTarget;
+                              const quote = target.value.slice(target.selectionStart, target.selectionEnd).trim();
+                              setSelectedQuote(quote.slice(0, 280));
+                            }}
+                            onKeyDown={(e) => {
+                              if (!canEditCurrentFile) return;
 
-                        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "m") {
-                          e.preventDefault();
-                          insertInlineMath(block.id);
-                          return;
-                        }
+                              const menuOpenForBlock =
+                                citationMenu?.blockId === block.id &&
+                                filteredCitationEntries.length > 0;
+                              if (menuOpenForBlock && e.key === "ArrowDown") {
+                                e.preventDefault();
+                                setCitationMenuIndex(
+                                  (prev) => (prev + 1) % filteredCitationEntries.length,
+                                );
+                                return;
+                              }
+                              if (menuOpenForBlock && e.key === "ArrowUp") {
+                                e.preventDefault();
+                                setCitationMenuIndex(
+                                  (prev) =>
+                                    (prev - 1 + filteredCitationEntries.length) %
+                                    filteredCitationEntries.length,
+                                );
+                                return;
+                              }
+                              if (menuOpenForBlock && e.key === "Escape") {
+                                e.preventDefault();
+                                setCitationMenu(null);
+                                return;
+                              }
+                              if (menuOpenForBlock && e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                const picked = filteredCitationEntries[citationMenuIndex];
+                                if (picked) {
+                                  applyCitationSuggestion(picked);
+                                }
+                                return;
+                              }
 
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          insertBlockAfter(index, "paragraph");
-                          return;
-                        }
+                              if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "m") {
+                                e.preventDefault();
+                                insertInlineMath(block.id);
+                                return;
+                              }
 
-                        if (
-                          e.key === "Backspace" &&
-                          block.text.length === 0 &&
-                          editorBlocks.length > 1
-                        ) {
-                          e.preventDefault();
-                          removeBlock(index);
-                        }
-                      }}
-                      placeholder={block.kind === "paragraph" ? "Write your note..." : "Heading"}
-                      className={`w-full resize-none border-none bg-transparent p-0 outline-none ${blockTextClass(
-                        block.kind,
-                      )} select-text`}
-                    />
+                              if (e.key === "Enter" && !e.shiftKey) {
+                                e.preventDefault();
+                                insertBlockAfter(index, "paragraph");
+                                return;
+                              }
+
+                              if (
+                                e.key === "Backspace" &&
+                                block.text.length === 0 &&
+                                editorBlocks.length > 1
+                              ) {
+                                e.preventDefault();
+                                removeBlock(index);
+                              }
+                            }}
+                            placeholder={block.kind === "paragraph" ? "" : "Heading"}
+                            className={`w-full resize-none border-none bg-transparent p-0 outline-none ${blockTextClass(
+                              block.kind,
+                            )} select-text`}
+                          />
+                          {citationMenu?.blockId === block.id ? (
+                            <div className="mt-1 rounded-md border bg-white p-1 shadow-sm">
+                              {filteredCitationEntries.length === 0 ? (
+                                <p className="px-2 py-1 text-xs text-slate-500">No citation match.</p>
+                              ) : (
+                                <ul className="max-h-48 overflow-auto">
+                                  {filteredCitationEntries.map((entry, idx) => (
+                                    <li key={entry.key}>
+                                      <button
+                                        type="button"
+                                        onMouseDown={(event) => event.preventDefault()}
+                                        onClick={() => applyCitationSuggestion(entry)}
+                                        className={`w-full rounded px-2 py-1 text-left text-xs ${
+                                          idx === citationMenuIndex ? "bg-[#E7F2FF]" : "hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <p className="font-mono text-[11px] text-slate-700">[@{entry.key}]</p>
+                                        <p className="truncate text-slate-500">{entry.title ?? entry.author ?? "-"}</p>
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div
+                          role={canEditCurrentFile ? "button" : undefined}
+                          tabIndex={canEditCurrentFile ? 0 : undefined}
+                          onClick={(event) => {
+                            if (!canEditCurrentFile) return;
+                            const target = event.target;
+                            if (target instanceof HTMLElement && target.closest("a")) {
+                              return;
+                            }
+                            setActiveBlockId(block.id);
+                            setBlockMenuForId(null);
+                            setCitationMenu(null);
+                            window.setTimeout(() => {
+                              const textarea = textareaRefs.current[block.id];
+                              if (!textarea) return;
+                              textarea.focus();
+                              const position = textarea.value.length;
+                              textarea.setSelectionRange(position, position);
+                            }, 0);
+                          }}
+                          onKeyDown={(event) => {
+                            if (!canEditCurrentFile) return;
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            setActiveBlockId(block.id);
+                            window.setTimeout(() => {
+                              textareaRefs.current[block.id]?.focus();
+                            }, 0);
+                          }}
+                          className={`min-h-[1.5rem] w-full rounded px-0.5 py-0.5 ${
+                            canEditCurrentFile ? "cursor-text" : ""
+                          }`}
+                        >
+                          {block.text.trim().length > 0 ? (
+                            block.kind === "paragraph" ? (
+                              renderRichParagraphs(block.text, `editor-block-preview-${block.id}`, {
+                                citationLookup: renderCitationLookup,
+                                citationNumberByKey,
+                                referenceAnchorPrefix: "editor-ref",
+                                resolveImageSrc: resolveWorkspaceImageSrc,
+                              })
+                            ) : (
+                              <p className={`${blockTextClass(block.kind)} whitespace-pre-wrap`}>
+                                {renderInlineText(
+                                  block.text,
+                                  `editor-heading-preview-${block.id}`,
+                                  {
+                                    citationLookup: renderCitationLookup,
+                                    citationNumberByKey,
+                                    referenceAnchorPrefix: "editor-ref",
+                                  },
+                                )}
+                              </p>
+                            )
+                          ) : (
+                            block.kind === "paragraph" ? (
+                              <p className="h-6" />
+                            ) : (
+                              <p className="text-sm text-slate-400">Heading</p>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
+
+              {resolvedBibliography.length > 0 ? (
+                <section className="mt-4 rounded-md border p-3">
+                  <p className="text-xs text-slate-500">References</p>
+                  <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                    {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
+                      <li
+                        key={`${line}-${index}`}
+                        id={referenceAnchorId("editor-ref", resolvedBibliography[index].key)}
+                        className="scroll-mt-24"
+                      >
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
 
               {selectedQuote ? (
                 <div data-tour-id="selection-hook" className="mt-3 rounded-md border bg-white p-2">
@@ -1812,26 +2996,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         </section>
 
         <aside data-tour-id="right-panel" className="rounded-xl border bg-white p-3 shadow-sm">
-          <div className="mb-3 inline-flex rounded-lg bg-slate-100 p-1">
-            <button
-              type="button"
-              onClick={() => setTab("preview")}
-              className={`rounded-md px-3 py-1.5 text-sm ${
-                tab === "preview" ? "bg-white shadow" : "text-slate-600"
-              }`}
-            >
-              Preview
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("discussion")}
-              className={`rounded-md px-3 py-1.5 text-sm ${
-                tab === "discussion" ? "bg-white shadow" : "text-slate-600"
-              }`}
-            >
-              Discussion
-            </button>
-          </div>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Discussion</p>
 
           {tab === "preview" ? (
             <div className="space-y-3" onMouseUp={captureWindowSelection}>
@@ -1840,7 +3005,12 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   <p className="text-xs text-slate-500">Markdown Preview</p>
                   <div className="rounded-md border p-3 select-text">
                     {sourceText.trim() ? (
-                      renderRichParagraphs(sourceText, "md-preview")
+                      renderRichParagraphs(sourceText, "md-preview", {
+                        citationLookup: renderCitationLookup,
+                        citationNumberByKey,
+                        referenceAnchorPrefix: "preview-ref",
+                        resolveImageSrc: resolveWorkspaceImageSrc,
+                      })
                     ) : (
                       <p className="text-sm text-slate-500">No blocks yet.</p>
                     )}
@@ -1863,7 +3033,14 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                         return (
                           <section key={`${block.heading}-${idx}`} className="rounded-md border p-3">
                             <p className={headingClass}>{block.heading}</p>
-                            <div className="mt-2">{renderRichParagraphs(block.content, `tex-${idx}`)}</div>
+                            <div className="mt-2">
+                              {renderRichParagraphs(block.content, `tex-${idx}`, {
+                                citationLookup: renderCitationLookup,
+                                citationNumberByKey,
+                                referenceAnchorPrefix: "preview-ref",
+                                resolveImageSrc: resolveWorkspaceImageSrc,
+                              })}
+                            </div>
                           </section>
                         );
                       })}
@@ -1871,6 +3048,27 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   )}
                 </>
               )}
+              {resolvedBibliography.length > 0 ? (
+                <section className="rounded-md border p-3">
+                  <p className="text-xs text-slate-500">References (IEEE)</p>
+                  <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                    {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
+                      <li
+                        key={`${line}-${index}`}
+                        id={referenceAnchorId("preview-ref", resolvedBibliography[index].key)}
+                        className="scroll-mt-24"
+                      >
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+              {missingCitationKeys.length > 0 ? (
+                <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                  Missing bibliography keys: {missingCitationKeys.join(", ")}
+                </p>
+              ) : null}
             </div>
           ) : (
             <div className="space-y-3">
@@ -1903,7 +3101,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
               {discussionRoot ? (
                 <div className="rounded-md border bg-slate-50 p-2">
                   <p className="text-xs font-semibold text-slate-500">Root Post</p>
-                  <p className="mt-1 text-sm text-slate-800">{discussionRoot.text}</p>
+                  <p className="mt-1 break-all text-sm text-slate-800">{discussionRoot.text}</p>
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">No announcement thread yet.</p>
@@ -1930,9 +3128,11 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                       ) : null}
                     </div>
                     {post.quote ? (
-                      <p className="mt-1 rounded bg-[#FFFCDB] px-2 py-1 text-xs text-slate-600">{post.quote}</p>
+                      <p className="mt-1 break-all rounded bg-[#FFFCDB] px-2 py-1 text-xs text-slate-600">
+                        {post.quote}
+                      </p>
                     ) : null}
-                    <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{post.text}</p>
+                    <p className="mt-2 whitespace-pre-wrap break-all text-sm text-slate-800">{post.text}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <button
                         type="button"

@@ -3,8 +3,14 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import katex from "katex";
 
 import type { ArticleBlock } from "@/lib/articles/blocks";
+import {
+  formatBibliographyIEEE,
+  formatCitationChip,
+  type BibliographyEntry,
+} from "@/lib/articles/citations";
 import type { InlineCommentView } from "@/lib/db/queries";
 
 import { InlineCommentComposer } from "./InlineCommentComposer";
@@ -14,11 +20,25 @@ interface ArticleViewerProps {
   rkey: string;
   title: string;
   blocks: ArticleBlock[];
+  bibliography: BibliographyEntry[];
   comments: InlineCommentView[];
   canComment: boolean;
   canEdit: boolean;
   editHref: string;
   initialHighlightQuote: string | null;
+}
+
+function renderMathHtml(expression: string, displayMode: boolean): string | null {
+  try {
+    return katex.renderToString(expression, {
+      displayMode,
+      throwOnError: false,
+      strict: "ignore",
+      output: "html",
+    });
+  } catch {
+    return null;
+  }
 }
 
 function timeAgo(dateString: string): string {
@@ -34,9 +54,13 @@ function timeAgo(dateString: string): string {
   return `${days}d`;
 }
 
-function renderInlineMarkdown(text: string, keyPrefix: string) {
+function renderInlineMarkdown(
+  text: string,
+  keyPrefix: string,
+  bibliographyByKey: Map<string, BibliographyEntry>,
+) {
   const nodes: React.ReactNode[] = [];
-  const regex = /\*\*(.+?)\*\*/g;
+  const regex = /(`[^`]+`|\$(?:\\.|[^$\n])+\$|\[@[A-Za-z0-9:_-]+\]|\*\*(.+?)\*\*)/g;
   let last = 0;
   let idx = 0;
 
@@ -49,11 +73,57 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
       nodes.push(<span key={`${keyPrefix}-t-${idx++}`}>{before}</span>);
     }
 
-    nodes.push(
-      <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold">
-        {match[1]}
-      </strong>,
-    );
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push(
+        <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold">
+          {token.slice(2, -2)}
+        </strong>,
+      );
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      nodes.push(
+        <code key={`${keyPrefix}-c-${idx++}`} className="rounded bg-zinc-100 px-1 py-0.5 text-[0.9em] dark:bg-zinc-800">
+          {token.slice(1, -1)}
+        </code>,
+      );
+    } else if (token.startsWith("$") && token.endsWith("$")) {
+      const expr = token.slice(1, -1).trim();
+      const mathHtml = renderMathHtml(expr, false);
+      if (mathHtml) {
+        nodes.push(
+          <span
+            key={`${keyPrefix}-m-${idx++}`}
+            className="inline-block align-middle"
+            dangerouslySetInnerHTML={{ __html: mathHtml }}
+          />,
+        );
+      } else {
+        nodes.push(
+          <span
+            key={`${keyPrefix}-m-${idx++}`}
+            className="rounded bg-blue-50 px-1 py-0.5 font-mono text-[0.9em] text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+          >
+            {expr}
+          </span>,
+        );
+      }
+    } else if (token.startsWith("[@") && token.endsWith("]")) {
+      const key = token.slice(2, -1);
+      const entry = bibliographyByKey.get(key);
+      const label = entry ? formatCitationChip(entry) : key;
+      nodes.push(
+        <span
+          key={`${keyPrefix}-q-${idx++}`}
+          className={`rounded px-1 py-0.5 text-[0.85em] ${
+            entry
+              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+              : "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+          }`}
+        >
+          [{label}]
+        </span>,
+      );
+    }
 
     last = match.index + match[0].length;
   }
@@ -70,14 +140,19 @@ function renderInlineMarkdown(text: string, keyPrefix: string) {
   return nodes;
 }
 
-function renderMarkdownWithHighlight(content: string, quote: string | null, keyPrefix: string) {
+function renderMarkdownWithHighlight(
+  content: string,
+  quote: string | null,
+  keyPrefix: string,
+  bibliographyByKey: Map<string, BibliographyEntry>,
+) {
   const lines = content.split("\n");
 
   return lines.map((line, lineIdx) => {
     if (!quote) {
       return (
         <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`)}
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey)}
           {lineIdx < lines.length - 1 ? <br /> : null}
         </span>
       );
@@ -87,7 +162,7 @@ function renderMarkdownWithHighlight(content: string, quote: string | null, keyP
     if (pos === -1) {
       return (
         <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`)}
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey)}
           {lineIdx < lines.length - 1 ? <br /> : null}
         </span>
       );
@@ -99,11 +174,11 @@ function renderMarkdownWithHighlight(content: string, quote: string | null, keyP
 
     return (
       <span key={`${keyPrefix}-line-${lineIdx}`}>
-        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`) : null}
+        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey) : null}
         <mark className="rounded bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-700/40">
-          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`)}
+          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey)}
         </mark>
-        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`) : null}
+        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey) : null}
         {lineIdx < lines.length - 1 ? <br /> : null}
       </span>
     );
@@ -122,6 +197,7 @@ export function ArticleViewer({
   rkey,
   title,
   blocks,
+  bibliography,
   comments,
   canComment,
   canEdit,
@@ -135,6 +211,11 @@ export function ArticleViewer({
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const effectiveHighlight = selectedQuote ?? initialHighlightQuote;
+  const bibliographyByKey = useMemo(() => {
+    const map = new Map<string, BibliographyEntry>();
+    for (const entry of bibliography) map.set(entry.key, entry);
+    return map;
+  }, [bibliography]);
 
   const dedupedComments = useMemo(() => {
     const seen = new Set<string>();
@@ -246,11 +327,24 @@ export function ArticleViewer({
                   block.content,
                   effectiveHighlight,
                   `block-${idx}`,
+                  bibliographyByKey,
                 )}
               </p>
             </section>
           ))}
         </div>
+        {bibliography.length > 0 ? (
+          <section className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              References
+            </h2>
+            <ol className="list-decimal space-y-1 pl-6 text-sm text-zinc-700 dark:text-zinc-300">
+              {formatBibliographyIEEE(bibliography).map((ref, idx) => (
+                <li key={`${ref}-${idx}`}>{ref.replace(/^\[\d+\]\s*/, "")}</li>
+              ))}
+            </ol>
+          </section>
+        ) : null}
       </article>
 
       {selectedQuote && canComment ? (

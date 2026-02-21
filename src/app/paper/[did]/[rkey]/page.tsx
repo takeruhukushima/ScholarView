@@ -69,6 +69,7 @@ export default async function PaperPage({ params, searchParams }: PaperPageProps
           rkey={article.rkey}
           title={article.title}
           blocks={article.blocks}
+          bibliography={article.bibliography}
           comments={comments}
           canComment={canComment}
           canEdit={canEdit}

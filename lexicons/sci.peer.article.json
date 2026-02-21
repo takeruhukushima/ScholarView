@@ -2,6 +2,14 @@
   "lexicon": 1,
   "id": "sci.peer.article",
   "defs": {
+    "citation": {
+      "type": "object",
+      "required": ["key", "rawBibtex"],
+      "properties": {
+        "key": { "type": "string", "description": "BibTeX citation key" },
+        "rawBibtex": { "type": "string", "description": "Raw BibTeX entry" }
+      }
+    },
     "block": {
       "type": "object",
       "required": ["level", "heading", "content"],
@@ -28,6 +36,11 @@
             "type": "array",
             "description": "論文を構成する任意のセクション配列（フラット構造）",
             "items": { "type": "ref", "ref": "#block" }
+          },
+          "bibliography": {
+            "type": "array",
+            "description": "本文で使用する引用エントリ",
+            "items": { "type": "ref", "ref": "#citation" }
           },
           "createdAt": { "type": "string", "format": "datetime" }
         }

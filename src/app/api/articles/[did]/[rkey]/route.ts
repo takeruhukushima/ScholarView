@@ -14,6 +14,11 @@ import {
   parseTexToBlocks,
   serializeBlocks,
 } from "@/lib/articles/blocks";
+import {
+  compactBibliography,
+  normalizeBibliography,
+  serializeBibliography,
+} from "@/lib/articles/citations";
 import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
 import type { SourceFormat } from "@/lib/db";
@@ -36,6 +41,7 @@ interface UpdateArticleRequest {
   tex?: unknown;
   blocks?: unknown;
   broadcastToBsky?: unknown;
+  bibliography?: unknown;
 }
 
 function getBlocks(input: UpdateArticleRequest, sourceFormat: SourceFormat) {
@@ -103,6 +109,11 @@ export async function PUT(
   if (!article) {
     return NextResponse.json({ error: "Article not found" }, { status: 404 });
   }
+  const bibliography =
+    body.bibliography === undefined
+      ? article.bibliography
+      : normalizeBibliography(body.bibliography);
+  const compactedBibliography = compactBibliography(bibliography);
 
   const oauthClient = await getOAuthClient();
   const oauthSession = await oauthClient.restore(session.did);
@@ -113,6 +124,7 @@ export async function PUT(
     {
       title,
       blocks,
+      bibliography: compactedBibliography,
       createdAt: new Date(article.createdAt).toISOString(),
     },
     { rkey },
@@ -166,6 +178,7 @@ export async function PUT(
   await updateArticleByUri(buildArticleUri(did, rkey), {
     title,
     blocksJson: serializeBlocks(blocks),
+    bibliographyJson: serializeBibliography(compactedBibliography),
     sourceFormat,
     indexedAt,
     broadcasted,

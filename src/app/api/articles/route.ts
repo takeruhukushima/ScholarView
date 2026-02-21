@@ -9,6 +9,11 @@ import {
   parseTexToBlocks,
   serializeBlocks,
 } from "@/lib/articles/blocks";
+import {
+  compactBibliography,
+  normalizeBibliography,
+  serializeBibliography,
+} from "@/lib/articles/citations";
 import { buildAtprotoAtArticleUrl } from "@/lib/articles/uri";
 import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
@@ -30,6 +35,7 @@ interface CreateArticleRequest {
   resolvedMarkdown?: unknown;
   resolvedTex?: unknown;
   blocks?: unknown;
+  bibliography?: unknown;
 }
 
 export async function GET(request: NextRequest) {
@@ -87,6 +93,8 @@ export async function POST(request: NextRequest) {
           ? parseTexToBlocks(textInput)
           : parseMarkdownToBlocks(textInput)
         : [];
+  const bibliography = normalizeBibliography(body.bibliography);
+  const compactedBibliography = compactBibliography(bibliography);
 
   if (blocks.length === 0) {
     return NextResponse.json(
@@ -107,6 +115,7 @@ export async function POST(request: NextRequest) {
   const article = await lexClient.create(sci.peer.article.main, {
     title,
     blocks,
+    bibliography: compactedBibliography,
     createdAt,
   });
 
@@ -142,6 +151,7 @@ export async function POST(request: NextRequest) {
     authorDid: session.did,
     title,
     blocksJson: serializeBlocks(blocks),
+    bibliographyJson: serializeBibliography(compactedBibliography),
     sourceFormat,
     broadcasted: broadcastToBsky ? 1 : 0,
     createdAt,

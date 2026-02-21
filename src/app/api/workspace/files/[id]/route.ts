@@ -13,6 +13,7 @@ interface UpdateWorkspaceFileRequest {
   parentId?: unknown;
   name?: unknown;
   content?: unknown;
+  sortOrder?: unknown;
   expanded?: unknown;
   sourceFormat?: unknown;
   linkedArticleDid?: unknown;
@@ -56,6 +57,10 @@ export async function PATCH(
         : undefined;
   const name = typeof body.name === "string" ? body.name.trim() : undefined;
   const content = typeof body.content === "string" ? body.content : undefined;
+  const sortOrder =
+    typeof body.sortOrder === "number" && Number.isFinite(body.sortOrder)
+      ? Math.max(0, Math.floor(body.sortOrder))
+      : undefined;
   const expanded =
     body.expanded === 1 || body.expanded === true
       ? 1
@@ -101,6 +106,7 @@ export async function PATCH(
     parentId,
     name,
     content,
+    sortOrder,
     expanded,
     sourceFormat,
     linkedArticleDid,

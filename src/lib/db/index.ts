@@ -51,6 +51,7 @@ export interface ArticleTable {
   authorDid: string;
   title: string;
   blocksJson: string;
+  bibliographyJson: string;
   sourceFormat: SourceFormat;
   broadcasted: 0 | 1;
   createdAt: string;

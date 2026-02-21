@@ -216,6 +216,17 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropIndex("workspace_file_owner_linked_idx").execute();
     },
   },
+  "007": {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable("article")
+        .addColumn("bibliographyJson", "text", (col) => col.notNull().defaultTo("[]"))
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      void db;
+    },
+  },
 };
 
 export function getMigrator() {

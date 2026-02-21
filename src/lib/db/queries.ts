@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import { getHandle } from "@atproto/common-web";
+import { sql } from "kysely";
 
 import { deserializeBlocks, type ArticleBlock } from "@/lib/articles/blocks";
+import {
+  deserializeBibliography,
+  type BibliographyEntry,
+} from "@/lib/articles/citations";
 import { buildArticleUri, parseArticleUri } from "@/lib/articles/uri";
 import { getTap } from "@/lib/tap";
 
@@ -41,6 +46,7 @@ export interface ArticleDetail {
   handle: string | null;
   title: string;
   blocks: ArticleBlock[];
+  bibliography: BibliographyEntry[];
   sourceFormat: SourceFormat;
   broadcasted: 0 | 1;
   createdAt: string;
@@ -143,21 +149,45 @@ export async function deleteAccount(did: string) {
 }
 
 export async function upsertArticle(data: ArticleTable) {
-  await getDb()
-    .insertInto("article")
-    .values(data)
-    .onConflict((oc) =>
-      oc.column("uri").doUpdateSet({
-        authorDid: data.authorDid,
-        title: data.title,
-        blocksJson: data.blocksJson,
-        sourceFormat: data.sourceFormat,
-        broadcasted: data.broadcasted,
-        createdAt: data.createdAt,
-        indexedAt: data.indexedAt,
-      }),
-    )
-    .execute();
+  try {
+    await getDb()
+      .insertInto("article")
+      .values(data)
+      .onConflict((oc) =>
+        oc.column("uri").doUpdateSet({
+          authorDid: data.authorDid,
+          title: data.title,
+          blocksJson: data.blocksJson,
+          bibliographyJson: data.bibliographyJson,
+          sourceFormat: data.sourceFormat,
+          broadcasted: data.broadcasted,
+          createdAt: data.createdAt,
+          indexedAt: data.indexedAt,
+        }),
+      )
+      .execute();
+  } catch (err: unknown) {
+    if (!isMissingBibliographyColumnError(err)) {
+      throw err;
+    }
+
+    await sql`
+      insert into article (
+        uri, authorDid, title, blocksJson, sourceFormat, broadcasted, createdAt, indexedAt
+      ) values (
+        ${data.uri}, ${data.authorDid}, ${data.title}, ${data.blocksJson},
+        ${data.sourceFormat}, ${data.broadcasted}, ${data.createdAt}, ${data.indexedAt}
+      )
+      on conflict(uri) do update set
+        authorDid = excluded.authorDid,
+        title = excluded.title,
+        blocksJson = excluded.blocksJson,
+        sourceFormat = excluded.sourceFormat,
+        broadcasted = excluded.broadcasted,
+        createdAt = excluded.createdAt,
+        indexedAt = excluded.indexedAt
+    `.execute(getDb());
+  }
 }
 
 export async function updateArticleByUri(
@@ -165,6 +195,7 @@ export async function updateArticleByUri(
   input: {
     title: string;
     blocksJson: string;
+    bibliographyJson: string;
     sourceFormat: SourceFormat;
     indexedAt: string;
     broadcasted?: 0 | 1;
@@ -173,12 +204,14 @@ export async function updateArticleByUri(
   const next: {
     title: string;
     blocksJson: string;
+    bibliographyJson: string;
     sourceFormat: SourceFormat;
     indexedAt: string;
     broadcasted?: 0 | 1;
   } = {
     title: input.title,
     blocksJson: input.blocksJson,
+    bibliographyJson: input.bibliographyJson,
     sourceFormat: input.sourceFormat,
     indexedAt: input.indexedAt,
   };
@@ -186,11 +219,39 @@ export async function updateArticleByUri(
     next.broadcasted = input.broadcasted;
   }
 
-  await getDb()
-    .updateTable("article")
-    .set(next)
-    .where("uri", "=", uri)
-    .execute();
+  try {
+    await getDb()
+      .updateTable("article")
+      .set(next)
+      .where("uri", "=", uri)
+      .execute();
+  } catch (err: unknown) {
+    if (!isMissingBibliographyColumnError(err)) {
+      throw err;
+    }
+
+    const fallback: {
+      title: string;
+      blocksJson: string;
+      sourceFormat: SourceFormat;
+      indexedAt: string;
+      broadcasted?: 0 | 1;
+    } = {
+      title: input.title,
+      blocksJson: input.blocksJson,
+      sourceFormat: input.sourceFormat,
+      indexedAt: input.indexedAt,
+    };
+    if (input.broadcasted !== undefined) {
+      fallback.broadcasted = input.broadcasted;
+    }
+
+    await getDb()
+      .updateTable("article")
+      .set(fallback)
+      .where("uri", "=", uri)
+      .execute();
+  }
 }
 
 export async function getArticleOwnerDid(uri: string): Promise<string | null> {
@@ -365,24 +426,66 @@ export async function getArticleByDidAndRkey(
 ): Promise<ArticleDetail | null> {
   const uri = buildArticleUri(did, rkey);
 
-  const row = await getDb()
-    .selectFrom("article")
-    .leftJoin("account", "account.did", "article.authorDid")
-    .leftJoin("article_announcement", "article_announcement.articleUri", "article.uri")
-    .select([
-      "article.uri as uri",
-      "article.authorDid as authorDid",
-      "article.title as title",
-      "article.blocksJson as blocksJson",
-      "article.sourceFormat as sourceFormat",
-      "article.broadcasted as broadcasted",
-      "article.createdAt as createdAt",
-      "account.handle as handle",
-      "article_announcement.announcementUri as announcementUri",
-      "article_announcement.announcementCid as announcementCid",
-    ])
-    .where("article.uri", "=", uri)
-    .executeTakeFirst();
+  let row:
+    | {
+        uri: string;
+        authorDid: string;
+        title: string;
+        blocksJson: string;
+        bibliographyJson?: string | null;
+        sourceFormat: string;
+        broadcasted: number;
+        createdAt: string;
+        handle: string | null;
+        announcementUri: string | null;
+        announcementCid: string | null;
+      }
+    | undefined;
+
+  try {
+    row = await getDb()
+      .selectFrom("article")
+      .leftJoin("account", "account.did", "article.authorDid")
+      .leftJoin("article_announcement", "article_announcement.articleUri", "article.uri")
+      .select([
+        "article.uri as uri",
+        "article.authorDid as authorDid",
+        "article.title as title",
+        "article.blocksJson as blocksJson",
+        "article.bibliographyJson as bibliographyJson",
+        "article.sourceFormat as sourceFormat",
+        "article.broadcasted as broadcasted",
+        "article.createdAt as createdAt",
+        "account.handle as handle",
+        "article_announcement.announcementUri as announcementUri",
+        "article_announcement.announcementCid as announcementCid",
+      ])
+      .where("article.uri", "=", uri)
+      .executeTakeFirst();
+  } catch (err: unknown) {
+    if (!isMissingBibliographyColumnError(err)) {
+      throw err;
+    }
+
+    row = await getDb()
+      .selectFrom("article")
+      .leftJoin("account", "account.did", "article.authorDid")
+      .leftJoin("article_announcement", "article_announcement.articleUri", "article.uri")
+      .select([
+        "article.uri as uri",
+        "article.authorDid as authorDid",
+        "article.title as title",
+        "article.blocksJson as blocksJson",
+        "article.sourceFormat as sourceFormat",
+        "article.broadcasted as broadcasted",
+        "article.createdAt as createdAt",
+        "account.handle as handle",
+        "article_announcement.announcementUri as announcementUri",
+        "article_announcement.announcementCid as announcementCid",
+      ])
+      .where("article.uri", "=", uri)
+      .executeTakeFirst();
+  }
 
   if (!row) return null;
 
@@ -394,12 +497,20 @@ export async function getArticleByDidAndRkey(
     handle: row.handle ?? null,
     title: row.title,
     blocks: deserializeBlocks(row.blocksJson),
+    bibliography: deserializeBibliography(row.bibliographyJson ?? "[]"),
     sourceFormat: normalizeSourceFormat(row.sourceFormat),
     broadcasted: row.broadcasted as 0 | 1,
     createdAt: row.createdAt,
     announcementUri: row.announcementUri ?? null,
     announcementCid: row.announcementCid ?? null,
   };
+}
+
+function isMissingBibliographyColumnError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /no such column:\s*article\.bibliographyJson|no such column:\s*bibliographyJson/i.test(
+    err.message,
+  );
 }
 
 export async function getInlineCommentsByArticle(
@@ -569,6 +680,7 @@ export async function updateWorkspaceFileById(
     parentId?: string | null;
     name?: string;
     content?: string;
+    sortOrder?: number;
     expanded?: 0 | 1;
     sourceFormat?: SourceFormat;
     linkedArticleDid?: string | null;
@@ -585,6 +697,7 @@ export async function updateWorkspaceFileById(
       ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.content !== undefined ? { content: input.content } : {}),
+      ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
       ...(input.expanded !== undefined ? { expanded: input.expanded } : {}),
       ...(input.sourceFormat !== undefined ? { sourceFormat: input.sourceFormat } : {}),
       ...(input.linkedArticleDid !== undefined

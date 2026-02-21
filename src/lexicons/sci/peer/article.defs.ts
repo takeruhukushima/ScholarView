@@ -29,6 +29,33 @@ type Block = {
 
 export type { Block }
 
+type Citation = {
+  $type?: 'sci.peer.article#citation'
+
+  /**
+   * BibTeX citation key
+   */
+  key: string
+
+  /**
+   * Raw BibTeX entry
+   */
+  rawBibtex: string
+}
+
+export type { Citation }
+
+const citation = l.typedObject<Citation>(
+  $nsid,
+  'citation',
+  l.object({
+    key: l.string(),
+    rawBibtex: l.string(),
+  }),
+)
+
+export { citation }
+
 const block = l.typedObject<Block>(
   $nsid,
   'block',
@@ -53,6 +80,7 @@ type Main = {
    * 論文を構成する任意のセクション配列（フラット構造）
    */
   blocks: Block[]
+  bibliography?: Citation[]
   createdAt: l.DatetimeString
 }
 
@@ -64,6 +92,7 @@ const main = l.record<'tid', Main>(
   l.object({
     title: l.string({ maxLength: 300 }),
     blocks: l.array(l.ref<Block>((() => block) as any)),
+    bibliography: l.optional(l.array(l.ref<Citation>((() => citation) as any))),
     createdAt: l.string({ format: 'datetime' }),
   }),
 )

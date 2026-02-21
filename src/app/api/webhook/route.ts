@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as sci from "@/lexicons/sci";
 import { ARTICLE_COLLECTION, extractQuoteFromExternalUri } from "@/lib/articles/uri";
 import { serializeBlocks } from "@/lib/articles/blocks";
+import { normalizeBibliography, serializeBibliography } from "@/lib/articles/citations";
 import {
   deleteAccount,
   deleteAnnouncementByUri,
@@ -120,6 +121,9 @@ export async function POST(request: NextRequest) {
         authorDid: evt.did,
         title: record.title,
         blocksJson: serializeBlocks(record.blocks),
+        bibliographyJson: serializeBibliography(
+          normalizeBibliography((record as { bibliography?: unknown }).bibliography),
+        ),
         sourceFormat: "markdown",
         broadcasted: 0,
         createdAt: record.createdAt,

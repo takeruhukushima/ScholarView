@@ -8,6 +8,11 @@ import {
   parseTexToBlocks,
   serializeBlocks,
 } from "@/lib/articles/blocks";
+import {
+  compactBibliography,
+  normalizeBibliography,
+  serializeBibliography,
+} from "@/lib/articles/citations";
 import { buildAtprotoAtArticleUrl, decodeRouteParam } from "@/lib/articles/uri";
 import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
@@ -29,6 +34,7 @@ const MAX_TITLE_LENGTH = 300;
 interface PublishFileRequest {
   title?: unknown;
   broadcastToBsky?: unknown;
+  bibliography?: unknown;
 }
 
 function normalizeTitle(input: unknown, fileName: string): string {
@@ -80,6 +86,8 @@ export async function POST(
   }
 
   const broadcastToBsky = body.broadcastToBsky === true;
+  const bibliographyInput =
+    body.bibliography === undefined ? null : normalizeBibliography(body.bibliography);
   const sourceFormat: SourceFormat = file.sourceFormat === "tex" ? "tex" : "markdown";
 
   const rawText = file.content ?? "";
@@ -121,6 +129,8 @@ export async function POST(
   let broadcasted: 0 | 1 = 0;
 
   if (existing) {
+    const bibliography = bibliographyInput ?? existing.bibliography;
+    const compactedBibliography = compactBibliography(bibliography);
     mode = "updated";
     did = existing.did;
     rkey = existing.rkey;
@@ -131,6 +141,7 @@ export async function POST(
       {
         title,
         blocks,
+        bibliography: compactedBibliography,
         createdAt: new Date(existing.createdAt).toISOString(),
       },
       { rkey },
@@ -181,17 +192,21 @@ export async function POST(
     await updateArticleByUri(articleUri, {
       title,
       blocksJson: serializeBlocks(blocks),
+      bibliographyJson: serializeBibliography(compactedBibliography),
       sourceFormat,
       indexedAt: now,
       broadcasted,
     });
   } else {
+    const bibliography = bibliographyInput ?? [];
+    const compactedBibliography = compactBibliography(bibliography);
     mode = "created";
     did = session.did;
 
     const created = await lexClient.create(sci.peer.article.main, {
       title,
       blocks,
+      bibliography: compactedBibliography,
       createdAt: now,
     });
 
@@ -226,6 +241,7 @@ export async function POST(
       authorDid: session.did,
       title,
       blocksJson: serializeBlocks(blocks),
+      bibliographyJson: serializeBibliography(compactedBibliography),
       sourceFormat,
       broadcasted: announcement ? 1 : 0,
       createdAt: now,

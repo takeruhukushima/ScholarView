@@ -17,6 +17,7 @@
     "@atproto/syntax": "^0.4.3",
     "@atproto/tap": "^0.2.4",
     "better-sqlite3": "^12.6.2",
+    "katex": "^0.16.28",
     "kysely": "^0.28.11",
     "next": "16.1.6",
     "react": "19.2.3",
