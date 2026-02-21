@@ -13,7 +13,11 @@ import { buildAtprotoAtArticleUrl } from "@/lib/articles/uri";
 import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
 import type { SourceFormat } from "@/lib/db";
-import { upsertArticle, upsertArticleAnnouncement } from "@/lib/db/queries";
+import {
+  getRecentArticles,
+  upsertArticle,
+  upsertArticleAnnouncement,
+} from "@/lib/db/queries";
 
 const MAX_TITLE_LENGTH = 300;
 
@@ -23,7 +27,15 @@ interface CreateArticleRequest {
   broadcastToBsky?: unknown;
   markdown?: unknown;
   tex?: unknown;
+  resolvedMarkdown?: unknown;
+  resolvedTex?: unknown;
   blocks?: unknown;
+}
+
+export async function GET(request: NextRequest) {
+  const q = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const articles = await getRecentArticles(100, q);
+  return NextResponse.json({ success: true, articles });
 }
 
 export async function POST(request: NextRequest) {
@@ -56,12 +68,16 @@ export async function POST(request: NextRequest) {
 
   const textInput =
     sourceFormat === "tex"
-      ? typeof body.tex === "string"
-        ? body.tex
-        : ""
-      : typeof body.markdown === "string"
-        ? body.markdown
-        : "";
+      ? typeof body.resolvedTex === "string"
+        ? body.resolvedTex
+        : typeof body.tex === "string"
+          ? body.tex
+          : ""
+      : typeof body.resolvedMarkdown === "string"
+        ? body.resolvedMarkdown
+        : typeof body.markdown === "string"
+          ? body.markdown
+          : "";
 
   const blocks =
     body.blocks !== undefined

@@ -129,6 +129,93 @@ const migrations: Record<string, Migration> = {
       await db.schema.dropTable("draft_article").execute();
     },
   },
+  "004": {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .createTable("workspace_file")
+        .addColumn("id", "text", (col) => col.primaryKey())
+        .addColumn("parentId", "text")
+        .addColumn("name", "text", (col) => col.notNull())
+        .addColumn("kind", "text", (col) => col.notNull())
+        .addColumn("sourceFormat", "text")
+        .addColumn("content", "text")
+        .addColumn("sortOrder", "integer", (col) => col.notNull().defaultTo(0))
+        .addColumn("expanded", "integer", (col) => col.notNull().defaultTo(1))
+        .addColumn("createdAt", "text", (col) => col.notNull())
+        .addColumn("updatedAt", "text", (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex("workspace_file_parent_sort_idx")
+        .on("workspace_file")
+        .columns(["parentId", "sortOrder"])
+        .execute();
+
+      await db.schema
+        .createTable("bsky_interaction")
+        .addColumn("uri", "text", (col) => col.primaryKey())
+        .addColumn("subjectUri", "text", (col) => col.notNull())
+        .addColumn("subjectCid", "text", (col) => col.notNull())
+        .addColumn("authorDid", "text", (col) => col.notNull())
+        .addColumn("action", "text", (col) => col.notNull())
+        .addColumn("createdAt", "text", (col) => col.notNull())
+        .execute();
+
+      await db.schema
+        .createIndex("bsky_interaction_subject_idx")
+        .on("bsky_interaction")
+        .columns(["subjectUri", "action", "authorDid"])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropTable("bsky_interaction").execute();
+      await db.schema.dropTable("workspace_file").execute();
+    },
+  },
+  "005": {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable("workspace_file")
+        .addColumn("ownerDid", "text", (col) => col.notNull().defaultTo("__legacy__"))
+        .execute();
+
+      await db.schema
+        .createIndex("workspace_file_owner_parent_sort_idx")
+        .on("workspace_file")
+        .columns(["ownerDid", "parentId", "sortOrder"])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropIndex("workspace_file_owner_parent_sort_idx").execute();
+    },
+  },
+  "006": {
+    async up(db: Kysely<unknown>) {
+      await db.schema
+        .alterTable("workspace_file")
+        .addColumn("linkedArticleDid", "text")
+        .execute();
+
+      await db.schema
+        .alterTable("workspace_file")
+        .addColumn("linkedArticleRkey", "text")
+        .execute();
+
+      await db.schema
+        .alterTable("workspace_file")
+        .addColumn("linkedArticleUri", "text")
+        .execute();
+
+      await db.schema
+        .createIndex("workspace_file_owner_linked_idx")
+        .on("workspace_file")
+        .columns(["ownerDid", "linkedArticleUri"])
+        .execute();
+    },
+    async down(db: Kysely<unknown>) {
+      await db.schema.dropIndex("workspace_file_owner_linked_idx").execute();
+    },
+  },
 };
 
 export function getMigrator() {

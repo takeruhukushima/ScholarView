@@ -26,6 +26,8 @@ export interface DatabaseSchema {
   article_announcement: ArticleAnnouncementTable;
   inline_comment: InlineCommentTable;
   draft_article: DraftArticleTable;
+  workspace_file: WorkspaceFileTable;
+  bsky_interaction: BskyInteractionTable;
 }
 
 interface AuthStateTable {
@@ -83,4 +85,34 @@ export interface DraftArticleTable {
   sourceFormat: SourceFormat;
   createdAt: string;
   updatedAt: string;
+}
+
+export type WorkspaceFileKind = "folder" | "file";
+
+export interface WorkspaceFileTable {
+  ownerDid: string;
+  id: string;
+  parentId: string | null;
+  name: string;
+  kind: WorkspaceFileKind;
+  sourceFormat: SourceFormat | null;
+  content: string | null;
+  linkedArticleDid: string | null;
+  linkedArticleRkey: string | null;
+  linkedArticleUri: string | null;
+  sortOrder: number;
+  expanded: 0 | 1;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type BskyInteractionAction = "like" | "repost" | "reply";
+
+export interface BskyInteractionTable {
+  uri: string;
+  subjectUri: string;
+  subjectCid: string;
+  authorDid: string;
+  action: BskyInteractionAction;
+  createdAt: string;
 }

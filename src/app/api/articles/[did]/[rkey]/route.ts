@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as sci from "@/lexicons/sci";
 import {
   buildArticleUri,
+  buildAtprotoAtArticleUrl,
   decodeRouteParam,
 } from "@/lib/articles/uri";
 import {
@@ -17,9 +18,12 @@ import { getOAuthClient } from "@/lib/auth/client";
 import { getSession } from "@/lib/auth/session";
 import type { SourceFormat } from "@/lib/db";
 import {
+  deleteAnnouncementByUri,
   deleteArticleCascade,
+  getAnnouncementByArticleUri,
   getArticleByDidAndRkey,
   getArticleOwnerDid,
+  upsertArticleAnnouncement,
   updateArticleByUri,
 } from "@/lib/db/queries";
 
@@ -31,6 +35,7 @@ interface UpdateArticleRequest {
   markdown?: unknown;
   tex?: unknown;
   blocks?: unknown;
+  broadcastToBsky?: unknown;
 }
 
 function getBlocks(input: UpdateArticleRequest, sourceFormat: SourceFormat) {
@@ -85,6 +90,7 @@ export async function PUT(
   const sourceFormat: SourceFormat =
     body.sourceFormat === "tex" ? "tex" : "markdown";
   const blocks = getBlocks(body, sourceFormat);
+  const broadcastToBsky = body.broadcastToBsky === true;
 
   if (blocks.length === 0) {
     return NextResponse.json(
@@ -113,17 +119,80 @@ export async function PUT(
   );
 
   const indexedAt = new Date().toISOString();
+  const articleUri = buildArticleUri(did, rkey);
+  const announcement = await getAnnouncementByArticleUri(articleUri);
+  let broadcasted: 0 | 1 = announcement ? 1 : 0;
+  let announcementUri: string | null = announcement?.announcementUri ?? null;
+
+  if (broadcastToBsky && !announcement) {
+    const atprotoAtUrl = buildAtprotoAtArticleUrl(did, rkey);
+    const post = await lexClient.createRecord({
+      $type: "app.bsky.feed.post",
+      text: `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`,
+      createdAt: indexedAt,
+      embed: {
+        $type: "app.bsky.embed.external",
+        external: {
+          uri: atprotoAtUrl,
+          title,
+          description: "ScholarViewで論文を公開しました",
+        },
+      },
+    });
+
+    await upsertArticleAnnouncement({
+      articleUri,
+      announcementUri: post.body.uri,
+      announcementCid: post.body.cid,
+      authorDid: session.did,
+      createdAt: indexedAt,
+    });
+    broadcasted = 1;
+    announcementUri = post.body.uri;
+  }
+
+  if (!broadcastToBsky && announcement) {
+    try {
+      const announcementAtUri = new AtUri(announcement.announcementUri);
+      await lexClient.deleteRecord("app.bsky.feed.post", announcementAtUri.rkey);
+    } catch {
+      // keep DB consistent even when remote post already deleted.
+    }
+    await deleteAnnouncementByUri(announcement.announcementUri);
+    broadcasted = 0;
+    announcementUri = null;
+  }
+
   await updateArticleByUri(buildArticleUri(did, rkey), {
     title,
     blocksJson: serializeBlocks(blocks),
     sourceFormat,
     indexedAt,
+    broadcasted,
   });
 
   return NextResponse.json({
     success: true,
-    articleUri: buildArticleUri(did, rkey),
+    articleUri,
+    announcementUri,
+    broadcasted,
   });
+}
+
+export async function GET(
+  _request: NextRequest,
+  context: { params: Promise<{ did: string; rkey: string }> },
+) {
+  const { did: didParam, rkey: rkeyParam } = await context.params;
+  const did = decodeRouteParam(didParam);
+  const rkey = decodeRouteParam(rkeyParam);
+
+  const article = await getArticleByDidAndRkey(did, rkey);
+  if (!article) {
+    return NextResponse.json({ error: "Article not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ success: true, article });
 }
 
 export async function DELETE(
