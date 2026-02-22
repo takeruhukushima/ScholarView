@@ -83,3 +83,4 @@ lex build --importExt="" --indexFile --clear
 
 - OAuth scope: `atproto repo:sci.peer.article repo:app.bsky.feed.post`
 - `handleResolver` は `https://bsky.social` を使用
+- Webhook保護のため、`TAP_ADMIN_PASSWORD` はTap側と必ず一致させてください
