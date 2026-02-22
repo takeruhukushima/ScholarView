@@ -78,6 +78,8 @@ lex build --importExt="" --indexFile --clear
 
 - 今回のSPA静的化（`@atproto/oauth-client-browser` への移行を含む）実装は `spa-static-migration` ブランチで実施
 - `main` ブランチには段階的に反映する方針
+- DB機能を使い、`sci.peer` Lexiconを通じて世界中の論文を検索する機能は `archive/monolith-with-db` ブランチにアーカイブ済み
+- 世界中の論文検索機能を試したい場合は、このリポジトリをローカルに clone して `archive/monolith-with-db` ブランチをチェックアウトし、`pnpm dev` で起動して確認してください
 
 ## 補足
 
