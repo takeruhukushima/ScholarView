@@ -2321,6 +2321,52 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }, 0);
   };
 
+  const focusBlockByIndex = (
+    index: number,
+    options?: {
+      position?: "start" | "end";
+    },
+  ) => {
+    const block = editorBlocks[index];
+    if (!block) return;
+    setActiveBlockId(block.id);
+    setBlockMenuForId(null);
+    setCitationMenu(null);
+    window.setTimeout(() => {
+      const textarea = textareaRefs.current[block.id];
+      if (!textarea) return;
+      textarea.focus();
+      const position = options?.position === "start" ? 0 : textarea.value.length;
+      textarea.setSelectionRange(position, position);
+      resizeTextarea(textarea);
+    }, 0);
+  };
+
+  const handleEditorCanvasClick = (event: React.MouseEvent<HTMLElement>) => {
+    if (!canEditCurrentFile) return;
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.closest("textarea,button,input,select,a,label,[role='button']")) return;
+
+    if (editorBlocks.length === 0) {
+      const created = { id: newId(), kind: "paragraph" as const, text: "" };
+      setEditorBlocks([created]);
+      setActiveBlockId(created.id);
+      setBlockMenuForId(null);
+      setCitationMenu(null);
+      window.setTimeout(() => {
+        const textarea = textareaRefs.current[created.id];
+        if (!textarea) return;
+        textarea.focus();
+        textarea.setSelectionRange(0, 0);
+        resizeTextarea(textarea);
+      }, 0);
+      return;
+    }
+
+    focusBlockByIndex(editorBlocks.length - 1, { position: "end" });
+  };
+
   const removeBlock = (index: number) => {
     setEditorBlocks((prev) => {
       if (prev.length <= 1) return prev;
@@ -2591,6 +2637,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         <section
           data-tour-id="editor"
           className="rounded-xl border bg-white p-4 shadow-sm"
+          onClick={handleEditorCanvasClick}
           onDragOver={(event) => {
             if (!canEditCurrentFile) return;
             if (Array.from(event.dataTransfer.items ?? []).some((item) => item.type.startsWith("image/"))) {
@@ -2713,291 +2760,309 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                 </div>
               ) : null}
 
-              <div className="space-y-0.5">
-                {editorBlocks.map((block, index) => (
-                  <div
-                    key={block.id}
-                    className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
-                      activeBlockId === block.id ? "bg-slate-50/70" : "hover:bg-slate-50/60"
-                    }`}
-                  >
-                    <div className="relative mt-1 w-5 shrink-0">
-                      {canEditCurrentFile && activeBlockId === block.id ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setBlockMenuForId((prev) => (prev === block.id ? null : block.id))
-                            }
-                            className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                            title="Block options"
-                          >
-                            ⋮⋮
-                          </button>
-                          {blockMenuForId === block.id ? (
-                            <div className="absolute left-6 top-0 z-30 w-32 rounded-md border bg-white p-1 text-xs shadow-lg">
-                              {([
-                                ["Text", "paragraph"],
-                                ["Heading 1", "h1"],
-                                ["Heading 2", "h2"],
-                                ["Heading 3", "h3"],
-                              ] as const).map(([label, value]) => (
+              <div className="min-h-[18rem]">
+                <div className="space-y-0.5">
+                  {editorBlocks.map((block, index) => (
+                    <div
+                      key={block.id}
+                      data-editor-block="true"
+                      className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
+                        activeBlockId === block.id ? "bg-slate-50/70" : "hover:bg-slate-50/60"
+                      }`}
+                    >
+                      <div className="relative mt-1 w-5 shrink-0">
+                        {canEditCurrentFile && activeBlockId === block.id ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setBlockMenuForId((prev) => (prev === block.id ? null : block.id))
+                              }
+                              className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+                              title="Block options"
+                            >
+                              ⋮⋮
+                            </button>
+                            {blockMenuForId === block.id ? (
+                              <div className="absolute left-6 top-0 z-30 w-32 rounded-md border bg-white p-1 text-xs shadow-lg">
+                                {([
+                                  ["Text", "paragraph"],
+                                  ["Heading 1", "h1"],
+                                  ["Heading 2", "h2"],
+                                  ["Heading 3", "h3"],
+                                ] as const).map(([label, value]) => (
+                                  <button
+                                    key={value}
+                                    type="button"
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      updateBlock(block.id, { kind: value });
+                                      setBlockMenuForId(null);
+                                    }}
+                                    className={`block w-full rounded px-2 py-1 text-left hover:bg-slate-100 ${
+                                      block.kind === value ? "text-[#0085FF]" : "text-slate-700"
+                                    }`}
+                                  >
+                                    {label}
+                                  </button>
+                                ))}
                                 <button
-                                  key={value}
                                   type="button"
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => {
-                                    updateBlock(block.id, { kind: value });
+                                    removeBlock(index);
                                     setBlockMenuForId(null);
                                   }}
-                                  className={`block w-full rounded px-2 py-1 text-left hover:bg-slate-100 ${
-                                    block.kind === value ? "text-[#0085FF]" : "text-slate-700"
-                                  }`}
+                                  className="mt-1 block w-full rounded px-2 py-1 text-left text-red-600 hover:bg-red-50"
                                 >
-                                  {label}
+                                  Delete
                                 </button>
-                              ))}
-                              <button
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  removeBlock(index);
-                                  setBlockMenuForId(null);
-                                }}
-                                className="mt-1 block w-full rounded px-2 py-1 text-left text-red-600 hover:bg-red-50"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="block h-5 w-5" />
-                      )}
-                    </div>
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="block h-5 w-5" />
+                        )}
+                      </div>
 
-                    <div className="w-full">
-                      {canEditCurrentFile && activeBlockId === block.id ? (
-                        <>
-                          <textarea
-                            ref={(el) => {
-                              textareaRefs.current[block.id] = el;
-                              resizeTextarea(el);
-                            }}
-                            value={block.text}
-                            readOnly={!canEditCurrentFile}
-                            rows={1}
-                            onFocus={() => {
+                      <div className="w-full">
+                        {canEditCurrentFile && activeBlockId === block.id ? (
+                          <>
+                            <textarea
+                              ref={(el) => {
+                                textareaRefs.current[block.id] = el;
+                                resizeTextarea(el);
+                              }}
+                              value={block.text}
+                              readOnly={!canEditCurrentFile}
+                              rows={1}
+                              onFocus={() => {
+                                setActiveBlockId(block.id);
+                              }}
+                              onBlur={() => {
+                                window.setTimeout(() => {
+                                  if (citationMenu?.blockId === block.id) return;
+                                  setActiveBlockId((prev) => (prev === block.id ? null : prev));
+                                }, 0);
+                              }}
+                              onChange={(e) => {
+                                const nextValue = e.target.value;
+                                const normalized = normalizeEditedBlockInput(
+                                  block,
+                                  nextValue,
+                                  sourceFormat,
+                                );
+                                updateBlock(block.id, normalized);
+                                resizeTextarea(e.target);
+                                updateCitationMenu(block.id, normalized.text, e.target.selectionStart);
+                              }}
+                              onSelect={(e) => {
+                                const target = e.currentTarget;
+                                const quote = target.value.slice(target.selectionStart, target.selectionEnd).trim();
+                                setSelectedQuote(quote.slice(0, 280));
+                              }}
+                              onKeyDown={(e) => {
+                                if (!canEditCurrentFile) return;
+
+                                const menuOpenForBlock =
+                                  citationMenu?.blockId === block.id &&
+                                  filteredCitationEntries.length > 0;
+                                if (menuOpenForBlock && e.key === "ArrowDown") {
+                                  e.preventDefault();
+                                  setCitationMenuIndex(
+                                    (prev) => (prev + 1) % filteredCitationEntries.length,
+                                  );
+                                  return;
+                                }
+                                if (menuOpenForBlock && e.key === "ArrowUp") {
+                                  e.preventDefault();
+                                  setCitationMenuIndex(
+                                    (prev) =>
+                                      (prev - 1 + filteredCitationEntries.length) %
+                                      filteredCitationEntries.length,
+                                  );
+                                  return;
+                                }
+                                if (menuOpenForBlock && e.key === "Escape") {
+                                  e.preventDefault();
+                                  setCitationMenu(null);
+                                  return;
+                                }
+                                if (menuOpenForBlock && e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  const picked = filteredCitationEntries[citationMenuIndex];
+                                  if (picked) {
+                                    applyCitationSuggestion(picked);
+                                  }
+                                  return;
+                                }
+
+                                const selectionStart = e.currentTarget.selectionStart;
+                                const selectionEnd = e.currentTarget.selectionEnd;
+                                const atStart = selectionStart === 0 && selectionEnd === 0;
+                                const atEnd =
+                                  selectionStart === e.currentTarget.value.length &&
+                                  selectionEnd === e.currentTarget.value.length;
+                                if (e.key === "ArrowUp" && atStart && index > 0) {
+                                  e.preventDefault();
+                                  focusBlockByIndex(index - 1, { position: "end" });
+                                  return;
+                                }
+                                if (e.key === "ArrowDown" && atEnd && index < editorBlocks.length - 1) {
+                                  e.preventDefault();
+                                  focusBlockByIndex(index + 1, { position: "start" });
+                                  return;
+                                }
+
+                                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "m") {
+                                  e.preventDefault();
+                                  insertInlineMath(block.id);
+                                  return;
+                                }
+                                if (e.key === "Enter" && !e.shiftKey) {
+                                  e.preventDefault();
+                                  insertBlockAfter(index, "paragraph");
+                                  return;
+                                }
+                                if (
+                                  e.key === "Backspace" &&
+                                  block.text.length === 0 &&
+                                  editorBlocks.length > 1
+                                ) {
+                                  e.preventDefault();
+                                  removeBlock(index);
+                                }
+                              }}
+                              placeholder={block.kind === "paragraph" ? "" : "Heading"}
+                              className={`w-full resize-none border-none bg-transparent p-0 outline-none ${blockTextClass(
+                                block.kind,
+                              )} select-text`}
+                            />
+                            {citationMenu?.blockId === block.id ? (
+                              <div className="mt-1 rounded-md border bg-white p-1 shadow-sm">
+                                {filteredCitationEntries.length === 0 ? (
+                                  <p className="px-2 py-1 text-xs text-slate-500">No citation match.</p>
+                                ) : (
+                                  <ul className="max-h-48 overflow-auto">
+                                    {filteredCitationEntries.map((entry, idx) => (
+                                      <li key={entry.key}>
+                                        <button
+                                          type="button"
+                                          onMouseDown={(event) => event.preventDefault()}
+                                          onClick={() => applyCitationSuggestion(entry)}
+                                          className={`w-full rounded px-2 py-1 text-left text-xs ${
+                                            idx === citationMenuIndex ? "bg-[#E7F2FF]" : "hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <p className="font-mono text-[11px] text-slate-700">[@{entry.key}]</p>
+                                          <p className="truncate text-slate-500">{entry.title ?? entry.author ?? "-"}</p>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ) : null}
+                          </>
+                        ) : (
+                          <div
+                            role={canEditCurrentFile ? "button" : undefined}
+                            tabIndex={canEditCurrentFile ? 0 : undefined}
+                            onClick={(event) => {
+                              if (!canEditCurrentFile) return;
+                              const target = event.target;
+                              if (target instanceof HTMLElement && target.closest("a")) {
+                                return;
+                              }
                               setActiveBlockId(block.id);
-                            }}
-                            onBlur={() => {
+                              setBlockMenuForId(null);
+                              setCitationMenu(null);
                               window.setTimeout(() => {
-                                if (citationMenu?.blockId === block.id) return;
-                                setActiveBlockId((prev) => (prev === block.id ? null : prev));
+                                const textarea = textareaRefs.current[block.id];
+                                if (!textarea) return;
+                                textarea.focus();
+                                const position = textarea.value.length;
+                                textarea.setSelectionRange(position, position);
                               }, 0);
                             }}
-                            onChange={(e) => {
-                              const nextValue = e.target.value;
-                              const normalized = normalizeEditedBlockInput(
-                                block,
-                                nextValue,
-                                sourceFormat,
-                              );
-                              updateBlock(block.id, normalized);
-                              resizeTextarea(e.target);
-                              updateCitationMenu(block.id, normalized.text, e.target.selectionStart);
-                            }}
-                            onSelect={(e) => {
-                              const target = e.currentTarget;
-                              const quote = target.value.slice(target.selectionStart, target.selectionEnd).trim();
-                              setSelectedQuote(quote.slice(0, 280));
-                            }}
-                            onKeyDown={(e) => {
+                            onKeyDown={(event) => {
                               if (!canEditCurrentFile) return;
-
-                              const menuOpenForBlock =
-                                citationMenu?.blockId === block.id &&
-                                filteredCitationEntries.length > 0;
-                              if (menuOpenForBlock && e.key === "ArrowDown") {
-                                e.preventDefault();
-                                setCitationMenuIndex(
-                                  (prev) => (prev + 1) % filteredCitationEntries.length,
-                                );
-                                return;
-                              }
-                              if (menuOpenForBlock && e.key === "ArrowUp") {
-                                e.preventDefault();
-                                setCitationMenuIndex(
-                                  (prev) =>
-                                    (prev - 1 + filteredCitationEntries.length) %
-                                    filteredCitationEntries.length,
-                                );
-                                return;
-                              }
-                              if (menuOpenForBlock && e.key === "Escape") {
-                                e.preventDefault();
-                                setCitationMenu(null);
-                                return;
-                              }
-                              if (menuOpenForBlock && e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                const picked = filteredCitationEntries[citationMenuIndex];
-                                if (picked) {
-                                  applyCitationSuggestion(picked);
-                                }
-                                return;
-                              }
-
-                              if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "m") {
-                                e.preventDefault();
-                                insertInlineMath(block.id);
-                                return;
-                              }
-
-                              if (e.key === "Enter" && !e.shiftKey) {
-                                e.preventDefault();
-                                insertBlockAfter(index, "paragraph");
-                                return;
-                              }
-
-                              if (
-                                e.key === "Backspace" &&
-                                block.text.length === 0 &&
-                                editorBlocks.length > 1
-                              ) {
-                                e.preventDefault();
-                                removeBlock(index);
-                              }
+                              if (event.key !== "Enter" && event.key !== " ") return;
+                              event.preventDefault();
+                              setActiveBlockId(block.id);
+                              window.setTimeout(() => {
+                                textareaRefs.current[block.id]?.focus();
+                              }, 0);
                             }}
-                            placeholder={block.kind === "paragraph" ? "" : "Heading"}
-                            className={`w-full resize-none border-none bg-transparent p-0 outline-none ${blockTextClass(
-                              block.kind,
-                            )} select-text`}
-                          />
-                          {citationMenu?.blockId === block.id ? (
-                            <div className="mt-1 rounded-md border bg-white p-1 shadow-sm">
-                              {filteredCitationEntries.length === 0 ? (
-                                <p className="px-2 py-1 text-xs text-slate-500">No citation match.</p>
+                            className={`min-h-[1.5rem] w-full rounded px-0.5 py-0.5 ${
+                              canEditCurrentFile ? "cursor-text" : ""
+                            }`}
+                          >
+                            {block.text.trim().length > 0 ? (
+                              block.kind === "paragraph" ? (
+                                renderRichParagraphs(block.text, `editor-block-preview-${block.id}`, {
+                                  citationLookup: renderCitationLookup,
+                                  citationNumberByKey,
+                                  referenceAnchorPrefix: "editor-ref",
+                                  resolveImageSrc: resolveWorkspaceImageSrc,
+                                })
                               ) : (
-                                <ul className="max-h-48 overflow-auto">
-                                  {filteredCitationEntries.map((entry, idx) => (
-                                    <li key={entry.key}>
-                                      <button
-                                        type="button"
-                                        onMouseDown={(event) => event.preventDefault()}
-                                        onClick={() => applyCitationSuggestion(entry)}
-                                        className={`w-full rounded px-2 py-1 text-left text-xs ${
-                                          idx === citationMenuIndex ? "bg-[#E7F2FF]" : "hover:bg-slate-50"
-                                        }`}
-                                      >
-                                        <p className="font-mono text-[11px] text-slate-700">[@{entry.key}]</p>
-                                        <p className="truncate text-slate-500">{entry.title ?? entry.author ?? "-"}</p>
-                                      </button>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          ) : null}
-                        </>
-                      ) : (
-                        <div
-                          role={canEditCurrentFile ? "button" : undefined}
-                          tabIndex={canEditCurrentFile ? 0 : undefined}
-                          onClick={(event) => {
-                            if (!canEditCurrentFile) return;
-                            const target = event.target;
-                            if (target instanceof HTMLElement && target.closest("a")) {
-                              return;
-                            }
-                            setActiveBlockId(block.id);
-                            setBlockMenuForId(null);
-                            setCitationMenu(null);
-                            window.setTimeout(() => {
-                              const textarea = textareaRefs.current[block.id];
-                              if (!textarea) return;
-                              textarea.focus();
-                              const position = textarea.value.length;
-                              textarea.setSelectionRange(position, position);
-                            }, 0);
-                          }}
-                          onKeyDown={(event) => {
-                            if (!canEditCurrentFile) return;
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            setActiveBlockId(block.id);
-                            window.setTimeout(() => {
-                              textareaRefs.current[block.id]?.focus();
-                            }, 0);
-                          }}
-                          className={`min-h-[1.5rem] w-full rounded px-0.5 py-0.5 ${
-                            canEditCurrentFile ? "cursor-text" : ""
-                          }`}
-                        >
-                          {block.text.trim().length > 0 ? (
-                            block.kind === "paragraph" ? (
-                              renderRichParagraphs(block.text, `editor-block-preview-${block.id}`, {
-                                citationLookup: renderCitationLookup,
-                                citationNumberByKey,
-                                referenceAnchorPrefix: "editor-ref",
-                                resolveImageSrc: resolveWorkspaceImageSrc,
-                              })
+                                <p className={`${blockTextClass(block.kind)} whitespace-pre-wrap`}>
+                                  {renderInlineText(
+                                    block.text,
+                                    `editor-heading-preview-${block.id}`,
+                                    {
+                                      citationLookup: renderCitationLookup,
+                                      citationNumberByKey,
+                                      referenceAnchorPrefix: "editor-ref",
+                                    },
+                                  )}
+                                </p>
+                              )
                             ) : (
-                              <p className={`${blockTextClass(block.kind)} whitespace-pre-wrap`}>
-                                {renderInlineText(
-                                  block.text,
-                                  `editor-heading-preview-${block.id}`,
-                                  {
-                                    citationLookup: renderCitationLookup,
-                                    citationNumberByKey,
-                                    referenceAnchorPrefix: "editor-ref",
-                                  },
-                                )}
-                              </p>
-                            )
-                          ) : (
-                            block.kind === "paragraph" ? (
-                              <p className="h-6" />
-                            ) : (
-                              <p className="text-sm text-slate-400">Heading</p>
-                            )
-                          )}
-                        </div>
-                      )}
+                              block.kind === "paragraph" ? (
+                                <p className="h-6" />
+                              ) : (
+                                <p className="text-sm text-slate-400">Heading</p>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              {resolvedBibliography.length > 0 ? (
-                <section className="mt-4 rounded-md border p-3">
-                  <p className="text-xs text-slate-500">References</p>
-                  <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                    {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
-                      <li
-                        key={`${line}-${index}`}
-                        id={referenceAnchorId("editor-ref", resolvedBibliography[index].key)}
-                        className="scroll-mt-24"
-                      >
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-
-              {selectedQuote ? (
-                <div data-tour-id="selection-hook" className="mt-3 rounded-md border bg-white p-2">
-                  <p className="line-clamp-2 text-xs text-slate-600">{selectedQuote}</p>
-                  <button
-                    type="button"
-                    onClick={() => setTab("discussion")}
-                    className="mt-2 rounded bg-[#0085FF] px-2 py-1 text-xs text-white"
-                  >
-                    Blueskyで熟議する
-                  </button>
+                  ))}
                 </div>
-              ) : null}
+
+                {resolvedBibliography.length > 0 ? (
+                  <section className="mt-4 rounded-md border p-3">
+                    <p className="text-xs text-slate-500">References</p>
+                    <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                      {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
+                        <li
+                          key={`${line}-${index}`}
+                          id={referenceAnchorId("editor-ref", resolvedBibliography[index].key)}
+                          className="scroll-mt-24"
+                        >
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+
+                {selectedQuote ? (
+                  <div data-tour-id="selection-hook" className="mt-3 rounded-md border bg-white p-2">
+                    <p className="line-clamp-2 text-xs text-slate-600">{selectedQuote}</p>
+                    <button
+                      type="button"
+                      onClick={() => setTab("discussion")}
+                      className="mt-2 rounded bg-[#0085FF] px-2 py-1 text-xs text-white"
+                    >
+                      Blueskyで熟議する
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </>
           )}
         </section>
