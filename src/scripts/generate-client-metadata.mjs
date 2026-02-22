@@ -3,18 +3,50 @@ import { resolve } from "node:path";
 
 const DEFAULT_PUBLIC_URL = "http://127.0.0.1:3000";
 
+function isLoopbackHost(hostname) {
+  return (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname === "[::1]"
+  );
+}
+
+function toUrlString(raw) {
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
 function normalizeBaseUrl(raw) {
-  const url = new URL(raw);
+  const url = new URL(toUrlString(raw));
   url.pathname = "";
   url.search = "";
   url.hash = "";
+  if (!isLoopbackHost(url.hostname)) {
+    url.protocol = "https:";
+  }
   return url.toString().replace(/\/$/, "");
 }
 
 async function main() {
+  const isVercel = process.env.VERCEL === "1";
+  const vercelHost =
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_BRANCH_URL ||
+    process.env.VERCEL_URL ||
+    "";
+
+  if (isVercel && !process.env.NEXT_PUBLIC_SITE_URL && !vercelHost) {
+    throw new Error(
+      "Vercel host is unavailable. Set NEXT_PUBLIC_SITE_URL to your deployment URL.",
+    );
+  }
+
   const rawPublicUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.PUBLIC_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (isVercel ? vercelHost : "") ||
+    process.env.PUBLIC_URL ||
     DEFAULT_PUBLIC_URL;
   const baseUrl = normalizeBaseUrl(rawPublicUrl);
 
