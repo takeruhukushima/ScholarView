@@ -74,6 +74,11 @@ lex build --importExt="" --indexFile --clear
 - `/api/*` はブラウザ内のfetchブリッジで処理（サーバーRoute Handlerなし）
 - OAuth client metadataは `public/client-metadata.json` を静的配信
 
+## ブランチ運用メモ
+
+- 今回のSPA静的化（`@atproto/oauth-client-browser` への移行を含む）実装は `spa-static-migration` ブランチで実施
+- `main` ブランチには段階的に反映する方針
+
 ## 補足
 
 - OAuth scope: `atproto repo:sci.peer.article repo:app.bsky.feed.post`
