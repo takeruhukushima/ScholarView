@@ -21,7 +21,7 @@ ScholarViewは、**研究執筆に特化したMarkdownエディタ**と、**AT P
 - 参考文献を本文下に自動表示（本文の `[n]` からジャンプ可能）
 - `.md` / `.tex` エクスポート（参考文献付き）
 - `sci.peer.article` への公開と、Bluesky告知投稿
-- 公開後のDiscussion同期（Tap webhook経由）
+- 公開後のDiscussion同期（Bluesky thread + ローカル保存のマージ）
 
 ## 想定ワークフロー
 
@@ -44,11 +44,11 @@ pnpm install
 `.env.local` 例:
 
 ```bash
-PUBLIC_URL=http://127.0.0.1:3000
-TAP_URL=http://127.0.0.1:2480
-TAP_ADMIN_PASSWORD=change-me
-DATABASE_PATH=app.db
+NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3000
 ```
+
+`pnpm dev` / `pnpm build` 実行時に `public/client-metadata.json` が自動生成されます。
+本番では `NEXT_PUBLIC_SITE_URL` を実際の公開URLに設定してください。
 
 ### 3. 開発サーバーを起動
 
@@ -66,34 +66,15 @@ pnpm dev
 lex build --importExt="" --indexFile --clear
 ```
 
-## Tap起動（ローカル）
+## アーキテクチャ（SPA）
 
-別ターミナルでTapを起動:
-
-```bash
-tap run \
-  --webhook-url=http://127.0.0.1:3000/api/webhook \
-  --collection-filters=sci.peer.article,app.bsky.feed.post
-```
-
-必要に応じて追跡DIDを追加:
-
-```bash
-curl -H 'Content-Type: application/json' \
-  -d '{"dids":["did:plc:..."]}' \
-  http://127.0.0.1:2480/repos/add
-```
-
-## 主要API
-
-- `POST /api/workspace/files`
-- `PATCH /api/workspace/files/[id]`
-- `POST /api/workspace/files/[id]/publish`
-- `GET /api/articles/[did]/[rkey]`
-- `GET /api/articles/[did]/[rkey]/discussion`
-- `POST /api/webhook`
+- Vercel静的配信前提（`next.config.ts` は `output: "export"`）
+- 認証: `@atproto/oauth-client-browser`
+- ローカル永続化: IndexedDB
+- `/api/*` はブラウザ内のfetchブリッジで処理（サーバーRoute Handlerなし）
+- OAuth client metadataは `public/client-metadata.json` を静的配信
 
 ## 補足
 
 - OAuth scope: `atproto repo:sci.peer.article repo:app.bsky.feed.post`
-- Webhook保護のため、`TAP_ADMIN_PASSWORD` はTap側と必ず一致させてください
+- `handleResolver` は `https://bsky.social` を使用

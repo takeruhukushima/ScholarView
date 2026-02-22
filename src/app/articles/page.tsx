@@ -1,18 +1,59 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 
 import { buildPaperPath } from "@/lib/articles/uri";
-import { getRecentArticles } from "@/lib/db/queries";
+import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
+import type { ArticleSummary } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
+function useArticleSearch(initialQuery = "") {
+  const [query, setQuery] = useState(initialQuery);
+  const [loading, setLoading] = useState(false);
+  const [articles, setArticles] = useState<ArticleSummary[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-export default async function ArticlesPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ q?: string }>;
-}) {
-  const params = await searchParams;
-  const q = typeof params.q === "string" ? params.q.trim() : "";
-  const articles = await getRecentArticles(300, q);
+  async function search(nextQuery = query) {
+    setLoading(true);
+    setError(null);
+    try {
+      installClientFetchBridge();
+      const qs = nextQuery.trim() ? `?q=${encodeURIComponent(nextQuery.trim())}` : "";
+      const response = await fetch(`/api/articles${qs}`, { cache: "no-store" });
+      const data = (await response.json()) as {
+        success?: boolean;
+        articles?: ArticleSummary[];
+        error?: string;
+      };
+      if (!response.ok || !data.success || !Array.isArray(data.articles)) {
+        throw new Error(data.error ?? "Failed to load articles");
+      }
+      setArticles(data.articles);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load articles");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return {
+    query,
+    setQuery,
+    loading,
+    articles,
+    error,
+    search,
+  };
+}
+
+export default function ArticlesPage() {
+  const { query, setQuery, loading, articles, error, search } = useArticleSearch();
+  const resultLabel = useMemo(() => `${articles.length} result(s)`, [articles.length]);
+
+  useEffect(() => {
+    void search("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6">
@@ -27,23 +68,33 @@ export default async function ArticlesPage({
           </Link>
         </div>
 
-        <form method="GET" action="/articles" className="mb-4 flex gap-2">
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void search(query);
+          }}
+          className="mb-4 flex gap-2"
+        >
           <input
             type="search"
             name="q"
-            defaultValue={q}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
             placeholder="Search title or content..."
             className="w-full rounded-md border px-3 py-2 text-sm outline-none focus:border-[#0085FF]"
           />
           <button
             type="submit"
-            className="rounded-md bg-[#0085FF] px-3 py-2 text-sm font-medium text-white"
+            className="rounded-md bg-[#0085FF] px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            disabled={loading}
           >
-            Search
+            {loading ? "Searching..." : "Search"}
           </button>
         </form>
 
-        <p className="mb-3 text-xs text-slate-500">{articles.length} result(s)</p>
+        {error ? <p className="mb-3 text-sm text-red-600">{error}</p> : null}
+        <p className="mb-3 text-xs text-slate-500">{resultLabel}</p>
+
         {articles.length === 0 ? (
           <p className="rounded-md border border-dashed p-4 text-sm text-slate-500">
             No articles found.

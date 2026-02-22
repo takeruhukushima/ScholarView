@@ -1,0 +1,20 @@
+{
+  "client_id": "http://127.0.0.1:3000/client-metadata.json",
+  "client_name": "ScholarView",
+  "client_uri": "http://127.0.0.1:3000",
+  "logo_uri": "http://127.0.0.1:3000/favicon.ico",
+  "redirect_uris": [
+    "http://127.0.0.1:3000"
+  ],
+  "scope": "atproto repo:sci.peer.article repo:app.bsky.feed.post",
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "none",
+  "application_type": "web",
+  "dpop_bound_access_tokens": true
+}
