@@ -119,6 +119,21 @@ function defaultTitleFromFileName(name: string): string {
   return noExt || "Untitled";
 }
 
+function composeFileNameFromTitle(title: string, currentName: string): string {
+  const trimmed = title.trim();
+  if (!trimmed) return "";
+
+  const extMatch = currentName.match(/(\.[A-Za-z0-9]+)$/);
+  const ext = extMatch?.[1] ?? "";
+  if (!ext) return trimmed;
+
+  const base = trimmed.toLowerCase().endsWith(ext.toLowerCase())
+    ? trimmed.slice(0, trimmed.length - ext.length).trim()
+    : trimmed;
+  if (!base) return "";
+  return `${base}${ext}`;
+}
+
 function levelToKind(level: number): BlockKind {
   if (level <= 1) return "h1";
   if (level === 2) return "h2";
@@ -1241,6 +1256,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const saveInFlightRef = useRef(false);
+  const titleSaveInFlightRef = useRef(false);
   const legacySyncRequestedRef = useRef(false);
 
   useEffect(() => {
@@ -1359,6 +1375,15 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     const currentFormat = activeFile.sourceFormat ?? inferSourceFormat(activeFile.name, null);
     return currentContent !== sourceText || currentFormat !== sourceFormat;
   }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
+  const isDirtyTitle = useMemo(() => {
+    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+      return false;
+    }
+    if (isExistingArticle) {
+      return false;
+    }
+    return title.trim() !== defaultTitleFromFileName(activeFile.name);
+  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
 
   const readOnlyMessage = !isLoggedIn
     ? "ログインしていないため閲覧専用です。"
@@ -1810,6 +1835,52 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }
   }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
 
+  const persistTitleAsFileName = useCallback(async (options?: { silent?: boolean }) => {
+    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+      return null;
+    }
+    if (isExistingArticle) {
+      return null;
+    }
+    if (titleSaveInFlightRef.current) {
+      return null;
+    }
+
+    const nextName = composeFileNameFromTitle(title, activeFile.name);
+    if (!nextName) {
+      return null;
+    }
+    if (nextName === activeFile.name) {
+      return null;
+    }
+
+    titleSaveInFlightRef.current = true;
+    try {
+      const response = await fetch(`/api/workspace/files/${encodeURIComponent(activeFile.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nextName }),
+      });
+      const data = (await response.json()) as {
+        success?: boolean;
+        file?: WorkspaceFile;
+        error?: string;
+      };
+      if (!response.ok || !data.success || !data.file) {
+        throw new Error(data.error ?? "Failed to save file name");
+      }
+
+      setFiles((prev) => prev.map((item) => (item.id === data.file?.id ? data.file : item)));
+      setTitle(defaultTitleFromFileName(data.file.name));
+      if (!options?.silent) {
+        setStatusMessage(`Renamed to ${data.file.name}`);
+      }
+      return data.file;
+    } finally {
+      titleSaveInFlightRef.current = false;
+    }
+  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
+
   useEffect(() => {
     if (!isDirtyFile || !canEditCurrentFile) return;
 
@@ -1821,6 +1892,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
     return () => window.clearTimeout(timer);
   }, [canEditCurrentFile, isDirtyFile, saveCurrentFile]);
+
+  useEffect(() => {
+    if (!isDirtyTitle || !canEditCurrentFile) return;
+
+    const timer = window.setTimeout(() => {
+      void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
+      });
+    }, 800);
+
+    return () => window.clearTimeout(timer);
+  }, [canEditCurrentFile, isDirtyTitle, persistTitleAsFileName]);
 
   const handlePublish = async () => {
     if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
@@ -2658,6 +2741,32 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
+                  onBlur={() => {
+                    if (!title.trim()) {
+                      if (activeFile?.kind === "file") {
+                        setTitle(defaultTitleFromFileName(activeFile.name));
+                      }
+                      return;
+                    }
+                    void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
+                      setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
+                    });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    if (!title.trim()) {
+                      if (activeFile?.kind === "file") {
+                        setTitle(defaultTitleFromFileName(activeFile.name));
+                      }
+                      e.currentTarget.blur();
+                      return;
+                    }
+                    void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
+                      setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
+                    });
+                    e.currentTarget.blur();
+                  }}
                   readOnly={!canEditCurrentFile}
                   className="w-full border-none bg-transparent text-3xl font-semibold outline-none"
                   placeholder="Untitled"
@@ -2666,7 +2775,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                 <div className="relative flex items-center gap-2">
                   {canEditCurrentFile ? (
                     <span className="text-xs text-slate-500">
-                      {savingFile ? "Saving..." : isDirtyFile ? "Unsaved changes" : "Saved"}
+                      {savingFile ? "Saving..." : isDirtyFile || isDirtyTitle ? "Unsaved changes" : "Saved"}
                     </span>
                   ) : null}
 
