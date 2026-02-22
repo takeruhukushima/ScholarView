@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
 import { buildPaperPath } from "@/lib/articles/uri";
-import type { SourceFormat } from "@/lib/db";
+import type { SourceFormat } from "@/lib/types";
 
 const MAX_TITLE_LENGTH = 300;
 

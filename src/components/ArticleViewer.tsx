@@ -11,7 +11,7 @@ import {
   formatCitationChip,
   type BibliographyEntry,
 } from "@/lib/articles/citations";
-import type { InlineCommentView } from "@/lib/db/queries";
+import type { InlineCommentView } from "@/lib/types";
 
 import { InlineCommentComposer } from "./InlineCommentComposer";
 

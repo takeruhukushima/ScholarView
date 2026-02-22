@@ -1,13 +1,11 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { signOut } from "@/lib/auth/browser";
 
 export function LogoutButton() {
-  const router = useRouter();
-
   async function handleLogout() {
-    await fetch("/oauth/logout", { method: "POST" });
-    router.refresh();
+    await signOut();
+    window.location.href = "/";
   }
 
   return (
@@ -19,4 +17,3 @@ export function LogoutButton() {
     </button>
   );
 }
-

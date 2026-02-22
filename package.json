@@ -3,29 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "pnpm migrate && next dev",
-    "build": "next build",
-    "start": "pnpm migrate && next start",
+    "dev": "pnpm generate-client-metadata && next dev",
+    "build": "pnpm generate-client-metadata && next build",
+    "start": "next start",
     "lint": "eslint",
-    "migrate": "node --import tsx src/scripts/migrate.ts",
-    "gen-key": "tsx src/scripts/gen-key.ts"
+    "generate-client-metadata": "node src/scripts/generate-client-metadata.mjs"
   },
   "dependencies": {
     "@atproto/common-web": "^0.4.16",
     "@atproto/lex": "^0.0.16",
-    "@atproto/oauth-client-node": "^0.3.16",
+    "@atproto/oauth-client-browser": "^0.3.41",
     "@atproto/syntax": "^0.4.3",
-    "@atproto/tap": "^0.2.4",
-    "better-sqlite3": "^12.6.2",
     "katex": "^0.16.28",
-    "kysely": "^0.28.11",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -22,9 +22,8 @@ import {
   parseBibtexEntries,
   type BibliographyEntry,
 } from "@/lib/articles/citations";
-import type { SourceFormat } from "@/lib/db";
-import type { ArticleSummary } from "@/lib/db/queries";
 import { exportSource } from "@/lib/export/document";
+import type { ArticleSummary, SourceFormat } from "@/lib/types";
 
 interface WorkspaceAppProps {
   initialArticles: ArticleSummary[];
@@ -1244,6 +1243,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const saveInFlightRef = useRef(false);
   const legacySyncRequestedRef = useRef(false);
 
+  useEffect(() => {
+    setArticles(initialArticles);
+  }, [initialArticles]);
+
   const articleByUri = useMemo(() => {
     const map = new Map<string, ArticleSummary>();
     for (const article of articles) map.set(article.uri, article);
@@ -1581,6 +1584,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setStatusMessage(err instanceof Error ? err.message : "Failed to load files");
     });
   }, [loadFiles]);
+
+  useEffect(() => {
+    void refreshArticles();
+  }, [refreshArticles]);
 
   useEffect(() => {
     void syncLegacyArticles({ silent: true });

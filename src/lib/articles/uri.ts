@@ -7,9 +7,19 @@ export function buildArticleUri(did: string, rkey: string): string {
 }
 
 export function buildPaperPath(did: string, rkey: string): string {
-  const didParam = encodeURIComponent(did);
-  const rkeyParam = encodeURIComponent(rkey);
-  return `/paper/${didParam}/${rkeyParam}`;
+  const params = new URLSearchParams({
+    did,
+    rkey,
+  });
+  return `/paper?${params.toString()}`;
+}
+
+export function buildPaperEditPath(did: string, rkey: string): string {
+  const params = new URLSearchParams({
+    did,
+    rkey,
+  });
+  return `/paper/edit?${params.toString()}`;
 }
 
 export function buildAtprotoAtArticleUrl(

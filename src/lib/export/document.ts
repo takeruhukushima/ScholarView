@@ -4,7 +4,7 @@ import {
   type BibliographyEntry,
   formatBibliographyIEEE,
 } from "@/lib/articles/citations";
-import type { SourceFormat } from "@/lib/db";
+import type { SourceFormat } from "@/lib/types";
 
 export interface ExportResult {
   content: string;

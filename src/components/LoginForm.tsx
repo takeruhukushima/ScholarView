@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { signInWithHandle } from "@/lib/auth/browser";
 
 export function LoginForm() {
   const [handle, setHandle] = useState("");
@@ -13,20 +14,7 @@ export function LoginForm() {
     setError(null);
 
     try {
-      const res = await fetch("/oauth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Login failed");
-      }
-
-      // 認可サーバーにリダイレクト
-      window.location.href = data.redirectUrl;
+      await signInWithHandle(handle);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
       setLoading(false);
@@ -61,4 +49,3 @@ export function LoginForm() {
     </form>
   );
 }
-

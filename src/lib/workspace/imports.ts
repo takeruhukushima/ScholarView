@@ -1,5 +1,4 @@
-import type { SourceFormat } from "@/lib/db";
-import { getWorkspaceFileByPath } from "@/lib/db/queries";
+import type { SourceFormat } from "@/lib/types";
 
 const MAX_DEPTH_DEFAULT = 5;
 
@@ -34,11 +33,17 @@ function getPatterns(sourceFormat: SourceFormat): RegExp[] {
   return [/\{\{import:\s*([^}]+)\s*\}\}/g, /\\input\{([^}]+)\}/g];
 }
 
+interface ResolveFileByPathResult {
+  kind: "folder" | "file";
+  sourceFormat: SourceFormat | null;
+  content: string | null;
+}
+
 async function resolvePattern(
   input: string,
   regex: RegExp,
   sourceFormat: SourceFormat,
-  ownerDid: string,
+  resolveFileByPath: (path: string) => Promise<ResolveFileByPathResult | null>,
   depth: number,
   stack: string[],
   diagnostics: ImportDiagnostic[],
@@ -85,7 +90,7 @@ async function resolvePattern(
       continue;
     }
 
-    const resolvedFile = await getWorkspaceFileByPath(normalizedPath, ownerDid);
+    const resolvedFile = await resolveFileByPath(normalizedPath);
     if (!resolvedFile) {
       diagnostics.push({
         code: "not_found",
@@ -111,7 +116,7 @@ async function resolvePattern(
     const child = await resolveWorkspaceImports({
       text: childText,
       sourceFormat: childFormat,
-      ownerDid,
+      resolveFileByPath,
       depth: depth + 1,
       stack: [...stack, normalizedPath],
       diagnostics,
@@ -126,7 +131,7 @@ async function resolvePattern(
 interface ResolveWorkspaceImportsInput {
   text: string;
   sourceFormat: SourceFormat;
-  ownerDid: string;
+  resolveFileByPath: (path: string) => Promise<ResolveFileByPathResult | null>;
   depth?: number;
   stack?: string[];
   diagnostics?: ImportDiagnostic[];
@@ -147,7 +152,7 @@ export async function resolveWorkspaceImports(
       resolved,
       pattern,
       input.sourceFormat,
-      input.ownerDid,
+      input.resolveFileByPath,
       depth,
       stack,
       diagnostics,
