@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { ArticleComposer } from "@/components/ArticleComposer";
@@ -29,7 +29,7 @@ function blocksToContent(blocks: ArticleBlock[], sourceFormat: "markdown" | "tex
     .join("\n\n");
 }
 
-export default function EditPaperPage() {
+function EditPaperPageClient() {
   const params = useSearchParams();
   const did = params.get("did") ?? "";
   const rkey = params.get("rkey") ?? "";
@@ -152,5 +152,19 @@ export default function EditPaperPage() {
         </section>
       </main>
     </div>
+  );
+}
+
+export default function EditPaperPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto min-h-screen w-full max-w-4xl px-4 py-8 text-sm text-zinc-600">
+          Loading editor...
+        </main>
+      }
+    >
+      <EditPaperPageClient />
+    </Suspense>
   );
 }

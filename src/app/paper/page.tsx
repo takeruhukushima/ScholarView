@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { ArticleViewer } from "@/components/ArticleViewer";
@@ -26,7 +26,7 @@ interface DiscussionPayload {
   }>;
 }
 
-export default function PaperPage() {
+function PaperPageClient() {
   const params = useSearchParams();
   const did = params.get("did") ?? "";
   const rkey = params.get("rkey") ?? "";
@@ -184,5 +184,19 @@ export default function PaperPage() {
         />
       </main>
     </div>
+  );
+}
+
+export default function PaperPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="mx-auto min-h-screen w-full max-w-4xl px-4 py-8 text-sm text-zinc-600">
+          Loading article...
+        </main>
+      }
+    >
+      <PaperPageClient />
+    </Suspense>
   );
 }
