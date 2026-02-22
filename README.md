@@ -97,3 +97,8 @@ curl -H 'Content-Type: application/json' \
 
 - OAuth scope: `atproto repo:sci.peer.article repo:app.bsky.feed.post`
 - Webhook保護のため、`TAP_ADMIN_PASSWORD` はTap側と必ず一致させてください
+
+## ブランチ運用メモ
+
+- SPA静的化（`@atproto/oauth-client-browser` への移行を含む）実装は `spa-static-migration` ブランチで進行
+- `main` には検証完了後に段階的に反映する方針
