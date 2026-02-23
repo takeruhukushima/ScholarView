@@ -1,12 +1,18 @@
 "use client";
 
 import { Client } from "@atproto/lex";
-import { BrowserOAuthClient } from "@atproto/oauth-client-browser";
+import { BrowserOAuthClient, buildLoopbackClientId } from "@atproto/oauth-client-browser";
 
 const ACTIVE_DID_KEY = "scholarview:auth:active-did";
 const HANDLE_KEY_PREFIX = "scholarview:auth:handle:";
 
-export const OAUTH_SCOPE = "atproto repo:sci.peer.article repo:app.bsky.feed.post";
+export const OAUTH_SCOPE =
+  "atproto " +
+  "repo:sci.peer.article?action=create&action=update&action=delete " +
+  "repo:app.bsky.feed.post?action=create&action=delete " +
+  "repo:app.bsky.feed.like?action=create " +
+  "repo:app.bsky.feed.repost?action=create";
+const REQUIRED_SCOPE_TOKENS = OAUTH_SCOPE.split(/\s+/).filter(Boolean);
 
 type BrowserOAuthClientLike = {
   init: () => Promise<{ session: unknown; state?: string } | undefined>;
@@ -21,6 +27,50 @@ type BrowserOAuthClientLike = {
 
 let clientPromise: Promise<BrowserOAuthClientLike> | null = null;
 let activeDidMemory: string | null = null;
+
+function buildLoopbackClientIdWithScope(scope: string): string {
+  const base = buildLoopbackClientId(window.location);
+  const url = new URL(base);
+  url.searchParams.set("scope", scope);
+  return url.toString();
+}
+
+function hasRequiredScopes(grantedScope: string): boolean {
+  const granted = new Set(grantedScope.split(/\s+/).filter(Boolean));
+  return REQUIRED_SCOPE_TOKENS.every((token) => granted.has(token));
+}
+
+async function sessionHasRequiredScopes(session: unknown): Promise<boolean> {
+  if (!session || typeof session !== "object") return false;
+  const withTokenInfo = session as {
+    getTokenInfo?: (
+      refresh?: boolean | "auto",
+    ) => Promise<{ scope?: unknown } | null | undefined>;
+  };
+  if (typeof withTokenInfo.getTokenInfo !== "function") return false;
+
+  try {
+    const tokenInfo = await withTokenInfo.getTokenInfo(false);
+    const grantedScope = typeof tokenInfo?.scope === "string" ? tokenInfo.scope : "";
+    return hasRequiredScopes(grantedScope);
+  } catch {
+    return false;
+  }
+}
+
+async function clearSession(client: BrowserOAuthClientLike, did: string | null): Promise<void> {
+  if (did) {
+    try {
+      await client.revoke?.(did);
+    } catch {
+      // Session can already be unavailable; continue to clear local state.
+    }
+  }
+  if (!did || activeDidMemory === did) {
+    activeDidMemory = null;
+  }
+  writeStoredDid(null);
+}
 
 function getClientIdUrl(): string {
   return new URL("/client-metadata.json", window.location.origin).toString();
@@ -75,23 +125,23 @@ async function createClient(): Promise<BrowserOAuthClientLike> {
   };
 
   const loopback = isLoopbackHost(window.location.hostname);
-  const options = loopback
-    ? {
-        // Loopback clients cannot use a path-based client_id during local dev.
-        // The OAuth server provides built-in metadata for loopback origins.
-        handleResolver: "https://bsky.social",
-        clientMetadata: undefined,
-      }
-    : {
-        clientId: getClientIdUrl(),
-        handleResolver: "https://bsky.social",
-      };
-
-  const client = loopback
-    ? new Ctor(options)
-    : Ctor.load
-      ? await Ctor.load(options)
-      : new Ctor(options);
+  const handleResolver = "https://bsky.social";
+  const loopbackClientId = buildLoopbackClientIdWithScope(OAUTH_SCOPE);
+  const clientId = loopback ? loopbackClientId : getClientIdUrl();
+  const client = Ctor.load
+    ? await Ctor.load({ clientId, handleResolver })
+    : new Ctor(
+        loopback
+          ? {
+              // Loopback clients cannot use path-based discoverable metadata.
+              handleResolver,
+              clientMetadata: undefined,
+            }
+          : {
+              clientId,
+              handleResolver,
+            },
+      );
   client.addEventListener?.("deleted", (event) => {
     const customEvent = event as CustomEvent<{ sub?: string }>;
     const deletedDid =
@@ -121,8 +171,10 @@ export async function initializeAuth(): Promise<{
   const client = await getBrowserOAuthClient();
   const initResult = await client.init();
   let did = initResult ? getDidFromSession(initResult.session) : null;
+  const initSessionValid =
+    initResult && did ? await sessionHasRequiredScopes(initResult.session) : false;
 
-  if (did) {
+  if (did && initSessionValid) {
     activeDidMemory = did;
     writeStoredDid(did);
 
@@ -137,11 +189,24 @@ export async function initializeAuth(): Promise<{
       }
     }
   } else {
+    if (did && !initSessionValid) {
+      await clearSession(client, did);
+      did = null;
+    }
     const storedDid = readStoredDid();
     if (storedDid) {
       try {
         const restored = await client.restore(storedDid);
-        did = getDidFromSession(restored);
+        const restoredDid = getDidFromSession(restored);
+        const restoredValid = restoredDid
+          ? await sessionHasRequiredScopes(restored)
+          : false;
+        if (restoredDid && restoredValid) {
+          did = restoredDid;
+        } else {
+          await clearSession(client, storedDid);
+          did = null;
+        }
       } catch {
         did = null;
       }
@@ -165,6 +230,8 @@ export async function signInWithHandle(handle: string): Promise<never> {
 
   const client = await getBrowserOAuthClient();
   return client.signIn(normalized, {
+    prompt: "consent",
+    scope: OAUTH_SCOPE,
     state: JSON.stringify({ handle: normalized }),
   });
 }
@@ -176,12 +243,15 @@ export async function getActiveSession(): Promise<unknown | null> {
 
   try {
     const session = await client.restore(did);
+    if (!(await sessionHasRequiredScopes(session))) {
+      await clearSession(client, did);
+      return null;
+    }
     activeDidMemory = getDidFromSession(session);
     writeStoredDid(activeDidMemory);
     return session;
   } catch {
-    activeDidMemory = null;
-    writeStoredDid(null);
+    await clearSession(client, did);
     return null;
   }
 }
