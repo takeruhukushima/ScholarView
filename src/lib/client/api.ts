@@ -114,6 +114,209 @@ function sourceFormatFromUnknown(value: unknown): SourceFormat {
   return value === "tex" ? "tex" : "markdown";
 }
 
+type UploadedArticleImageAsset = Omit<sci.peer.article.ImageAsset, "$type">;
+
+function normalizeWorkspacePath(path: string): string | null {
+  const raw = path.trim().replace(/\\/g, "/");
+  if (!raw) return null;
+
+  const segments: string[] = [];
+  for (const segment of raw.split("/")) {
+    if (!segment || segment === ".") continue;
+    if (segment === "..") {
+      if (segments.length === 0) return null;
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+
+  if (segments.length === 0) return null;
+  return `/${segments.join("/")}`;
+}
+
+function dirname(path: string): string {
+  const lastSlash = path.lastIndexOf("/");
+  if (lastSlash <= 0) return "/";
+  return path.slice(0, lastSlash);
+}
+
+function buildWorkspaceFilePath(
+  file: WorkspaceFileNode,
+  allFiles: WorkspaceFileNode[],
+): string | null {
+  const byId = new Map(allFiles.map((entry) => [entry.id, entry]));
+  const segments: string[] = [];
+
+  let current: WorkspaceFileNode | null = file;
+  while (current) {
+    segments.unshift(current.name);
+    if (!current.parentId) break;
+    current = byId.get(current.parentId) ?? null;
+  }
+
+  if (segments.length === 0) return null;
+  return normalizeWorkspacePath(`/${segments.join("/")}`);
+}
+
+function collectImageRefsFromMarkdown(text: string): Array<{ src: string; alt: string }> {
+  const refs: Array<{ src: string; alt: string }> = [];
+  const regex = /!\[([^\]]*)\]\(([^)\s]+)\)(?:\{[^}]*\})?/g;
+
+  for (;;) {
+    const match = regex.exec(text);
+    if (!match) break;
+    const src = match[2]?.trim() ?? "";
+    if (!src) continue;
+    refs.push({ src, alt: (match[1] ?? "").trim() });
+  }
+
+  return refs;
+}
+
+function collectImageRefsFromTex(text: string): Array<{ src: string; alt: string }> {
+  const refs: Array<{ src: string; alt: string }> = [];
+  const regex = /\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}/g;
+
+  for (;;) {
+    const match = regex.exec(text);
+    if (!match) break;
+    const src = match[1]?.trim() ?? "";
+    if (!src) continue;
+    const base = src.split("/").pop() ?? src;
+    const alt = base.replace(/\.[A-Za-z0-9]+$/, "");
+    refs.push({ src, alt });
+  }
+
+  return refs;
+}
+
+function collectImageRefsFromBlocks(
+  blocks: ArticleBlock[],
+  sourceFormat: SourceFormat,
+): Array<{ src: string; alt: string }> {
+  return blocks.flatMap((block) =>
+    sourceFormat === "tex"
+      ? collectImageRefsFromTex(block.content)
+      : collectImageRefsFromMarkdown(block.content),
+  );
+}
+
+function resolveImageRefToWorkspacePath(src: string, baseDir: string): string | null {
+  const trimmed = src.trim();
+  if (!trimmed) return null;
+  if (/^(https?:\/\/|data:|blob:|at:)/i.test(trimmed)) return null;
+  if (trimmed.startsWith("workspace://")) return null;
+
+  const absolute = trimmed.startsWith("/") ? trimmed : `${baseDir.replace(/\/$/, "")}/${trimmed}`;
+  return normalizeWorkspacePath(absolute);
+}
+
+function resolveWorkspaceIdRefToPath(
+  src: string,
+  allFiles: WorkspaceFileNode[],
+): string | null {
+  const matchedId = src.trim().match(/^workspace:\/\/(.+)$/)?.[1];
+  if (!matchedId) return null;
+
+  const file = allFiles.find((item) => item.id === matchedId && item.kind === "file");
+  if (!file) return null;
+  return buildWorkspaceFilePath(file, allFiles);
+}
+
+function decodeDataUrlToBytes(dataUrl: string): { mimeType: string; bytes: Uint8Array } | null {
+  const match = dataUrl.match(/^data:([^;,]+)(;base64)?,([\s\S]*)$/i);
+  if (!match) return null;
+
+  const mimeType = (match[1] ?? "").trim().toLowerCase();
+  if (!mimeType.startsWith("image/")) return null;
+
+  const encoded = match[3] ?? "";
+  if (!encoded) return null;
+
+  if (match[2]) {
+    try {
+      const binary = atob(encoded.replace(/\s+/g, ""));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return { mimeType, bytes };
+    } catch {
+      return null;
+    }
+  }
+
+  try {
+    const text = decodeURIComponent(encoded);
+    return { mimeType, bytes: new TextEncoder().encode(text) };
+  } catch {
+    return null;
+  }
+}
+
+async function uploadBlobForCurrentSession(
+  lex: Client,
+  mimeType: string,
+  bytes: Uint8Array,
+): Promise<sci.peer.article.ImageAsset["blob"]> {
+  const payloadBytes = Uint8Array.from(bytes);
+  try {
+    const encoding = mimeType as `${string}/${string}`;
+    const uploaded = await lex.uploadBlob(new Blob([payloadBytes.buffer], { type: mimeType }), {
+      encoding,
+    });
+    const blob = (uploaded.body as { blob?: unknown }).blob;
+    if (!blob) {
+      throw new HttpError(500, "Blob upload response is invalid");
+    }
+    return blob as sci.peer.article.ImageAsset["blob"];
+  } catch (error) {
+    const err = error as { status?: unknown; error?: unknown; message?: unknown };
+    const status = typeof err.status === "number" ? err.status : 400;
+    const label = [err.error, err.message].filter((v) => typeof v === "string").join(": ");
+    throw new HttpError(
+      status,
+      `Failed to upload image blob${label ? ` (${label})` : ""}`,
+    );
+  }
+}
+
+async function buildWorkspaceArticleImageAssets(
+  lex: Client,
+  blocks: ArticleBlock[],
+  sourceFormat: SourceFormat,
+  ownerDid: string,
+  sourceFile: WorkspaceFileNode,
+): Promise<UploadedArticleImageAsset[]> {
+  const allFiles = await listWorkspaceFiles(ownerDid);
+  const sourcePath = buildWorkspaceFilePath(sourceFile, allFiles);
+  const baseDir = sourcePath ? dirname(sourcePath) : "/";
+  const refs = collectImageRefsFromBlocks(blocks, sourceFormat);
+  if (refs.length === 0) return [];
+
+  const assetsByPath = new Map<string, UploadedArticleImageAsset>();
+  for (const ref of refs) {
+    const path =
+      resolveWorkspaceIdRefToPath(ref.src, allFiles) ??
+      resolveImageRefToWorkspacePath(ref.src, baseDir);
+    if (!path || assetsByPath.has(path)) continue;
+
+    const imageFile = await getWorkspaceFileByPath(path, ownerDid);
+    if (!imageFile || imageFile.kind !== "file") continue;
+
+    const raw = typeof imageFile.content === "string" ? imageFile.content : "";
+    const decoded = decodeDataUrlToBytes(raw);
+    if (!decoded) continue;
+
+    const blob = await uploadBlobForCurrentSession(lex, decoded.mimeType, decoded.bytes);
+    const alt = ref.alt.trim();
+    assetsByPath.set(path, alt ? { path, alt, blob } : { path, blob });
+  }
+
+  return [...assetsByPath.values()];
+}
+
 function parseArticleValue(value: unknown): {
   title: string;
   blocks: ArticleBlock[];
@@ -1316,6 +1519,7 @@ async function publishWorkspaceFile(
       ? parseTexToBlocks(resolved.resolvedText)
       : parseMarkdownToBlocks(resolved.resolvedText);
   if (blocks.length === 0) throw new HttpError(400, "At least one section is required");
+  const imageAssets = await buildWorkspaceArticleImageAssets(lex, blocks, sourceFormat, did, file);
 
   const bibliographyInput =
     body.bibliography === undefined ? null : normalizeBibliography(body.bibliography);
@@ -1348,6 +1552,7 @@ async function publishWorkspaceFile(
         title,
         blocks,
         bibliography,
+        images: imageAssets,
         createdAt: new Date(existing.createdAt).toISOString(),
       },
       { rkey: targetRkey },
@@ -1405,6 +1610,7 @@ async function publishWorkspaceFile(
       title,
       blocks,
       bibliography,
+      images: imageAssets,
       createdAt: now,
     });
     const atUri = new AtUri(created.uri);
@@ -1537,7 +1743,6 @@ async function handleEngagement(request: Request): Promise<Response> {
   if (!action || !uri) throw new HttpError(400, "action and uri are required");
   try {
     // Validate AT URI
-    // eslint-disable-next-line no-new
     new AtUri(uri);
   } catch {
     throw new HttpError(400, "Invalid AT URI");

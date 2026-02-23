@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 const DEFAULT_PUBLIC_URL = "http://127.0.0.1:3000";
 const OAUTH_SCOPE =
   "atproto " +
+  "blob:*/* " +
   "repo:sci.peer.article?action=create&action=update&action=delete " +
   "repo:app.bsky.feed.post?action=create&action=delete " +
   "repo:app.bsky.feed.like?action=create " +
