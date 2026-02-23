@@ -225,7 +225,8 @@ function detectCitationTrigger(
   if (at < 0) return null;
 
   const prefix = at === 0 ? "" : before[at - 1];
-  if (prefix && !/[\s([{"'`]/.test(prefix)) {
+  const hasBracketPrefix = prefix === "[";
+  if (!hasBracketPrefix && prefix && /[A-Za-z0-9:_-]/.test(prefix)) {
     return null;
   }
 
@@ -234,7 +235,7 @@ function detectCitationTrigger(
     return null;
   }
 
-  return { start: at, end: cursor, query };
+  return { start: hasBracketPrefix ? at - 1 : at, end: cursor, query };
 }
 
 function sourceToEditorBlocks(source: string, sourceFormat: SourceFormat): EditorBlock[] {
