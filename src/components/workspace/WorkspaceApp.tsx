@@ -101,6 +101,14 @@ interface CitationMenuState {
 
 type TreeDropPosition = "before" | "after" | "inside";
 type NewFileType = "markdown" | "tex" | "bib";
+type ImageDropPosition = "before" | "after";
+type ImageAlign = "left" | "center" | "right";
+
+interface ParsedMarkdownImageLine {
+  alt: string;
+  rawSrc: string;
+  attrs: string;
+}
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -513,6 +521,141 @@ function inferImageExtension(name: string, mimeType: string): string {
   return "png";
 }
 
+function createUniqueImageFileName(
+  stem: string,
+  ext: string,
+  takenLowerNames: Set<string>,
+): string {
+  const safeStem = sanitizeFileStem(stem) || "image";
+  const safeExt = ext.replace(/^\.+/, "").toLowerCase() || "png";
+  const base = `${safeStem}.${safeExt}`;
+  const baseLower = base.toLowerCase();
+  if (!takenLowerNames.has(baseLower)) {
+    takenLowerNames.add(baseLower);
+    return base;
+  }
+
+  let suffix = 2;
+  for (;;) {
+    const candidate = `${safeStem}-${suffix}.${safeExt}`;
+    const key = candidate.toLowerCase();
+    if (!takenLowerNames.has(key)) {
+      takenLowerNames.add(key);
+      return candidate;
+    }
+    suffix += 1;
+  }
+}
+
+function isImageFileName(name: string): boolean {
+  return /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(name.trim());
+}
+
+function isInlineImageDataUrl(input: string | null | undefined): boolean {
+  if (!input) return false;
+  const trimmed = input.trim();
+  return /^(?:data|ata):image\/[a-z0-9.+-]+(?:;[a-z0-9.+-]+=[^;,]+|;base64)*,/i.test(trimmed);
+}
+
+function isWorkspaceImageFile(file: Pick<WorkspaceFile, "kind" | "name" | "content">): boolean {
+  return file.kind === "file" && (isImageFileName(file.name) || isInlineImageDataUrl(file.content));
+}
+
+function normalizeImageSrcCandidate(input: string): string {
+  const trimmed = input.trim();
+  if (/^ata:image\//i.test(trimmed)) {
+    return `d${trimmed}`;
+  }
+  return trimmed;
+}
+
+function deriveImagePreviewSource(
+  input: string | null | undefined,
+  resolveWorkspaceImageSrc: (input: string) => string,
+): string | null {
+  if (!input) return null;
+  const candidate = normalizeImageSrcCandidate(input);
+  if (!candidate) return null;
+  if (isInlineImageDataUrl(candidate)) return normalizeImageSrcCandidate(candidate);
+  if (/^(https?:\/\/|blob:|\/)/i.test(candidate)) return candidate;
+
+  const markdownImage = candidate.match(/^!\[[^\]]*\]\(([^)\s]+)\)/);
+  if (markdownImage) {
+    const resolved = normalizeImageSrcCandidate(resolveWorkspaceImageSrc(markdownImage[1]));
+    if (isInlineImageDataUrl(resolved) || /^(https?:\/\/|blob:|\/)/i.test(resolved)) {
+      return resolved;
+    }
+  }
+
+  const resolved = normalizeImageSrcCandidate(resolveWorkspaceImageSrc(candidate));
+  if (isInlineImageDataUrl(resolved) || /^(https?:\/\/|blob:|\/)/i.test(resolved)) {
+    return resolved;
+  }
+  return null;
+}
+
+function normalizeWorkspacePath(input: string): string {
+  const cleaned = input.trim().replace(/\\/g, "/");
+  if (!cleaned) return "/";
+  const noFragment = cleaned.split("#")[0] ?? "";
+  const noQuery = noFragment.split("?")[0] ?? "";
+  const parts = noQuery.split("/");
+  const stack: string[] = [];
+  for (const part of parts) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (stack.length > 0) {
+        stack.pop();
+      }
+      continue;
+    }
+    stack.push(part);
+  }
+  return `/${stack.join("/")}`.replace(/\/{2,}/g, "/");
+}
+
+function dirnameWorkspacePath(path: string): string {
+  const normalized = normalizeWorkspacePath(path);
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 1) return "/";
+  return `/${parts.slice(0, -1).join("/")}`;
+}
+
+function resolveWorkspacePathFromDocument(input: string, documentPath: string | null): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("workspace://")) return null;
+  if (trimmed.startsWith("data:")) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return null;
+  if (trimmed.startsWith("#")) return null;
+
+  if (trimmed.startsWith("/")) {
+    return normalizeWorkspacePath(trimmed);
+  }
+
+  const base = dirnameWorkspacePath(documentPath ?? "/");
+  return normalizeWorkspacePath(`${base}/${trimmed}`);
+}
+
+function rewriteImagePathReferencesInMarkdown(
+  source: string,
+  options: {
+    movedFileId: string;
+    oldPath: string;
+    newPath: string;
+    documentPath: string | null;
+  },
+): string {
+  return source.replace(/!\[([^\]]*)\]\(([^)]+)\)(\{[^}]*\})?/g, (_all, alt, rawSrc, attrs) => {
+    const src = String(rawSrc).trim();
+    const byId = src.match(/^workspace:\/\/(.+)$/)?.[1];
+    const resolved = resolveWorkspacePathFromDocument(src, options.documentPath);
+    const shouldRewrite = byId === options.movedFileId || resolved === options.oldPath;
+    if (!shouldRewrite) return _all;
+    return `![${alt}](${options.newPath})${attrs ?? ""}`;
+  });
+}
+
 function toFigureLabel(input: string): string {
   const base = input
     .toLowerCase()
@@ -575,6 +718,33 @@ function renderMathHtml(expression: string, displayMode: boolean): string | null
 
 function referenceAnchorId(prefix: string, key: string): string {
   return `${prefix}-${key.replace(/[^A-Za-z0-9_-]+/g, "-")}`;
+}
+
+function parseMarkdownImageLine(text: string): ParsedMarkdownImageLine | null {
+  const match = text.trim().match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\{([^}]*)\})?$/);
+  if (!match) return null;
+  return {
+    alt: match[1].trim(),
+    rawSrc: match[2].trim(),
+    attrs: (match[3] ?? "").trim(),
+  };
+}
+
+function imageAlignFromAttrs(attrs: string): ImageAlign {
+  const match = attrs.match(/\balign=(left|center|right)\b/i);
+  if (!match) return "center";
+  const value = match[1].toLowerCase();
+  return value === "left" || value === "right" ? value : "center";
+}
+
+function setImageAlignOnMarkdownLine(text: string, align: ImageAlign): string {
+  const parsed = parseMarkdownImageLine(text);
+  if (!parsed) return text;
+  const tokens = parsed.attrs.length > 0 ? parsed.attrs.split(/\s+/).filter(Boolean) : [];
+  const kept = tokens.filter((token) => !/^align=(left|center|right)$/i.test(token));
+  kept.push(`align=${align}`);
+  const attrs = kept.length > 0 ? `{${kept.join(" ")}}` : "";
+  return `![${parsed.alt}](${parsed.rawSrc})${attrs}`;
 }
 
 function renderInlineText(
@@ -840,25 +1010,33 @@ function renderRichParagraphs(
       continue;
     }
 
-    const imageMatch = line
-      .trim()
-      .match(/^!\[([^\]]*)\]\(([^)\s]+)\)(?:\{([^}]*)\})?$/);
-    if (imageMatch) {
-      const alt = imageMatch[1].trim();
-      const rawSrc = imageMatch[2].trim();
-      const attrs = imageMatch[3] ?? "";
+    const imageLine = parseMarkdownImageLine(line);
+    if (imageLine) {
+      const alt = imageLine.alt;
+      const rawSrc = imageLine.rawSrc;
+      const attrs = imageLine.attrs;
       const labelMatch = attrs.match(/#([^\s}]+)/);
       const widthMatch = attrs.match(/width=([0-9.]+)/);
+      const align = imageAlignFromAttrs(attrs);
       const src = options?.resolveImageSrc ? options.resolveImageSrc(rawSrc) : rawSrc;
       const width = widthMatch ? Number(widthMatch[1]) : 0.8;
       nodes.push(
-        <figure key={`${keyPrefix}-img-${i}`} className="space-y-1">
+        <figure
+          key={`${keyPrefix}-img-${i}`}
+          className={`space-y-1 ${
+            align === "left" ? "text-left" : align === "right" ? "text-right" : "text-center"
+          }`}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={alt || "figure"}
-            style={{ maxWidth: `${Math.min(1, Math.max(0.1, width)) * 100}%` }}
-            className="rounded border"
+            style={{
+              maxWidth: `${Math.min(1, Math.max(0.1, width)) * 100}%`,
+              marginLeft: align === "right" || align === "center" ? "auto" : undefined,
+              marginRight: align === "left" || align === "center" ? "auto" : undefined,
+            }}
+            className="block rounded border"
           />
           {(alt || labelMatch) ? (
             <figcaption className="text-xs text-slate-600">
@@ -1339,12 +1517,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [blockMenuForId, setBlockMenuForId] = useState<string | null>(null);
   const [savingFile, setSavingFile] = useState(false);
+  const [activeImagePreviewSrc, setActiveImagePreviewSrc] = useState<string | null>(null);
+  const [imageDropTarget, setImageDropTarget] = useState<{
+    blockId: string;
+    position: ImageDropPosition;
+  } | null>(null);
 
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const saveInFlightRef = useRef(false);
   const titleSaveInFlightRef = useRef(false);
   const legacySyncRequestedRef = useRef(false);
+  const imagePreviewFetchRequestedRef = useRef(new Set<string>());
 
   useEffect(() => {
     setArticles(initialArticles);
@@ -1360,10 +1544,30 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     () => files.find((file) => file.id === activeFileId) ?? null,
     [files, activeFileId],
   );
+  const filePathMap = useMemo(() => buildFilePathMap(files), [files]);
+  const activeFilePath = useMemo(
+    () =>
+      activeFile?.kind === "file"
+        ? (filePathMap.get(activeFile.id) ?? null)
+        : null,
+    [activeFile, filePathMap],
+  );
+  const workspaceFilesByPath = useMemo(() => {
+    const map = new Map<string, WorkspaceFile>();
+    for (const file of files) {
+      if (file.kind !== "file") continue;
+      const path = filePathMap.get(file.id);
+      if (!path) continue;
+      map.set(path, file);
+    }
+    return map;
+  }, [filePathMap, files]);
   const isBibWorkspaceFile = Boolean(
     activeFile?.kind === "file" && activeFile.name.toLowerCase().endsWith(".bib"),
   );
-  const filePathMap = useMemo(() => buildFilePathMap(files), [files]);
+  const isImageWorkspaceFile = Boolean(
+    activeFile && isWorkspaceImageFile(activeFile),
+  );
   const projectBibFiles = useMemo(
     () => collectProjectBibFiles(files, activeFileId),
     [activeFileId, files],
@@ -1396,11 +1600,14 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     [editorBlocks, sourceFormat],
   );
   const bibSourceText = useMemo(() => bibEditorBlocksToSource(editorBlocks), [editorBlocks]);
-  const sourceText = useMemo(
-    () => (isBibWorkspaceFile ? bibSourceText : blockSourceText),
-    [bibSourceText, blockSourceText, isBibWorkspaceFile],
+  const sourceText = useMemo(() => {
+    if (isImageWorkspaceFile) return activeFile?.content ?? "";
+    return isBibWorkspaceFile ? bibSourceText : blockSourceText;
+  }, [activeFile, bibSourceText, blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile]);
+  const citationKeys = useMemo(
+    () => (isImageWorkspaceFile ? [] : extractCitationKeysFromText(sourceText)),
+    [isImageWorkspaceFile, sourceText],
   );
-  const citationKeys = useMemo(() => extractCitationKeysFromText(sourceText), [sourceText]);
   const resolvedBibliography = useMemo(() => {
     const resolved: BibliographyEntry[] = [];
     for (const key of citationKeys) {
@@ -1435,18 +1642,82 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   }, [resolvedBibliography]);
   const resolveWorkspaceImageSrc = useCallback(
     (input: string) => {
-      const match = input.match(/^workspace:\/\/(.+)$/);
-      if (!match) return input;
-      const file = files.find((item) => item.id === match[1]);
-      if (!file || file.kind !== "file" || !file.content) return input;
-      return file.content;
+      const trimmed = input.trim();
+      if (!trimmed) return input;
+      const match = trimmed.match(/^workspace:\/\/(.+)$/);
+      if (match) {
+        const file = files.find((item) => item.id === match[1]);
+        if (!file || file.kind !== "file" || !file.content) return trimmed;
+        return file.content;
+      }
+      if (isInlineImageDataUrl(trimmed)) return trimmed;
+      const resolvedPath = resolveWorkspacePathFromDocument(trimmed, activeFilePath);
+      if (!resolvedPath) return trimmed;
+      const file = workspaceFilesByPath.get(resolvedPath);
+      if (!file || !file.content) return trimmed;
+      return isWorkspaceImageFile(file) ? file.content : trimmed;
     },
-    [files],
+    [activeFilePath, files, workspaceFilesByPath],
   );
+  useEffect(() => {
+    if (!activeFile || activeFile.kind !== "file" || !isImageWorkspaceFile) {
+      setActiveImagePreviewSrc(null);
+      return;
+    }
+
+    const fromContent = deriveImagePreviewSource(activeFile.content, resolveWorkspaceImageSrc);
+    if (fromContent) {
+      setActiveImagePreviewSrc(fromContent);
+      return;
+    }
+
+    const fromIdRef = deriveImagePreviewSource(`workspace://${activeFile.id}`, resolveWorkspaceImageSrc);
+    if (fromIdRef) {
+      setActiveImagePreviewSrc(fromIdRef);
+      return;
+    }
+
+    if (imagePreviewFetchRequestedRef.current.has(activeFile.id)) {
+      setActiveImagePreviewSrc(null);
+      return;
+    }
+    imagePreviewFetchRequestedRef.current.add(activeFile.id);
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch(`/api/workspace/files/${encodeURIComponent(activeFile.id)}`, {
+          cache: "no-store",
+        });
+        const data = (await response.json()) as { success?: boolean; file?: WorkspaceFile };
+        if (!response.ok || !data.success || !data.file || cancelled) {
+          return;
+        }
+
+        setFiles((prev) =>
+          prev.map((item) => (item.id === data.file?.id ? data.file : item)),
+        );
+        const resolved =
+          deriveImagePreviewSource(data.file.content, resolveWorkspaceImageSrc) ??
+          deriveImagePreviewSource(`workspace://${data.file.id}`, resolveWorkspaceImageSrc);
+        if (!cancelled) {
+          setActiveImagePreviewSrc(resolved);
+        }
+      } catch {
+        if (!cancelled) {
+          setActiveImagePreviewSrc(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeFile, isImageWorkspaceFile, resolveWorkspaceImageSrc]);
 
   const previewBlocks = useMemo(
-    () => (isBibWorkspaceFile ? [] : parseSourceToBlocks(sourceText, sourceFormat)),
-    [isBibWorkspaceFile, sourceFormat, sourceText],
+    () => (isBibWorkspaceFile || isImageWorkspaceFile ? [] : parseSourceToBlocks(sourceText, sourceFormat)),
+    [isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat, sourceText],
   );
   const myArticles = useMemo(
     () => articles.filter((article) => article.authorDid === sessionDid),
@@ -1457,7 +1728,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const isExistingArticle = Boolean(currentDid && currentRkey);
   const canEditArticle = Boolean(isLoggedIn && (!isExistingArticle || currentAuthorDid === sessionDid));
   const canEditCurrentFile = Boolean(canEditArticle && activeFile?.kind === "file");
-  const canPublishCurrentFile = canEditCurrentFile && !isBibWorkspaceFile;
+  const canEditTextCurrentFile = canEditCurrentFile && !isImageWorkspaceFile;
+  const canPublishCurrentFile = canEditCurrentFile && !isBibWorkspaceFile && !isImageWorkspaceFile;
   const hasOpenDocument = Boolean((activeFile && activeFile.kind === "file") || activeArticleUri);
   const isDirtyFile = useMemo(() => {
     if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
@@ -1571,7 +1843,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
       const format = inferSourceFormat(file.name, file.sourceFormat);
       setSourceFormat(format);
-      if (file.name.toLowerCase().endsWith(".bib")) {
+      if (isWorkspaceImageFile(file)) {
+        setEditorBlocks([]);
+      } else if (file.name.toLowerCase().endsWith(".bib")) {
         setEditorBlocks(sourceToBibEditorBlocks(file.content ?? ""));
       } else {
         setEditorBlocks(sourceToEditorBlocks(file.content ?? "", format));
@@ -1890,7 +2164,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   };
 
   const saveCurrentFile = useCallback(async (options?: { silent?: boolean }) => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+    if (!canEditTextCurrentFile || !activeFile || activeFile.kind !== "file") {
       return null;
     }
     if (saveInFlightRef.current) {
@@ -1929,7 +2203,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       saveInFlightRef.current = false;
       setSavingFile(false);
     }
-  }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
+  }, [activeFile, canEditTextCurrentFile, sourceFormat, sourceText]);
 
   const persistTitleAsFileName = useCallback(async (options?: { silent?: boolean }) => {
     if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
@@ -1978,7 +2252,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
 
   useEffect(() => {
-    if (!isDirtyFile || !canEditCurrentFile) return;
+    if (!isDirtyFile || !canEditTextCurrentFile) return;
 
     const timer = window.setTimeout(() => {
       void saveCurrentFile({ silent: true }).catch((err: unknown) => {
@@ -1987,7 +2261,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }, 800);
 
     return () => window.clearTimeout(timer);
-  }, [canEditCurrentFile, isDirtyFile, saveCurrentFile]);
+  }, [canEditTextCurrentFile, isDirtyFile, saveCurrentFile]);
 
   useEffect(() => {
     if (!isDirtyTitle || !canEditCurrentFile) return;
@@ -2004,6 +2278,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const handlePublish = async () => {
     if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
       setStatusMessage("Select a file and ensure you have edit permission.");
+      return;
+    }
+    if (isImageWorkspaceFile) {
+      setStatusMessage("Image files cannot be published.");
       return;
     }
     if (activeFile.name.toLowerCase().endsWith(".bib")) {
@@ -2280,7 +2558,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const handleSourceFormatChange = useCallback(
     (nextFormat: SourceFormat) => {
-      if (isBibWorkspaceFile) return;
+      if (isBibWorkspaceFile || isImageWorkspaceFile) return;
       if (nextFormat === sourceFormat) return;
       const currentSource = blockSourceText;
       const nextBlocks = sourceToEditorBlocks(currentSource, nextFormat);
@@ -2290,7 +2568,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setBlockMenuForId(null);
       setActiveBlockId(null);
     },
-    [blockSourceText, isBibWorkspaceFile, sourceFormat],
+    [blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat],
   );
 
   const normalizeBibtexBlock = useCallback((raw: string): string => {
@@ -2327,27 +2605,30 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       reader.readAsDataURL(file);
     });
 
-  const ensureAssetsFolder = async () => {
-    const existing = files.find(
-      (file) => file.kind === "folder" && file.parentId === null && file.name === "assets",
+  const hasDraggedImageData = (event: DragEvent<HTMLElement>): boolean =>
+    Array.from(event.dataTransfer.items ?? []).some(
+      (item) => item.kind === "file" && item.type.startsWith("image/"),
     );
-    if (existing) return existing.id;
 
-    const response = await fetch("/api/workspace/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "assets", kind: "folder", parentId: null }),
-    });
-    const data = (await response.json()) as { success?: boolean; file?: WorkspaceFile; error?: string };
-    if (!response.ok || !data.success || !data.file) {
-      throw new Error(data.error ?? "Failed to create assets folder");
-    }
-    await loadFiles();
-    return data.file.id;
+  const determineBlockDropPosition = (event: DragEvent<HTMLElement>): ImageDropPosition => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const offsetY = event.clientY - rect.top;
+    return offsetY < rect.height / 2 ? "before" : "after";
   };
 
-  const handleImageDrop = async (event: DragEvent<HTMLElement>) => {
-    if (!canEditCurrentFile || !sessionDid) return;
+  const handleImageDrop = async (
+    event: DragEvent<HTMLElement>,
+    insertAt?: { blockId: string; position: ImageDropPosition } | null,
+  ) => {
+    if (
+      !canEditTextCurrentFile ||
+      isBibWorkspaceFile ||
+      !sessionDid ||
+      !activeFile ||
+      activeFile.kind !== "file"
+    ) {
+      return;
+    }
     const dropped = Array.from(event.dataTransfer.files ?? []).filter((file) =>
       file.type.startsWith("image/"),
     );
@@ -2357,18 +2638,59 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     event.stopPropagation();
 
     try {
-      const assetsFolderId = await ensureAssetsFolder();
-      const activeId = activeBlockId ?? editorBlocks[editorBlocks.length - 1]?.id;
+      const findInsertIndex = (): number => {
+        if (insertAt?.blockId) {
+          const blockIndex = editorBlocks.findIndex((block) => block.id === insertAt.blockId);
+          if (blockIndex >= 0) {
+            return insertAt.position === "before" ? blockIndex : blockIndex + 1;
+          }
+        }
+
+        const fromTarget =
+          event.target instanceof HTMLElement
+            ? event.target.closest<HTMLElement>("[data-editor-block-id]")?.dataset.editorBlockId
+            : undefined;
+        if (fromTarget) {
+          const blockIndex = editorBlocks.findIndex((block) => block.id === fromTarget);
+          if (blockIndex >= 0) return blockIndex + 1;
+        }
+
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement) {
+          const fromFocusedElement =
+            activeElement.closest<HTMLElement>("[data-editor-block-id]")?.dataset.editorBlockId;
+          if (fromFocusedElement) {
+            const blockIndex = editorBlocks.findIndex((block) => block.id === fromFocusedElement);
+            if (blockIndex >= 0) return blockIndex + 1;
+          }
+        }
+
+        if (activeBlockId) {
+          const activeIndex = editorBlocks.findIndex((block) => block.id === activeBlockId);
+          if (activeIndex >= 0) return activeIndex + 1;
+        }
+        return editorBlocks.length;
+      };
+
+      let insertIndex = findInsertIndex();
+      let lastInsertedId: string | null = null;
+      const targetFolderId = activeFile.parentId;
+      const targetFolderPath = targetFolderId ? (filePathMap.get(targetFolderId) ?? "") : "";
+      const takenImageNames = new Set(
+        files
+          .filter((file) => file.kind === "file" && file.parentId === targetFolderId)
+          .map((file) => file.name.toLowerCase()),
+      );
       for (const image of dropped) {
         const dataUrl = await readFileAsDataUrl(image);
         const ext = inferImageExtension(image.name, image.type);
         const stem = sanitizeFileStem(image.name);
-        const fileName = `${stem}-${Date.now()}-${Math.random().toString(16).slice(2, 6)}.${ext}`;
+        const fileName = createUniqueImageFileName(stem, ext, takenImageNames);
         const response = await fetch("/api/workspace/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            parentId: assetsFolderId,
+            parentId: targetFolderId,
             name: fileName,
             kind: "file",
             format: "markdown",
@@ -2381,22 +2703,27 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         }
 
         const figureLabel = toFigureLabel(stem);
-        const token = `![${stem}](workspace://${data.file.id}){#${figureLabel} width=0.8}`;
+        const imagePath = normalizeWorkspacePath(`${targetFolderPath}/${fileName}`);
+        const token = `![${stem}](${imagePath}){#${figureLabel} width=0.8 align=center}`;
+        const insertedId = newId();
         setEditorBlocks((prev) => {
-          if (!activeId) {
-            return [...prev, { id: newId(), kind: "paragraph", text: token }];
-          }
-          const idx = prev.findIndex((block) => block.id === activeId);
-          if (idx === -1) return [...prev, { id: newId(), kind: "paragraph", text: token }];
           const next = [...prev];
-          next.splice(idx + 1, 0, { id: newId(), kind: "paragraph", text: token });
+          const clamped = Math.max(0, Math.min(insertIndex, next.length));
+          next.splice(clamped, 0, { id: insertedId, kind: "paragraph", text: token });
           return next;
         });
+        insertIndex += 1;
+        lastInsertedId = insertedId;
+      }
+      if (lastInsertedId) {
+        setActiveBlockId(lastInsertedId);
       }
       await loadFiles();
       setStatusMessage("Inserted image figure block(s).");
     } catch (err: unknown) {
       setStatusMessage(err instanceof Error ? err.message : "Failed to insert image");
+    } finally {
+      setImageDropTarget(null);
     }
   };
 
@@ -2464,7 +2791,20 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         deduped.set(update.id, update);
       }
 
-      const responses = await Promise.all(
+      const oldDraggedPath = filePathMap.get(dragged.id) ?? null;
+      const nextFiles = files.map((file) => {
+        const update = deduped.get(file.id);
+        if (!update) return file;
+        return {
+          ...file,
+          parentId: update.parentId !== undefined ? update.parentId : file.parentId,
+          sortOrder: update.sortOrder,
+        };
+      });
+      const nextFilePathMap = buildFilePathMap(nextFiles);
+      const nextDraggedPath = nextFilePathMap.get(dragged.id) ?? null;
+
+      await Promise.all(
         Array.from(deduped.values()).map(async (update) => {
           const response = await fetch(`/api/workspace/files/${encodeURIComponent(update.id)}`, {
             method: "PATCH",
@@ -2480,12 +2820,81 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           }
         }),
       );
-      void responses;
+
+      let rewrittenCount = 0;
+      if (
+        isWorkspaceImageFile(dragged) &&
+        oldDraggedPath &&
+        nextDraggedPath &&
+        oldDraggedPath !== nextDraggedPath
+      ) {
+        const contentUpdates = nextFiles
+          .filter((file) => {
+            if (file.kind !== "file") return false;
+            if (isWorkspaceImageFile(file)) return false;
+            if (file.name.toLowerCase().endsWith(".bib")) return false;
+            return inferSourceFormat(file.name, file.sourceFormat) === "markdown";
+          })
+          .map((file) => {
+            const documentPath = nextFilePathMap.get(file.id) ?? null;
+            const source =
+              file.id === activeFileId && canEditTextCurrentFile
+                ? sourceText
+                : (file.content ?? "");
+            const nextContent = rewriteImagePathReferencesInMarkdown(source, {
+              movedFileId: dragged.id,
+              oldPath: oldDraggedPath,
+              newPath: nextDraggedPath,
+              documentPath,
+            });
+            if (nextContent === source) return null;
+            return { file, nextContent };
+          })
+          .filter((item): item is { file: WorkspaceFile; nextContent: string } => item !== null);
+
+        if (contentUpdates.length > 0) {
+          await Promise.all(
+            contentUpdates.map(async ({ file, nextContent }) => {
+              const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  content: nextContent,
+                  sourceFormat: inferSourceFormat(file.name, file.sourceFormat),
+                }),
+              });
+              const data = (await response.json()) as { success?: boolean; error?: string };
+              if (!response.ok || !data.success) {
+                throw new Error(data.error ?? "Failed to update image references");
+              }
+            }),
+          );
+          rewrittenCount = contentUpdates.length;
+
+          const activeUpdate = contentUpdates.find((item) => item.file.id === activeFileId);
+          if (activeUpdate && sourceFormat === "markdown") {
+            setEditorBlocks(sourceToEditorBlocks(activeUpdate.nextContent, sourceFormat));
+          }
+        }
+      }
 
       await loadFiles();
-      setStatusMessage("Updated file order.");
+      setStatusMessage(
+        rewrittenCount > 0
+          ? `Updated file order and ${rewrittenCount} image reference file(s).`
+          : "Updated file order.",
+      );
     },
-    [files, loadFiles, sessionDid],
+    [
+      activeFileId,
+      canEditTextCurrentFile,
+      filePathMap,
+      files,
+      loadFiles,
+      sessionDid,
+      sourceFormat,
+      sourceText,
+    ],
   );
 
   const updateBlock = (id: string, patch: Partial<EditorBlock>) => {
@@ -2548,10 +2957,34 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }, 0);
   };
 
+  const activateBlockEditor = (blockId: string, position: "start" | "end" = "start") => {
+    setActiveBlockId(blockId);
+    setBlockMenuForId(null);
+    setCitationMenu(null);
+    const focusWithRetry = (attempt = 0) => {
+      const textarea = textareaRefs.current[blockId];
+      if (!textarea) {
+        if (attempt < 6) {
+          window.setTimeout(() => focusWithRetry(attempt + 1), 0);
+        }
+        return;
+      }
+      textarea.focus();
+      const nextPosition = position === "end" ? textarea.value.length : 0;
+      textarea.setSelectionRange(nextPosition, nextPosition);
+      resizeTextarea(textarea);
+    };
+    window.setTimeout(() => {
+      focusWithRetry();
+    }, 0);
+  };
+
   const handleEditorCanvasClick = (event: React.MouseEvent<HTMLElement>) => {
-    if (!canEditCurrentFile) return;
+    if (!canEditTextCurrentFile) return;
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
+    if (target !== event.currentTarget) return;
+    if (target.closest("[data-editor-block-id]")) return;
     if (target.closest("textarea,button,input,select,a,label,[role='button']")) return;
 
     if (editorBlocks.length === 0) {
@@ -2845,13 +3278,21 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           className="min-w-0 rounded-xl border bg-white p-4 shadow-sm"
           onClick={handleEditorCanvasClick}
           onDragOver={(event) => {
-            if (!canEditCurrentFile) return;
-            if (Array.from(event.dataTransfer.items ?? []).some((item) => item.type.startsWith("image/"))) {
-              event.preventDefault();
+            if (!canEditTextCurrentFile) return;
+            if (isBibWorkspaceFile) return;
+            if (!hasDraggedImageData(event)) return;
+            event.preventDefault();
+            if (imageDropTarget !== null) {
+              setImageDropTarget(null);
+            }
+          }}
+          onDragLeave={() => {
+            if (imageDropTarget !== null) {
+              setImageDropTarget(null);
             }
           }}
           onDrop={(event) => {
-            void handleImageDrop(event);
+            void handleImageDrop(event, imageDropTarget);
           }}
         >
           {!hasOpenDocument ? (
@@ -2917,7 +3358,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                     </button>
                   ) : null}
 
-                  {canEditCurrentFile && !isBibWorkspaceFile ? (
+                  {canEditTextCurrentFile && !isBibWorkspaceFile ? (
                     <div className="relative">
                       <button
                         type="button"
@@ -2999,16 +3440,45 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
               ) : null}
 
               <div className="min-h-[18rem]">
-                {isBibWorkspaceFile ? (
+                {isImageWorkspaceFile ? (
+                  <div className="space-y-3">
+                    <p className="text-xs text-slate-500">Image Preview</p>
+                    <div className="flex min-h-[18rem] items-center justify-center rounded-md border bg-slate-50 p-3">
+                      {activeImagePreviewSrc ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={activeImagePreviewSrc}
+                          alt={activeFile?.name ?? "image"}
+                          className="max-h-[70vh] w-auto max-w-full rounded border bg-white object-contain"
+                        />
+                      ) : (
+                        <p className="text-sm text-slate-500">No image data.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : isBibWorkspaceFile ? (
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500">BibTeX Code View</p>
                     <div className="space-y-1">
                       {editorBlocks.map((block, index) => (
                         <div
                           key={block.id}
+                          data-editor-block-id={block.id}
                           className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
                             activeBlockId === block.id ? "bg-slate-50/70" : "hover:bg-slate-50/60"
                           }`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (!canEditCurrentFile) return;
+                            const target = event.target;
+                            if (
+                              target instanceof HTMLElement &&
+                              target.closest("button,input,select,textarea,a,label,[role='button']")
+                            ) {
+                              return;
+                            }
+                            activateBlockEditor(block.id, "start");
+                          }}
                         >
                           <div className="mt-1 w-7 shrink-0 text-center text-[11px] text-slate-400">
                             {index + 1}
@@ -3030,6 +3500,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                   </p>
                                 </div>
                                 <textarea
+                                  data-editor-block-id={block.id}
                                   ref={(el) => {
                                     textareaRefs.current[block.id] = el;
                                     resizeTextarea(el);
@@ -3108,25 +3579,16 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                               <div
                                 role={canEditCurrentFile ? "button" : undefined}
                                 tabIndex={canEditCurrentFile ? 0 : undefined}
-                                onClick={() => {
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   if (!canEditCurrentFile) return;
-                                  setActiveBlockId(block.id);
-                                  window.setTimeout(() => {
-                                    const textarea = textareaRefs.current[block.id];
-                                    if (!textarea) return;
-                                    textarea.focus();
-                                    const position = textarea.value.length;
-                                    textarea.setSelectionRange(position, position);
-                                  }, 0);
+                                  activateBlockEditor(block.id, "start");
                                 }}
                                 onKeyDown={(event) => {
                                   if (!canEditCurrentFile) return;
                                   if (event.key !== "Enter" && event.key !== " ") return;
                                   event.preventDefault();
-                                  setActiveBlockId(block.id);
-                                  window.setTimeout(() => {
-                                    textareaRefs.current[block.id]?.focus();
-                                  }, 0);
+                                  activateBlockEditor(block.id, "start");
                                 }}
                                 className={`min-h-[1.75rem] min-w-0 w-full rounded border bg-white px-2 py-1 ${
                                   canEditCurrentFile ? "cursor-text" : ""
@@ -3158,12 +3620,55 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   <>
                     <div className="space-y-0.5">
                   {editorBlocks.map((block, index) => (
+                    (() => {
+                      const imageLine = block.kind === "paragraph" ? parseMarkdownImageLine(block.text) : null;
+                      const imageAlign = imageLine ? imageAlignFromAttrs(imageLine.attrs) : "center";
+                      return (
                     <div
                       key={block.id}
                       data-editor-block="true"
+                      data-editor-block-id={block.id}
                       className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
                         activeBlockId === block.id ? "bg-slate-50/70" : "hover:bg-slate-50/60"
+                      } ${
+                        imageDropTarget?.blockId === block.id && imageDropTarget.position === "before"
+                          ? "border-t-2 border-[#0085FF]"
+                          : imageDropTarget?.blockId === block.id &&
+                              imageDropTarget.position === "after"
+                            ? "border-b-2 border-[#0085FF]"
+                            : ""
                       }`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!canEditCurrentFile) return;
+                        const target = event.target;
+                        if (
+                          target instanceof HTMLElement &&
+                          target.closest("button,input,select,textarea,a,label,[role='button']")
+                        ) {
+                          return;
+                        }
+                        activateBlockEditor(block.id, "start");
+                      }}
+                      onDragOver={(event) => {
+                        if (!canEditTextCurrentFile || isBibWorkspaceFile) return;
+                        if (!hasDraggedImageData(event)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const position = determineBlockDropPosition(event);
+                        if (
+                          imageDropTarget?.blockId !== block.id ||
+                          imageDropTarget.position !== position
+                        ) {
+                          setImageDropTarget({ blockId: block.id, position });
+                        }
+                      }}
+                      onDrop={(event) => {
+                        if (!canEditTextCurrentFile || isBibWorkspaceFile) return;
+                        const position = determineBlockDropPosition(event);
+                        event.stopPropagation();
+                        void handleImageDrop(event, { blockId: block.id, position });
+                      }}
                     >
                       <div className="relative mt-1 w-5 shrink-0">
                         {canEditCurrentFile && activeBlockId === block.id ? (
@@ -3223,7 +3728,31 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                       <div className="w-full">
                         {canEditCurrentFile && activeBlockId === block.id ? (
                           <>
+                            {imageLine ? (
+                              <div className="mb-1 flex items-center gap-1 text-xs">
+                                {(["left", "center", "right"] as const).map((align) => (
+                                  <button
+                                    key={align}
+                                    type="button"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => {
+                                      updateBlock(block.id, {
+                                        text: setImageAlignOnMarkdownLine(block.text, align),
+                                      });
+                                    }}
+                                    className={`rounded border px-2 py-0.5 ${
+                                      imageAlign === align
+                                        ? "border-[#0085FF] bg-[#E7F2FF] text-[#0068CC]"
+                                        : "text-slate-600 hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    {align === "left" ? "Left" : align === "right" ? "Right" : "Center"}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
                             <textarea
+                              data-editor-block-id={block.id}
                               ref={(el) => {
                                 textareaRefs.current[block.id] = el;
                                 resizeTextarea(el);
@@ -3364,30 +3893,19 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                             role={canEditCurrentFile ? "button" : undefined}
                             tabIndex={canEditCurrentFile ? 0 : undefined}
                             onClick={(event) => {
+                              event.stopPropagation();
                               if (!canEditCurrentFile) return;
                               const target = event.target;
                               if (target instanceof HTMLElement && target.closest("a")) {
                                 return;
                               }
-                              setActiveBlockId(block.id);
-                              setBlockMenuForId(null);
-                              setCitationMenu(null);
-                              window.setTimeout(() => {
-                                const textarea = textareaRefs.current[block.id];
-                                if (!textarea) return;
-                                textarea.focus();
-                                const position = textarea.value.length;
-                                textarea.setSelectionRange(position, position);
-                              }, 0);
+                              activateBlockEditor(block.id, "start");
                             }}
                             onKeyDown={(event) => {
                               if (!canEditCurrentFile) return;
                               if (event.key !== "Enter" && event.key !== " ") return;
                               event.preventDefault();
-                              setActiveBlockId(block.id);
-                              window.setTimeout(() => {
-                                textareaRefs.current[block.id]?.focus();
-                              }, 0);
+                              activateBlockEditor(block.id, "start");
                             }}
                             className={`min-h-[1.5rem] w-full rounded px-0.5 py-0.5 ${
                               canEditCurrentFile ? "cursor-text" : ""
@@ -3425,6 +3943,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                         )}
                       </div>
                     </div>
+                      );
+                    })()
                   ))}
                 </div>
 
@@ -3469,7 +3989,23 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
           {tab === "preview" ? (
             <div className="space-y-3" onMouseUp={captureWindowSelection}>
-              {isBibWorkspaceFile ? (
+              {isImageWorkspaceFile ? (
+                <>
+                  <p className="text-xs text-slate-500">Image Preview</p>
+                  <div className="flex min-h-[18rem] items-center justify-center rounded-md border bg-slate-50 p-3">
+                    {activeImagePreviewSrc ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={activeImagePreviewSrc}
+                        alt={activeFile?.name ?? "image"}
+                        className="max-h-[70vh] w-auto max-w-full rounded border bg-white object-contain"
+                      />
+                    ) : (
+                      <p className="text-sm text-slate-500">No image data.</p>
+                    )}
+                  </div>
+                </>
+              ) : isBibWorkspaceFile ? (
                 <>
                   <p className="text-xs text-slate-500">BibTeX Preview</p>
                   <div className="max-w-full overflow-x-auto overflow-y-auto rounded-md border bg-white p-3">
@@ -3528,7 +4064,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   )}
                 </>
               )}
-              {!isBibWorkspaceFile && resolvedBibliography.length > 0 ? (
+              {!isBibWorkspaceFile && !isImageWorkspaceFile && resolvedBibliography.length > 0 ? (
                 <section className="rounded-md border p-3">
                   <p className="text-xs text-slate-500">References (IEEE)</p>
                   <ul className="mt-2 space-y-1 text-xs text-slate-700">
@@ -3544,7 +4080,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   </ul>
                 </section>
               ) : null}
-              {!isBibWorkspaceFile && missingCitationKeys.length > 0 ? (
+              {!isBibWorkspaceFile && !isImageWorkspaceFile && missingCitationKeys.length > 0 ? (
                 <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
                   Missing bibliography keys: {missingCitationKeys.join(", ")}
                 </p>
