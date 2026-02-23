@@ -3,6 +3,7 @@
 import {
   Fragment,
   type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -236,6 +237,10 @@ function detectCitationTrigger(
   }
 
   return { start: hasBracketPrefix ? at - 1 : at, end: cursor, query };
+}
+
+function isImeComposing(event: ReactKeyboardEvent<HTMLElement>): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
 }
 
 function sourceToEditorBlocks(source: string, sourceFormat: SourceFormat): EditorBlock[] {
@@ -3395,6 +3400,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                     });
                   }}
                   onKeyDown={(e) => {
+                    if (isImeComposing(e)) return;
                     if (e.key !== "Enter") return;
                     e.preventDefault();
                     if (!title.trim()) {
@@ -3616,6 +3622,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                   }}
                                   onKeyDown={(event) => {
                                     if (!canEditCurrentFile) return;
+                                    if (isImeComposing(event)) return;
                                     if ((event.metaKey || event.ctrlKey) && event.shiftKey) {
                                       if (event.key === "ArrowUp") {
                                         event.preventDefault();
@@ -3949,6 +3956,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                               }}
                               onKeyDown={(e) => {
                                 if (!canEditCurrentFile) return;
+                                if (isImeComposing(e)) return;
                                 if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
                                   if (e.key === "ArrowUp") {
                                     e.preventDefault();
