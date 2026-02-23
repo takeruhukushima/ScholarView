@@ -2,6 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 const DEFAULT_PUBLIC_URL = "http://127.0.0.1:3000";
+const OAUTH_SCOPE =
+  "atproto " +
+  "repo:sci.peer.article?action=create&action=update&action=delete " +
+  "repo:app.bsky.feed.post?action=create&action=delete " +
+  "repo:app.bsky.feed.like?action=create " +
+  "repo:app.bsky.feed.repost?action=create";
 
 function isLoopbackHost(hostname) {
   return (
@@ -56,7 +62,7 @@ async function main() {
     client_uri: baseUrl,
     logo_uri: `${baseUrl}/favicon.ico`,
     redirect_uris: [baseUrl],
-    scope: "atproto repo:sci.peer.article repo:app.bsky.feed.post",
+    scope: OAUTH_SCOPE,
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "none",
