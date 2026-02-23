@@ -3561,7 +3561,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                             ) {
                               return;
                             }
-                            activateBlockEditor(block.id, "start");
+                            activateBlockEditor(block.id, "end");
                           }}
                         >
                           <div className="mt-1 w-7 shrink-0 text-center text-[11px] text-slate-400">
@@ -3688,7 +3688,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   if (!canEditCurrentFile) return;
-                                  activateBlockEditor(block.id, "start");
+                                  activateBlockEditor(block.id, "end");
                                 }}
                                 onKeyDown={(event) => {
                                   if (!canEditCurrentFile) return;
@@ -3759,7 +3759,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                         ) {
                           return;
                         }
-                        activateBlockEditor(block.id, "start");
+                        activateBlockEditor(block.id, "end");
                       }}
                       onDragOver={(event) => {
                         if (!canEditTextCurrentFile) return;
@@ -4081,7 +4081,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                               if (target instanceof HTMLElement && target.closest("a")) {
                                 return;
                               }
-                              activateBlockEditor(block.id, "start");
+                              activateBlockEditor(block.id, "end");
                             }}
                             onKeyDown={(event) => {
                               if (!canEditCurrentFile) return;
