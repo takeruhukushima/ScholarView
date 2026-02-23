@@ -103,6 +103,7 @@ type TreeDropPosition = "before" | "after" | "inside";
 type NewFileType = "markdown" | "tex" | "bib";
 type ImageDropPosition = "before" | "after";
 type ImageAlign = "left" | "center" | "right";
+type BlockMoveDropTarget = { blockId: string; position: ImageDropPosition };
 
 interface ParsedMarkdownImageLine {
   alt: string;
@@ -1522,6 +1523,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     blockId: string;
     position: ImageDropPosition;
   } | null>(null);
+  const [draggingEditorBlockId, setDraggingEditorBlockId] = useState<string | null>(null);
+  const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
 
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -1529,10 +1532,15 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const titleSaveInFlightRef = useRef(false);
   const legacySyncRequestedRef = useRef(false);
   const imagePreviewFetchRequestedRef = useRef(new Set<string>());
+  const draggingEditorBlockIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     setArticles(initialArticles);
   }, [initialArticles]);
+
+  useEffect(() => {
+    draggingEditorBlockIdRef.current = draggingEditorBlockId;
+  }, [draggingEditorBlockId]);
 
   const articleByUri = useMemo(() => {
     const map = new Map<string, ArticleSummary>();
@@ -2609,6 +2617,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     Array.from(event.dataTransfer.items ?? []).some(
       (item) => item.kind === "file" && item.type.startsWith("image/"),
     );
+  const BLOCK_DRAG_MIME = "application/x-scholarview-editor-block";
+  const hasDraggedEditorBlock = (event: DragEvent<HTMLElement>): boolean =>
+    Array.from(event.dataTransfer.types ?? []).includes(BLOCK_DRAG_MIME) || Boolean(draggingEditorBlockId);
 
   const determineBlockDropPosition = (event: DragEvent<HTMLElement>): ImageDropPosition => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -2724,6 +2735,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setStatusMessage(err instanceof Error ? err.message : "Failed to insert image");
     } finally {
       setImageDropTarget(null);
+      setBlockMoveDropTarget(null);
     }
   };
 
@@ -2977,6 +2989,54 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     window.setTimeout(() => {
       focusWithRetry();
     }, 0);
+  };
+
+  const moveBlockByDelta = (index: number, delta: -1 | 1) => {
+    if (!canEditTextCurrentFile) return;
+    let movedId: string | null = null;
+    setEditorBlocks((prev) => {
+      const target = index + delta;
+      if (index < 0 || index >= prev.length || target < 0 || target >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const [moved] = next.splice(index, 1);
+      if (!moved) return prev;
+      next.splice(target, 0, moved);
+      movedId = moved.id;
+      return next;
+    });
+    setBlockMenuForId(null);
+    setCitationMenu(null);
+    if (movedId) {
+      activateBlockEditor(movedId, "start");
+    }
+  };
+
+  const moveBlockByDrop = (draggedId: string, targetId: string, position: ImageDropPosition) => {
+    if (!canEditTextCurrentFile) return;
+    if (draggedId === targetId) return;
+    let movedId: string | null = null;
+    setEditorBlocks((prev) => {
+      const from = prev.findIndex((block) => block.id === draggedId);
+      const to = prev.findIndex((block) => block.id === targetId);
+      if (from < 0 || to < 0) return prev;
+
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      if (!moved) return prev;
+      let insertAt = position === "before" ? to : to + 1;
+      if (from < insertAt) insertAt -= 1;
+      insertAt = Math.max(0, Math.min(insertAt, next.length));
+      next.splice(insertAt, 0, moved);
+      movedId = moved.id;
+      return next;
+    });
+    setBlockMenuForId(null);
+    setCitationMenu(null);
+    if (movedId) {
+      activateBlockEditor(movedId, "start");
+    }
   };
 
   const handleEditorCanvasClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -3279,6 +3339,13 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           onClick={handleEditorCanvasClick}
           onDragOver={(event) => {
             if (!canEditTextCurrentFile) return;
+            if (hasDraggedEditorBlock(event)) {
+              event.preventDefault();
+              if (imageDropTarget !== null) {
+                setImageDropTarget(null);
+              }
+              return;
+            }
             if (isBibWorkspaceFile) return;
             if (!hasDraggedImageData(event)) return;
             event.preventDefault();
@@ -3290,9 +3357,19 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             if (imageDropTarget !== null) {
               setImageDropTarget(null);
             }
+            if (blockMoveDropTarget !== null) {
+              setBlockMoveDropTarget(null);
+            }
           }}
           onDrop={(event) => {
+            if (hasDraggedEditorBlock(event)) {
+              event.preventDefault();
+              setDraggingEditorBlockId(null);
+              setBlockMoveDropTarget(null);
+              return;
+            }
             void handleImageDrop(event, imageDropTarget);
+            setBlockMoveDropTarget(null);
           }}
         >
           {!hasOpenDocument ? (
@@ -3518,8 +3595,17 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                   }}
                                   onFocus={() => setActiveBlockId(block.id)}
                                   onBlur={(event) => {
+                                    const nextFocusedElement =
+                                      event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
                                     formatBibtexBlockById(block.id, event.currentTarget.value);
                                     window.setTimeout(() => {
+                                      if (draggingEditorBlockIdRef.current === block.id) return;
+                                      if (
+                                        nextFocusedElement &&
+                                        nextFocusedElement.closest(`[data-editor-block-id="${block.id}"]`)
+                                      ) {
+                                        return;
+                                      }
                                       setActiveBlockId((prev) => (prev === block.id ? null : prev));
                                     }, 0);
                                   }}
@@ -3529,6 +3615,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                   }}
                                   onKeyDown={(event) => {
                                     if (!canEditCurrentFile) return;
+                                    if ((event.metaKey || event.ctrlKey) && event.shiftKey) {
+                                      if (event.key === "ArrowUp") {
+                                        event.preventDefault();
+                                        moveBlockByDelta(index, -1);
+                                        return;
+                                      }
+                                      if (event.key === "ArrowDown") {
+                                        event.preventDefault();
+                                        moveBlockByDelta(index, 1);
+                                        return;
+                                      }
+                                    }
                                     const selectionStart = event.currentTarget.selectionStart;
                                     const selectionEnd = event.currentTarget.selectionEnd;
                                     const atStart = selectionStart === 0 && selectionEnd === 0;
@@ -3631,12 +3729,17 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                       className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
                         activeBlockId === block.id ? "bg-slate-50/70" : "hover:bg-slate-50/60"
                       } ${
-                        imageDropTarget?.blockId === block.id && imageDropTarget.position === "before"
-                          ? "border-t-2 border-[#0085FF]"
-                          : imageDropTarget?.blockId === block.id &&
-                              imageDropTarget.position === "after"
-                            ? "border-b-2 border-[#0085FF]"
-                            : ""
+                        blockMoveDropTarget?.blockId === block.id && blockMoveDropTarget.position === "before"
+                          ? "border-t-2 border-emerald-500"
+                          : blockMoveDropTarget?.blockId === block.id &&
+                              blockMoveDropTarget.position === "after"
+                            ? "border-b-2 border-emerald-500"
+                            : imageDropTarget?.blockId === block.id && imageDropTarget.position === "before"
+                              ? "border-t-2 border-[#0085FF]"
+                              : imageDropTarget?.blockId === block.id &&
+                                  imageDropTarget.position === "after"
+                                ? "border-b-2 border-[#0085FF]"
+                                : ""
                       }`}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -3651,7 +3754,26 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                         activateBlockEditor(block.id, "start");
                       }}
                       onDragOver={(event) => {
-                        if (!canEditTextCurrentFile || isBibWorkspaceFile) return;
+                        if (!canEditTextCurrentFile) return;
+                        if (hasDraggedEditorBlock(event)) {
+                          const draggedId =
+                            event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingEditorBlockId;
+                          if (!draggedId || draggedId === block.id) return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const position = determineBlockDropPosition(event);
+                          if (
+                            blockMoveDropTarget?.blockId !== block.id ||
+                            blockMoveDropTarget.position !== position
+                          ) {
+                            setBlockMoveDropTarget({ blockId: block.id, position });
+                          }
+                          if (imageDropTarget !== null) {
+                            setImageDropTarget(null);
+                          }
+                          return;
+                        }
+                        if (isBibWorkspaceFile) return;
                         if (!hasDraggedImageData(event)) return;
                         event.preventDefault();
                         event.stopPropagation();
@@ -3664,22 +3786,52 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                         }
                       }}
                       onDrop={(event) => {
-                        if (!canEditTextCurrentFile || isBibWorkspaceFile) return;
+                        if (!canEditTextCurrentFile) return;
+                        if (hasDraggedEditorBlock(event)) {
+                          const draggedId =
+                            event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingEditorBlockId;
+                          const position = determineBlockDropPosition(event);
+                          event.preventDefault();
+                          event.stopPropagation();
+                          if (draggedId && draggedId !== block.id) {
+                            moveBlockByDrop(draggedId, block.id, position);
+                          }
+                          setDraggingEditorBlockId(null);
+                          setBlockMoveDropTarget(null);
+                          return;
+                        }
+                        if (isBibWorkspaceFile) return;
                         const position = determineBlockDropPosition(event);
                         event.stopPropagation();
                         void handleImageDrop(event, { blockId: block.id, position });
                       }}
                     >
                       <div className="relative mt-1 w-5 shrink-0">
-                        {canEditCurrentFile && activeBlockId === block.id ? (
+                        {canEditCurrentFile &&
+                        (activeBlockId === block.id || draggingEditorBlockId === block.id) ? (
                           <>
                             <button
                               type="button"
-                              onClick={() =>
-                                setBlockMenuForId((prev) => (prev === block.id ? null : block.id))
-                              }
-                              className="flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600"
-                              title="Block options"
+                              draggable
+                              onDragStart={(event) => {
+                                setDraggingEditorBlockId(block.id);
+                                setBlockMoveDropTarget(null);
+                                setImageDropTarget(null);
+                                event.dataTransfer.setData(BLOCK_DRAG_MIME, block.id);
+                                event.dataTransfer.effectAllowed = "move";
+                              }}
+                              onDragEnd={() => {
+                                setDraggingEditorBlockId(null);
+                                setBlockMoveDropTarget(null);
+                              }}
+                              onClick={() => {
+                                setActiveBlockId(block.id);
+                                setBlockMenuForId((prev) => (prev === block.id ? null : block.id));
+                              }}
+                              className={`flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600 ${
+                                draggingEditorBlockId === block.id ? "cursor-grabbing" : "cursor-grab"
+                              }`}
+                              title="Drag to move block"
                             >
                               ⋮⋮
                             </button>
@@ -3763,9 +3915,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                               onFocus={() => {
                                 setActiveBlockId(block.id);
                               }}
-                              onBlur={() => {
+                              onBlur={(event) => {
+                                const nextFocusedElement =
+                                  event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
                                 window.setTimeout(() => {
                                   if (citationMenu?.blockId === block.id) return;
+                                  if (draggingEditorBlockIdRef.current === block.id) return;
+                                  if (
+                                    nextFocusedElement &&
+                                    nextFocusedElement.closest(`[data-editor-block-id="${block.id}"]`)
+                                  ) {
+                                    return;
+                                  }
                                   setActiveBlockId((prev) => (prev === block.id ? null : prev));
                                 }, 0);
                               }}
@@ -3787,6 +3948,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                               }}
                               onKeyDown={(e) => {
                                 if (!canEditCurrentFile) return;
+                                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
+                                  if (e.key === "ArrowUp") {
+                                    e.preventDefault();
+                                    moveBlockByDelta(index, -1);
+                                    return;
+                                  }
+                                  if (e.key === "ArrowDown") {
+                                    e.preventDefault();
+                                    moveBlockByDelta(index, 1);
+                                    return;
+                                  }
+                                }
 
                                 const menuOpenForBlock =
                                   citationMenu?.blockId === block.id &&
