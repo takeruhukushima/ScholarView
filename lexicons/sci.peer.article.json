@@ -24,6 +24,19 @@
         "content": { "type": "string", "description": "TeXまたはMarkdown形式の本文" }
       }
     },
+    "imageAsset": {
+      "type": "object",
+      "required": ["path", "blob"],
+      "properties": {
+        "path": { "type": "string", "description": "本文中で参照される画像パス" },
+        "alt": { "type": "string", "description": "画像の代替テキスト（任意）" },
+        "blob": {
+          "type": "blob",
+          "accept": ["image/*"],
+          "maxSize": 10000000
+        }
+      }
+    },
     "main": {
       "type": "record",
       "key": "tid",
@@ -41,6 +54,11 @@
             "type": "array",
             "description": "本文で使用する引用エントリ",
             "items": { "type": "ref", "ref": "#citation" }
+          },
+          "images": {
+            "type": "array",
+            "description": "本文で使用する画像blobの参照",
+            "items": { "type": "ref", "ref": "#imageAsset" }
           },
           "createdAt": { "type": "string", "format": "datetime" }
         }

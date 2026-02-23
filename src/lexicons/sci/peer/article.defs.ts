@@ -8,6 +8,30 @@ const $nsid = 'sci.peer.article'
 
 export { $nsid }
 
+type Citation = {
+  $type?: 'sci.peer.article#citation'
+
+  /**
+   * BibTeX citation key
+   */
+  key: string
+
+  /**
+   * Raw BibTeX entry
+   */
+  rawBibtex: string
+}
+
+export type { Citation }
+
+const citation = l.typedObject<Citation>(
+  $nsid,
+  'citation',
+  l.object({ key: l.string(), rawBibtex: l.string() }),
+)
+
+export { citation }
+
 type Block = {
   $type?: 'sci.peer.article#block'
 
@@ -29,33 +53,6 @@ type Block = {
 
 export type { Block }
 
-type Citation = {
-  $type?: 'sci.peer.article#citation'
-
-  /**
-   * BibTeX citation key
-   */
-  key: string
-
-  /**
-   * Raw BibTeX entry
-   */
-  rawBibtex: string
-}
-
-export type { Citation }
-
-const citation = l.typedObject<Citation>(
-  $nsid,
-  'citation',
-  l.object({
-    key: l.string(),
-    rawBibtex: l.string(),
-  }),
-)
-
-export { citation }
-
 const block = l.typedObject<Block>(
   $nsid,
   'block',
@@ -67,6 +64,39 @@ const block = l.typedObject<Block>(
 )
 
 export { block }
+
+type ImageAsset = {
+  $type?: 'sci.peer.article#imageAsset'
+
+  /**
+   * 本文中で参照される画像パス
+   */
+  path: string
+
+  /**
+   * 画像の代替テキスト（任意）
+   */
+  alt?: string
+  blob: l.BlobRef
+}
+
+export type { ImageAsset }
+
+const imageAsset = l.typedObject<ImageAsset>(
+  $nsid,
+  'imageAsset',
+  l.object({
+    path: l.string(),
+    alt: l.optional(l.string()),
+    blob: l.blob({
+      accept: ['image/*'],
+      maxSize: 10000000,
+      allowLegacy: false,
+    }),
+  }),
+)
+
+export { imageAsset }
 
 type Main = {
   $type: 'sci.peer.article'
@@ -80,7 +110,16 @@ type Main = {
    * 論文を構成する任意のセクション配列（フラット構造）
    */
   blocks: Block[]
+
+  /**
+   * 本文で使用する引用エントリ
+   */
   bibliography?: Citation[]
+
+  /**
+   * 本文で使用する画像blobの参照
+   */
+  images?: ImageAsset[]
   createdAt: l.DatetimeString
 }
 
@@ -93,6 +132,7 @@ const main = l.record<'tid', Main>(
     title: l.string({ maxLength: 300 }),
     blocks: l.array(l.ref<Block>((() => block) as any)),
     bibliography: l.optional(l.array(l.ref<Citation>((() => citation) as any))),
+    images: l.optional(l.array(l.ref<ImageAsset>((() => imageAsset) as any))),
     createdAt: l.string({ format: 'datetime' }),
   }),
 )

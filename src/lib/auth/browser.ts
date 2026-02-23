@@ -8,6 +8,7 @@ const HANDLE_KEY_PREFIX = "scholarview:auth:handle:";
 
 export const OAUTH_SCOPE =
   "atproto " +
+  "blob:*/* " +
   "repo:sci.peer.article?action=create&action=update&action=delete " +
   "repo:app.bsky.feed.post?action=create&action=delete " +
   "repo:app.bsky.feed.like?action=create " +
