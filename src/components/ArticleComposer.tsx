@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
 import { buildPaperPath } from "@/lib/articles/uri";
-import type { SourceFormat } from "@/lib/types";
+import { formatAuthors, parseAuthors } from "@/lib/articles/authors";
+import { getActiveDid } from "@/lib/auth/browser";
+import type { ArticleAuthor, SourceFormat } from "@/lib/types";
 
 const MAX_TITLE_LENGTH = 300;
 
@@ -29,6 +31,7 @@ interface ArticleComposerProps {
   did?: string;
   rkey?: string;
   initialTitle?: string;
+  initialAuthors?: ArticleAuthor[];
   initialContent?: string;
   initialSourceFormat?: SourceFormat;
   onSubmitted?: () => void;
@@ -44,6 +47,7 @@ export function ArticleComposer({
   did,
   rkey,
   initialTitle = "",
+  initialAuthors = [],
   initialContent = "",
   initialSourceFormat = "markdown",
   onSubmitted,
@@ -51,6 +55,8 @@ export function ArticleComposer({
   const router = useRouter();
 
   const [title, setTitle] = useState(initialTitle);
+  const [authorsText, setAuthorsText] = useState(formatAuthors(initialAuthors));
+  const [isAuthorsFocused, setIsAuthorsFocused] = useState(false);
   const [content, setContent] = useState(initialContent);
   const [sourceFormat, setSourceFormat] = useState<SourceFormat>(initialSourceFormat);
   const [broadcastToBsky, setBroadcastToBsky] = useState(false);
@@ -58,6 +64,10 @@ export function ArticleComposer({
   const [loading, setLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const titleRef = useRef<HTMLInputElement>(null);
+  const authorsRef = useRef<HTMLTextAreaElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
 
   const [drafts, setDrafts] = useState<DraftArticle[]>([]);
   const [selectedDraftId, setSelectedDraftId] = useState<string>("");
@@ -90,6 +100,17 @@ export function ArticleComposer({
     void loadDrafts();
   }, [loadDrafts]);
 
+  useEffect(() => {
+    if (mode === "create" && !authorsText) {
+      void (async () => {
+        const myDid = await getActiveDid();
+        if (myDid) {
+          setAuthorsText(`<${myDid}>`);
+        }
+      })();
+    }
+  }, [mode, authorsText]);
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
@@ -104,6 +125,7 @@ export function ArticleComposer({
       const method = mode === "edit" ? "PUT" : "POST";
       const payload = {
         title,
+        authors: parseAuthors(authorsText),
         sourceFormat,
         broadcastToBsky,
         ...(sourceFormat === "tex" ? { tex: content } : { markdown: content }),
@@ -266,8 +288,19 @@ export function ArticleComposer({
           Title
         </label>
         <input
+          ref={titleRef}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            if (e.key === "ArrowDown" || e.key === "Enter") {
+              e.preventDefault();
+              setIsAuthorsFocused(true);
+              setTimeout(() => {
+                authorsRef.current?.focus();
+              }, 10);
+            }
+          }}
           maxLength={MAX_TITLE_LENGTH}
           placeholder="実験計画・論文タイトル"
           className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
@@ -275,6 +308,87 @@ export function ArticleComposer({
         />
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           {title.length}/{MAX_TITLE_LENGTH}
+        </p>
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          Authors
+        </label>
+        {isAuthorsFocused || !authorsText.trim() ? (
+          <>
+            <textarea
+              ref={authorsRef}
+              autoFocus={isAuthorsFocused}
+              value={authorsText}
+              onChange={(e) => setAuthorsText(e.target.value)}
+              onBlur={() => setIsAuthorsFocused(false)}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
+                const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0;
+                const atEnd = e.currentTarget.selectionStart === e.currentTarget.value.length && e.currentTarget.selectionEnd === e.currentTarget.value.length;
+
+                if (e.key === "ArrowUp" && atStart) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  titleRef.current?.focus();
+                  return;
+                }
+
+                if (e.key === "ArrowDown" || e.key === "Enter") {
+                  if (e.key === "Enter" || atEnd) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    
+                    // まず本文にフォーカスを移動
+                    contentRef.current?.focus();
+                    contentRef.current?.setSelectionRange(0, 0);
+                    
+                    // その後で著者欄を閉じる
+                    setIsAuthorsFocused(false);
+                  }
+                }
+              }}
+              placeholder="名前 <did:plc:...> (所属)"
+              rows={3}
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono"
+              disabled={loading}
+            />
+            {authorsText.trim() && (
+              <div className="mt-1 flex flex-wrap gap-1 opacity-60">
+                {parseAuthors(authorsText).map((a, i) => (
+                  <span
+                    key={i}
+                    className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                  >
+                    <span>{a.name || "Unknown"}</span>
+                    {a.affiliation && <span className="opacity-60">({a.affiliation})</span>}
+                    {a.did && <span className="text-[9px] text-blue-500">DID</span>}
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div
+            onClick={() => setIsAuthorsFocused(true)}
+            className="flex min-h-[2.5rem] cursor-text flex-wrap gap-1 rounded-lg border border-transparent py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+          >
+            {parseAuthors(authorsText).map((a, i) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 rounded bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+              >
+                <span>{a.name || "Unknown"}</span>
+                {a.affiliation && <span className="opacity-60">({a.affiliation})</span>}
+                {a.did && <span className="text-[9px] text-blue-500">DID</span>}
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          1行に1人、またはコンマ区切りで記述してください。形式: 名前 &lt;DID&gt; (所属)
         </p>
       </div>
 
@@ -309,8 +423,22 @@ export function ArticleComposer({
           {sourceFormat === "tex" ? "TeX" : "Markdown"}
         </label>
         <textarea
+          ref={contentRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+            const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0;
+            if (e.key === "ArrowUp" && atStart) {
+              e.preventDefault();
+              setIsAuthorsFocused(true);
+              setTimeout(() => {
+                authorsRef.current?.focus();
+                const len = authorsRef.current?.value.length ?? 0;
+                authorsRef.current?.setSelectionRange(len, len);
+              }, 10);
+            }
+          }}
           rows={12}
           placeholder={
             sourceFormat === "tex"

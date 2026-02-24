@@ -5,6 +5,12 @@ export type SourceFormat = "markdown" | "tex";
 export type WorkspaceFileKind = "folder" | "file";
 export type BskyInteractionAction = "like" | "repost" | "reply";
 
+export interface ArticleAuthor {
+  did?: string;
+  name: string;
+  affiliation?: string;
+}
+
 export interface ArticleSummary {
   uri: string;
   did: string;
@@ -12,6 +18,7 @@ export interface ArticleSummary {
   authorDid: string;
   handle: string | null;
   title: string;
+  authors: ArticleAuthor[];
   sourceFormat: SourceFormat;
   broadcasted: 0 | 1;
   createdAt: string;

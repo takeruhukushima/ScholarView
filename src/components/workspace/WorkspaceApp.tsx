@@ -25,8 +25,9 @@ import {
   splitBibtexSourceBlocks,
   type BibliographyEntry,
 } from "@/lib/articles/citations";
+import { formatAuthors, parseAuthors } from "@/lib/articles/authors";
 import { exportSource } from "@/lib/export/document";
-import type { ArticleSummary, SourceFormat } from "@/lib/types";
+import type { ArticleAuthor, ArticleSummary, SourceFormat } from "@/lib/types";
 
 interface WorkspaceAppProps {
   initialArticles: ArticleSummary[];
@@ -77,6 +78,7 @@ interface ArticleDetailPayload {
   rkey: string;
   authorDid: string;
   title: string;
+  authors: ArticleAuthor[];
   blocks: ArticleBlock[];
   bibliography?: BibliographyEntry[];
   sourceFormat: SourceFormat;
@@ -1371,7 +1373,12 @@ function ArticleList({
                 }`}
               >
                 <p className="truncate text-sm text-slate-800">{article.title}</p>
-                <p className="truncate text-[11px] text-slate-500">
+                {article.authors?.length > 0 && (
+                  <p className="truncate text-[10px] text-slate-500">
+                    {article.authors.map((a) => a.name || a.did?.slice(0, 12)).join(", ")}
+                  </p>
+                )}
+                <p className="truncate text-[11px] text-slate-400">
                   @{article.handle ?? article.authorDid}
                 </p>
               </button>
@@ -1496,6 +1503,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
+  const [authorsText, setAuthorsText] = useState("");
+  const [isAuthorsFocused, setIsAuthorsFocused] = useState(false);
   const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
   const [editorBlocks, setEditorBlocks] = useState<EditorBlock[]>([{ id: newId(), kind: "paragraph", text: "" }]);
   const [articleBibliography, setArticleBibliography] = useState<BibliographyEntry[]>([]);
@@ -1533,6 +1542,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
 
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const titleRef = useRef<HTMLInputElement>(null);
+  const authorsRef = useRef<HTMLTextAreaElement>(null);
   const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const saveInFlightRef = useRef(false);
   const titleSaveInFlightRef = useRef(false);
@@ -1871,18 +1882,21 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         setCurrentRkey(linked.rkey);
         setCurrentAuthorDid(linked.authorDid);
         setTitle(linked.title);
+        setAuthorsText(formatAuthors(linked.authors));
         setBroadcastToBsky(Boolean(linked.announcementUri));
       } else if (file.linkedArticleDid && file.linkedArticleRkey) {
         setCurrentDid(file.linkedArticleDid);
         setCurrentRkey(file.linkedArticleRkey);
         setCurrentAuthorDid(sessionDid ?? null);
         setTitle(defaultTitleFromFileName(file.name));
+        setAuthorsText(sessionDid ? `<${sessionDid}>` : "");
         setBroadcastToBsky(true);
       } else {
         setCurrentDid(null);
         setCurrentRkey(null);
         setCurrentAuthorDid(sessionDid ?? null);
         setTitle(defaultTitleFromFileName(file.name));
+        setAuthorsText(sessionDid ? `<${sessionDid}>` : "");
         setBroadcastToBsky(true);
         setArticleBibliography([]);
       }
@@ -1969,6 +1983,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         typeof detail.authorDid === "string" ? detail.authorDid : article.authorDid,
       );
       setTitle(typeof detail.title === "string" ? detail.title : article.title);
+      setAuthorsText(
+        formatAuthors(Array.isArray(detail.authors) ? detail.authors : article.authors),
+      );
       setBroadcastToBsky(
         detail.broadcasted === 1 ||
           (typeof detail.announcementUri === "string" && detail.announcementUri.length > 0) ||
@@ -2319,6 +2336,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             title,
+            authors: parseAuthors(authorsText),
             broadcastToBsky,
             bibliography: resolvedBibliography.map((entry) => ({
               key: entry.key,
@@ -3385,40 +3403,122 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           ) : (
             <>
               <div className="mb-4 flex items-start justify-between gap-3" data-tour-id="publish-flow">
-                <input
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  onBlur={() => {
-                    if (!title.trim()) {
-                      if (activeFile?.kind === "file") {
-                        setTitle(defaultTitleFromFileName(activeFile.name));
+                <div className="flex flex-1 flex-col">
+                  <input
+                    ref={titleRef}
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    onBlur={() => {
+                      if (!title.trim()) {
+                        if (activeFile?.kind === "file") {
+                          setTitle(defaultTitleFromFileName(activeFile.name));
+                        }
+                        return;
                       }
-                      return;
-                    }
-                    void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
-                      setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
-                    });
-                  }}
-                  onKeyDown={(e) => {
-                    if (isImeComposing(e)) return;
-                    if (e.key !== "Enter") return;
-                    e.preventDefault();
-                    if (!title.trim()) {
-                      if (activeFile?.kind === "file") {
-                        setTitle(defaultTitleFromFileName(activeFile.name));
+                      void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
+                        setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      if (isImeComposing(e)) return;
+                      
+                      if (e.key === "ArrowDown" || e.key === "Enter") {
+                        e.preventDefault();
+                        if (!title.trim() && activeFile?.kind === "file") {
+                          setTitle(defaultTitleFromFileName(activeFile.name));
+                        }
+                        void persistTitleAsFileName({ silent: true }).catch(() => {});
+                        setIsAuthorsFocused(true);
+                        setTimeout(() => {
+                          authorsRef.current?.focus();
+                        }, 10);
+                        return;
                       }
-                      e.currentTarget.blur();
-                      return;
-                    }
-                    void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
-                      setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
-                    });
-                    e.currentTarget.blur();
-                  }}
-                  readOnly={!canEditCurrentFile}
-                  className="w-full border-none bg-transparent text-3xl font-semibold outline-none"
-                  placeholder="Untitled"
-                />
+                    }}
+                    readOnly={!canEditCurrentFile}
+                    className="w-full border-none bg-transparent text-3xl font-semibold outline-none"
+                    placeholder="Untitled"
+                  />
+
+                                                                        {canPublishCurrentFile && (
+                                                                          <div className="mt-1">
+                                                                            {isAuthorsFocused || !authorsText.trim() ? (
+                                                                              <>
+                                                                                <textarea
+                                                                                  ref={authorsRef}
+                                                                                  autoFocus={isAuthorsFocused}
+                                                                                  value={authorsText}
+                                                                                  onChange={(e) => setAuthorsText(e.target.value)}
+                                                                                  onBlur={() => setIsAuthorsFocused(false)}
+                                                                                                              onKeyDown={(e) => {
+                                                                                                                if (isImeComposing(e)) return;
+                                                                                  
+                                                                                                                const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0;
+                                                                                                                const atEnd = e.currentTarget.selectionStart === e.currentTarget.value.length && e.currentTarget.selectionEnd === e.currentTarget.value.length;
+                                                                                  
+                                                                                                                if (e.key === "ArrowUp" && atStart) {
+                                                                                                                  e.preventDefault();
+                                                                                                                  e.stopPropagation();
+                                                                                                                  titleRef.current?.focus();
+                                                                                                                  return;
+                                                                                                                }
+                                                                                  
+                                                                                                                if (e.key === "ArrowDown" || e.key === "Enter") {
+                                                                                                                  if (e.key === "Enter" || atEnd) {
+                                                                                                                    e.preventDefault();
+                                                                                                                    e.stopPropagation();
+                                                                                                                    
+                                                                                                                    // まず本文にフォーカスを移動
+                                                                                                                    if (editorBlocks.length > 0) {
+                                                                                                                      focusBlockByIndex(0, { position: "start" });
+                                                                                                                    }
+                                                                                                                    
+                                                                                                                    // その後で著者欄を閉じる
+                                                                                                                    setIsAuthorsFocused(false);
+                                                                                                                  }
+                                                                                                                }
+                                                                                                              }}
+                                                                                  
+                                                                                  readOnly={!canEditCurrentFile}
+                                                                                  className="w-full resize-none border-none bg-transparent font-mono text-sm text-slate-500 outline-none"
+                                                                                  placeholder="著者名 <did:plc:...> (所属) ※コンマやセミコロンで区切り"
+                                                                                  rows={Math.max(1, authorsText.split("\n").length)}
+                                                                                />
+                                                                                                                    {authorsText.trim() && (
+                                                                <div className="mt-1 flex flex-wrap gap-1 opacity-60">
+                                                                  {parseAuthors(authorsText).map((a, i) => (
+                                                                    <span
+                                                                      key={i}
+                                                                      className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
+                                                                    >
+                                                                      <span>{a.name || "Unknown"}</span>
+                                                                      {a.affiliation && <span className="opacity-60">({a.affiliation})</span>}
+                                                                      {a.did && <span className="text-[8px] text-blue-500">DID</span>}
+                                                                    </span>
+                                                                  ))}
+                                                                </div>
+                                                              )}
+                                                            </>
+                                                          ) : (
+                                                            <div
+                                                              onClick={() => setIsAuthorsFocused(true)}
+                                                              className="flex min-h-[1.5rem] cursor-text flex-wrap gap-1 py-1"
+                                                            >
+                                                              {parseAuthors(authorsText).map((a, i) => (
+                                                                <span
+                                                                  key={i}
+                                                                  className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
+                                                                >
+                                                                  <span>{a.name || "Unknown"}</span>
+                                                                  {a.affiliation && <span className="opacity-60">({a.affiliation})</span>}
+                                                                  {a.did && <span className="text-[8px] text-blue-500">DID</span>}
+                                                                </span>
+                                                              ))}
+                                                            </div>
+                                                          )}
+                                                        </div>
+                                                      )}
+                                                    </div>
 
                 <div className="relative flex items-center gap-2">
                   {canEditCurrentFile ? (
@@ -4009,9 +4109,20 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                 const atEnd =
                                   selectionStart === e.currentTarget.value.length &&
                                   selectionEnd === e.currentTarget.value.length;
-                                if (e.key === "ArrowUp" && atStart && index > 0) {
-                                  e.preventDefault();
-                                  focusBlockByIndex(index - 1, { position: "end" });
+                                if (e.key === "ArrowUp" && atStart) {
+                                  if (index > 0) {
+                                    e.preventDefault();
+                                    focusBlockByIndex(index - 1, { position: "end" });
+                                  } else {
+                                    // 最初のブロックから著者欄へ戻る
+                                    e.preventDefault();
+                                    setIsAuthorsFocused(true);
+                                    setTimeout(() => {
+                                      authorsRef.current?.focus();
+                                      const len = authorsRef.current?.value.length ?? 0;
+                                      authorsRef.current?.setSelectionRange(len, len);
+                                    }, 10);
+                                  }
                                   return;
                                 }
                                 if (e.key === "ArrowDown" && atEnd && index < editorBlocks.length - 1) {

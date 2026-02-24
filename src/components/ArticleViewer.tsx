@@ -11,7 +11,7 @@ import {
   formatCitationChip,
   type BibliographyEntry,
 } from "@/lib/articles/citations";
-import type { InlineCommentView } from "@/lib/types";
+import type { ArticleAuthor, InlineCommentView } from "@/lib/types";
 
 import { InlineCommentComposer } from "./InlineCommentComposer";
 
@@ -19,6 +19,7 @@ interface ArticleViewerProps {
   did: string;
   rkey: string;
   title: string;
+  authors: ArticleAuthor[];
   blocks: ArticleBlock[];
   bibliography: BibliographyEntry[];
   comments: InlineCommentView[];
@@ -196,6 +197,7 @@ export function ArticleViewer({
   did,
   rkey,
   title,
+  authors,
   blocks,
   bibliography,
   comments,
@@ -278,29 +280,56 @@ export function ArticleViewer({
         onMouseUp={handleMouseUp}
         className="space-y-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
       >
-        <header className="space-y-2 border-b border-zinc-200 dark:border-zinc-800 pb-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-              {title}
-            </h1>
-            {canEdit ? (
-              <div className="flex items-center gap-2">
-                <Link
-                  href={editHref}
-                  className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
-                >
-                  Edit
-                </Link>
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
-                >
-                  {deleting ? "Deleting..." : "Delete"}
-                </button>
+        <header className="space-y-3 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                {title}
+              </h1>
+              {canEdit ? (
+                <div className="flex items-center gap-2">
+                  <Link
+                    href={editHref}
+                    className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
+                  >
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+                  >
+                    {deleting ? "Deleting..." : "Delete"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            {authors.length > 0 && (
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+                {authors.map((author, idx) => (
+                  <span key={`${author.name}-${idx}`} className="flex items-center gap-1">
+                    <span className="font-medium text-zinc-900 dark:text-zinc-100">
+                      {author.name || (author.did ? author.did.slice(0, 15) + "..." : "Unknown Author")}
+                    </span>
+                    {author.affiliation && (
+                      <span className="text-xs text-zinc-500">({author.affiliation})</span>
+                    )}
+                    {author.did && (
+                      <Link
+                        href={`https://bsky.app/profile/${author.did}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:underline text-xs"
+                      >
+                        [Bsky]
+                      </Link>
+                    )}
+                  </span>
+                ))}
               </div>
-            ) : null}
+            )}
           </div>
 
           {canComment ? (
