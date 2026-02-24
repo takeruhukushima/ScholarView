@@ -156,8 +156,7 @@ function PaperPageClient() {
         </div>
 
         <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
-          <p>Author: @{article.handle ?? article.authorDid}</p>
-          <p className="mt-1">
+          <p>
             Canonical:{" "}
             <a
               href={canonicalUrl}
@@ -174,6 +173,7 @@ function PaperPageClient() {
           did={article.did}
           rkey={article.rkey}
           title={article.title}
+          authors={article.authors}
           blocks={article.blocks}
           bibliography={article.bibliography}
           comments={comments}

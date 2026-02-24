@@ -146,6 +146,7 @@ function EditPaperPageClient() {
             did={did}
             rkey={rkey}
             initialTitle={article.title}
+            initialAuthors={article.authors}
             initialSourceFormat={article.sourceFormat}
             initialContent={blocksToContent(article.blocks, article.sourceFormat)}
           />

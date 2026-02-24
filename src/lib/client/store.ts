@@ -12,6 +12,7 @@ import {
 } from "@/lib/articles/citations";
 import { buildArticleUri, parseArticleUri } from "@/lib/articles/uri";
 import type {
+  ArticleAuthor,
   ArticleDetail,
   ArticleSummary,
   BskyInteractionView,
@@ -43,6 +44,7 @@ interface ArticleRecord {
   uri: string;
   authorDid: string;
   title: string;
+  authorsJson: string;
   blocksJson: string;
   bibliographyJson: string;
   sourceFormat: SourceFormat;
@@ -70,11 +72,11 @@ interface InlineCommentRecord {
   indexedAt: string;
 }
 
-interface DraftRecord extends DraftArticle {}
+type DraftRecord = DraftArticle;
 
-interface WorkspaceFileRecord extends WorkspaceFileNode {}
+type WorkspaceFileRecord = WorkspaceFileNode;
 
-interface InteractionRecord extends BskyInteractionView {}
+type InteractionRecord = BskyInteractionView;
 
 type StoreName =
   | typeof STORE_ACCOUNTS
@@ -174,6 +176,13 @@ function mapSummary(
   const parsed = parseArticleUri(article.uri);
   if (!parsed) return null;
 
+  let authors: ArticleAuthor[] = [];
+  try {
+    authors = article.authorsJson ? JSON.parse(article.authorsJson) : [];
+  } catch {
+    authors = [];
+  }
+
   return {
     uri: article.uri,
     did: parsed.did,
@@ -181,6 +190,7 @@ function mapSummary(
     authorDid: article.authorDid,
     handle: account?.handle ?? null,
     title: article.title,
+    authors,
     sourceFormat: normalizeSourceFormat(article.sourceFormat),
     broadcasted: article.broadcasted,
     createdAt: article.createdAt,
@@ -214,6 +224,7 @@ export async function updateArticleByUri(
   uri: string,
   input: {
     title: string;
+    authorsJson: string;
     blocksJson: string;
     bibliographyJson: string;
     sourceFormat: SourceFormat;
@@ -229,6 +240,7 @@ export async function updateArticleByUri(
     const next: ArticleRecord = {
       ...current,
       title: input.title,
+      authorsJson: input.authorsJson,
       blocksJson: input.blocksJson,
       bibliographyJson: input.bibliographyJson,
       sourceFormat: input.sourceFormat,
@@ -418,6 +430,13 @@ export async function getArticleByDidAndRkey(
         tx.objectStore(STORE_ACCOUNTS).get(article.authorDid),
       )) as AccountRecord | undefined;
 
+      let authors: ArticleAuthor[] = [];
+      try {
+        authors = article.authorsJson ? JSON.parse(article.authorsJson) : [];
+      } catch {
+        authors = [];
+      }
+
       return {
         uri: article.uri,
         did,
@@ -425,6 +444,7 @@ export async function getArticleByDidAndRkey(
         authorDid: article.authorDid,
         handle: account?.handle ?? null,
         title: article.title,
+        authors,
         blocks: deserializeBlocks(article.blocksJson),
         bibliography: deserializeBibliography(article.bibliographyJson),
         sourceFormat: normalizeSourceFormat(article.sourceFormat),
@@ -729,6 +749,7 @@ export async function seedArticleFromRecord(input: {
   uri: string;
   authorDid: string;
   title: string;
+  authors?: ArticleAuthor[];
   sourceFormat: SourceFormat;
   blocks: ArticleBlock[];
   bibliography?: BibliographyEntry[];
@@ -740,6 +761,7 @@ export async function seedArticleFromRecord(input: {
     uri: input.uri,
     authorDid: input.authorDid,
     title: input.title,
+    authorsJson: JSON.stringify(input.authors ?? []),
     sourceFormat: input.sourceFormat,
     blocksJson: serializeBlocks(input.blocks),
     bibliographyJson: serializeBibliography(input.bibliography ?? []),

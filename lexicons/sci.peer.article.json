@@ -2,6 +2,15 @@
   "lexicon": 1,
   "id": "sci.peer.article",
   "defs": {
+    "author": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "did": { "type": "did", "description": "AT Protocol DID (optional)" },
+        "name": { "type": "string", "description": "著者名" },
+        "affiliation": { "type": "string", "description": "所属（任意）" }
+      }
+    },
     "citation": {
       "type": "object",
       "required": ["key", "rawBibtex"],
@@ -45,6 +54,11 @@
         "required": ["title", "blocks", "createdAt"],
         "properties": {
           "title": { "type": "string", "maxLength": 300, "description": "論文または実験計画のタイトル" },
+          "authors": {
+            "type": "array",
+            "description": "論文の著者リスト",
+            "items": { "type": "ref", "ref": "#author" }
+          },
           "blocks": {
             "type": "array",
             "description": "論文を構成する任意のセクション配列（フラット構造）",

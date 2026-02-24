@@ -108,6 +108,11 @@ export default function ArticlesPage() {
                   className="block rounded-md border p-3 hover:bg-slate-50"
                 >
                   <p className="text-sm font-medium text-slate-900">{article.title}</p>
+                  {article.authors?.length > 0 && (
+                    <p className="mt-0.5 text-[11px] text-slate-600">
+                      {article.authors.map((a) => a.name || a.did).join(", ")}
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-slate-500">
                     @{article.handle ?? article.authorDid} ·{" "}
                     {new Date(article.createdAt).toLocaleDateString("ja-JP")}

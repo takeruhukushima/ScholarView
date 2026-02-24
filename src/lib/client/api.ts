@@ -57,6 +57,7 @@ import {
   upsertInlineComment,
 } from "@/lib/client/store";
 import type {
+  ArticleAuthor,
   BskyInteractionAction,
   SourceFormat,
   WorkspaceFileNode,
@@ -319,6 +320,7 @@ async function buildWorkspaceArticleImageAssets(
 
 function parseArticleValue(value: unknown): {
   title: string;
+  authors: ArticleAuthor[];
   blocks: ArticleBlock[];
   bibliography: ReturnType<typeof normalizeBibliography>;
   createdAt: string;
@@ -329,6 +331,7 @@ function parseArticleValue(value: unknown): {
     if (!parsed.title.trim() || blocks.length === 0) return null;
     return {
       title: parsed.title.trim(),
+      authors: (parsed.authors ?? []) as ArticleAuthor[],
       blocks,
       bibliography: normalizeBibliography((parsed as { bibliography?: unknown }).bibliography),
       createdAt: parsed.createdAt,
@@ -341,9 +344,20 @@ function parseArticleValue(value: unknown): {
     const blocks = normalizeBlocks(obj.blocks);
     if (!title || blocks.length === 0) return null;
 
+    const authorsRaw = Array.isArray(obj.authors) ? obj.authors : [];
+    const authors: ArticleAuthor[] = authorsRaw.map((a) => {
+      const o = asObject(a) || {};
+      return {
+        name: asString(o.name),
+        did: o.did ? asString(o.did) : undefined,
+        affiliation: o.affiliation ? asString(o.affiliation) : undefined,
+      };
+    });
+
     const createdAtRaw = asString(obj.createdAt);
     return {
       title,
+      authors,
       blocks,
       bibliography: normalizeBibliography(obj.bibliography),
       createdAt: createdAtRaw || new Date().toISOString(),
@@ -436,6 +450,7 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
           uri,
           authorDid: did,
           title: parsed.title,
+          authorsJson: JSON.stringify(parsed.authors),
           blocksJson: serializeBlocks(parsed.blocks),
           bibliographyJson: serializeBibliography(parsed.bibliography),
           sourceFormat: "markdown",
@@ -517,6 +532,7 @@ async function createArticle(request: Request): Promise<Response> {
   const { did, lex } = await getAuthedLexClient();
   const body = (await request.json()) as {
     title?: unknown;
+    authors?: unknown;
     sourceFormat?: unknown;
     broadcastToBsky?: unknown;
     markdown?: unknown;
@@ -533,6 +549,7 @@ async function createArticle(request: Request): Promise<Response> {
     throw new HttpError(400, `Title must be <= ${MAX_TITLE_LENGTH} characters`);
   }
 
+  const authors = Array.isArray(body.authors) ? (body.authors as ArticleAuthor[]) : [];
   const sourceFormat = sourceFormatFromUnknown(body.sourceFormat);
   const blocks = getBlocksFromSource({
     blocks: body.blocks,
@@ -553,6 +570,7 @@ async function createArticle(request: Request): Promise<Response> {
   const createdAt = new Date().toISOString();
   const article = await lex.create(sci.peer.article.main, {
     title,
+    authors,
     blocks,
     bibliography,
     createdAt,
@@ -582,6 +600,7 @@ async function createArticle(request: Request): Promise<Response> {
     uri: article.uri,
     authorDid: did,
     title,
+    authorsJson: JSON.stringify(authors),
     blocksJson: serializeBlocks(blocks),
     bibliographyJson: serializeBibliography(bibliography),
     sourceFormat,
@@ -620,6 +639,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
 
   const body = (await request.json()) as {
     title?: unknown;
+    authors?: unknown;
     sourceFormat?: unknown;
     markdown?: unknown;
     tex?: unknown;
@@ -634,6 +654,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
     throw new HttpError(400, `Title must be <= ${MAX_TITLE_LENGTH} characters`);
   }
 
+  const authors = Array.isArray(body.authors) ? (body.authors as ArticleAuthor[]) : [];
   const sourceFormat = sourceFormatFromUnknown(body.sourceFormat);
   const blocks = getBlocksFromSource({
     blocks: body.blocks,
@@ -656,6 +677,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
     sci.peer.article.main,
     {
       title,
+      authors,
       blocks,
       bibliography: compactedBibliography,
       createdAt: new Date(current.createdAt).toISOString(),
@@ -711,6 +733,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
 
   await updateArticleByUri(articleUri, {
     title,
+    authorsJson: JSON.stringify(authors),
     blocksJson: serializeBlocks(blocks),
     bibliographyJson: serializeBibliography(compactedBibliography),
     sourceFormat,
@@ -1493,6 +1516,7 @@ async function publishWorkspaceFile(
 
   const body = (await request.json()) as {
     title?: unknown;
+    authors?: unknown;
     broadcastToBsky?: unknown;
     bibliography?: unknown;
   };
@@ -1505,6 +1529,7 @@ async function publishWorkspaceFile(
     throw new HttpError(400, `Title must be <= ${MAX_TITLE_LENGTH} characters`);
   }
 
+  const authors = Array.isArray(body.authors) ? (body.authors as ArticleAuthor[]) : [];
   const sourceFormat = file.sourceFormat === "tex" ? "tex" : "markdown";
   const rawText = file.content ?? "";
 
@@ -1550,6 +1575,7 @@ async function publishWorkspaceFile(
       sci.peer.article.main,
       {
         title,
+        authors,
         blocks,
         bibliography,
         images: imageAssets,
@@ -1597,6 +1623,7 @@ async function publishWorkspaceFile(
 
     await updateArticleByUri(articleUri, {
       title,
+      authorsJson: JSON.stringify(authors),
       blocksJson: serializeBlocks(blocks),
       bibliographyJson: serializeBibliography(bibliography),
       sourceFormat,
@@ -1608,6 +1635,7 @@ async function publishWorkspaceFile(
     const bibliography = compactBibliography(bibliographyInput ?? []);
     const created = await lex.create(sci.peer.article.main, {
       title,
+      authors,
       blocks,
       bibliography,
       images: imageAssets,
@@ -1642,6 +1670,7 @@ async function publishWorkspaceFile(
       uri: articleUri,
       authorDid: did,
       title,
+      authorsJson: JSON.stringify(authors),
       blocksJson: serializeBlocks(blocks),
       bibliographyJson: serializeBibliography(bibliography),
       sourceFormat,
@@ -1878,6 +1907,7 @@ export async function createBootstrapArticleFromRecord(input: {
   uri: string;
   authorDid: string;
   title: string;
+  authors?: ArticleAuthor[];
   sourceFormat: SourceFormat;
   blocks: ArticleBlock[];
   bibliography?: unknown;
@@ -1892,6 +1922,7 @@ export async function createBootstrapArticleFromRecord(input: {
     uri: input.uri,
     authorDid: input.authorDid,
     title: input.title,
+    authorsJson: JSON.stringify(input.authors ?? []),
     blocksJson: serializeBlocks(input.blocks),
     bibliographyJson: serializeBibliography(normalizeBibliography(input.bibliography)),
     sourceFormat: input.sourceFormat,

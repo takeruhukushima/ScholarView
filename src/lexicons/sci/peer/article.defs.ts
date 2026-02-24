@@ -8,6 +8,39 @@ const $nsid = 'sci.peer.article'
 
 export { $nsid }
 
+type Author = {
+  $type?: 'sci.peer.article#author'
+
+  /**
+   * AT Protocol DID (optional)
+   */
+  did?: string
+
+  /**
+   * 著者名
+   */
+  name: string
+
+  /**
+   * 所属（任意）
+   */
+  affiliation?: string
+}
+
+export type { Author }
+
+const author = l.typedObject<Author>(
+  $nsid,
+  'author',
+  l.object({
+    did: l.optional(l.string()),
+    name: l.string(),
+    affiliation: l.optional(l.string()),
+  }),
+)
+
+export { author }
+
 type Citation = {
   $type?: 'sci.peer.article#citation'
 
@@ -107,6 +140,11 @@ type Main = {
   title: string
 
   /**
+   * 論文の著者リスト
+   */
+  authors?: Author[]
+
+  /**
    * 論文を構成する任意のセクション配列（フラット構造）
    */
   blocks: Block[]
@@ -130,6 +168,7 @@ const main = l.record<'tid', Main>(
   $nsid,
   l.object({
     title: l.string({ maxLength: 300 }),
+    authors: l.optional(l.array(l.ref<Author>((() => author) as any))),
     blocks: l.array(l.ref<Block>((() => block) as any)),
     bibliography: l.optional(l.array(l.ref<Citation>((() => citation) as any))),
     images: l.optional(l.array(l.ref<ImageAsset>((() => imageAsset) as any))),
