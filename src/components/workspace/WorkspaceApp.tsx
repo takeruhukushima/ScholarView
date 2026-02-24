@@ -2513,13 +2513,12 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     if (!citationMenu) return [] as BibliographyEntry[];
     const query = citationMenu.query.trim().toLowerCase();
     const searchPool = projectBibEntries.length > 0 ? projectBibEntries : articleBibliography;
-    if (!query) return searchPool.slice(0, 8);
+    if (!query) return searchPool;
     return searchPool
       .filter((entry) => {
         const haystack = `${entry.key} ${entry.title ?? ""} ${entry.author ?? ""}`.toLowerCase();
         return haystack.includes(query);
-      })
-      .slice(0, 8);
+      });
   }, [articleBibliography, citationMenu, projectBibEntries]);
 
   const applyCitationSuggestion = useCallback(
@@ -4160,9 +4159,16 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                                 {filteredCitationEntries.length === 0 ? (
                                   <p className="px-2 py-1 text-xs text-slate-500">No citation match.</p>
                                 ) : (
-                                  <ul className="max-h-48 overflow-auto">
+                                  <ul className="max-h-64 overflow-y-auto">
                                     {filteredCitationEntries.map((entry, idx) => (
-                                      <li key={entry.key}>
+                                      <li
+                                        key={entry.key}
+                                        ref={(el) => {
+                                          if (idx === citationMenuIndex) {
+                                            el?.scrollIntoView({ block: "nearest" });
+                                          }
+                                        }}
+                                      >
                                         <button
                                           type="button"
                                           onMouseDown={(event) => event.preventDefault()}
