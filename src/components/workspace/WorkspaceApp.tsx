@@ -21,7 +21,7 @@ import {
   parseBibtexEntries,
   type BibliographyEntry,
 } from "@/lib/articles/citations";
-import { formatAuthors, parseAuthors } from "@/lib/articles/authors";
+import { parseAuthors } from "@/lib/articles/authors";
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
   type CitationMenuState,
@@ -30,7 +30,6 @@ import {
   type RightTab,
   type TreeDropPosition,
   type WorkspaceFile,
-  type ArticleDetailPayload,
   type BlockMoveDropTarget,
 } from "@/lib/workspace/types";
 import {
@@ -38,25 +37,21 @@ import {
   isImeComposing,
   newId,
   referenceAnchorId,
-  renderMathHtml,
   resizeTextarea,
   timeAgo,
 } from "@/lib/workspace/utils";
 import {
-  blocksToSource,
   createBibtexTemplate,
   detectCitationTrigger,
   editorBlocksToSource,
   inferSourceFormat,
   isClosedBibtexEntryBlock,
   normalizeEditedBlockInput,
-  sourceToBibEditorBlocks,
   sourceToEditorBlocks,
   bibEditorBlocksToSource,
 } from "@/lib/workspace/editor-logic";
 import {
   buildFilePathMap,
-  composeFileNameFromTitle,
   defaultTitleFromFileName,
   ensureFileExtension,
   resolveWorkspacePathFromDocument,
@@ -67,7 +62,6 @@ import {
   isWorkspaceImageFile,
   parseMarkdownImageLine,
   setImageAlignOnMarkdownLine,
-  isInlineImageDataUrl,
   rewriteImagePathReferencesInMarkdown,
 } from "@/lib/workspace/image-logic";
 import {
@@ -83,6 +77,8 @@ import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
 import { useWorkspaceDiscussion } from "./hooks/useWorkspaceDiscussion";
 import { useWorkspacePublishing } from "./hooks/useWorkspacePublishing";
 import { useWorkspaceMedia } from "./hooks/useWorkspaceMedia";
+import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
+import { useWorkspaceDocumentSync } from "./hooks/useWorkspaceDocumentSync";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -122,8 +118,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [draggingEditorBlockId, setDraggingEditorBlockId] = useState<string | null>(null);
   const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
   const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const saveInFlightRef = useRef(false);
-  const titleSaveInFlightRef = useRef(false);
   const legacySyncRequestedRef = useRef(false);
   const draggingEditorBlockIdRef = useRef<string | null>(null);
 
@@ -230,6 +224,54 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     filePathMap,
   });
 
+  const articleByUri = useMemo(() => {
+    const map = new Map<string, ArticleSummary>();
+    for (const article of articles) map.set(article.uri, article);
+    return map;
+  }, [articles]);
+
+  const syncLegacyArticles = useCallback(
+    async (options?: { force?: boolean; silent?: boolean }) => {
+      if (!sessionDid) return 0;
+      const force = options?.force === true;
+      if (!force && legacySyncRequestedRef.current) return 0;
+      if (!force) {
+        legacySyncRequestedRef.current = true;
+      }
+
+      try {
+        const response = await fetch("/api/workspace/sync-articles", {
+          method: "POST",
+          cache: "no-store",
+        });
+        const data = (await response.json()) as {
+          success?: boolean;
+          created?: number;
+          error?: string;
+        };
+        if (!response.ok || !data.success) {
+          throw new Error(data.error ?? "Failed to sync legacy articles");
+        }
+        const created = data.created ?? 0;
+        if (created > 0) {
+          await loadFiles(sessionDid, setBusy, setStatusMessage);
+        }
+        if (!options?.silent) {
+          setStatusMessage(
+            created > 0
+              ? `Linked ${created} article(s) to the file tree`
+              : "No unlinked articles found",
+          );
+        }
+        return created;
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to sync legacy articles");
+        return 0;
+      }
+    },
+    [loadFiles, sessionDid, setBusy, setStatusMessage],
+  );
+
   const {
     discussionRoot,
     discussionPosts,
@@ -252,6 +294,36 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setTab,
   });
 
+  const {
+    openFile,
+    openArticle,
+  } = useWorkspaceNavigation({
+    files,
+    sessionDid,
+    articleByUri,
+    loadFiles,
+    syncLegacyArticles,
+    setActiveFileId,
+    setActiveArticleUri,
+    setSourceFormat,
+    setEditorBlocks,
+    setCurrentDid,
+    setCurrentRkey,
+    setCurrentAuthorDid,
+    setTitle,
+    setAuthorsText,
+    setBroadcastToBsky,
+    setArticleBibliography,
+    setSelectedQuote,
+    setQuoteComment,
+    setShowMoreMenu,
+    setActiveBlockId,
+    setBlockMenuForId,
+    setCitationMenu,
+    setStatusMessage,
+    setBusy,
+  });
+
   useEffect(() => {
     setArticles(initialArticles);
   }, [initialArticles]);
@@ -259,12 +331,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   useEffect(() => {
     draggingEditorBlockIdRef.current = draggingEditorBlockId;
   }, [draggingEditorBlockId]);
-
-  const articleByUri = useMemo(() => {
-    const map = new Map<string, ArticleSummary>();
-    for (const article of articles) map.set(article.uri, article);
-    return map;
-  }, [articles]);
 
   const projectBibFiles = useMemo(
     () => collectProjectBibFiles(files, activeFileId),
@@ -302,6 +368,43 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     if (isImageWorkspaceFile) return activeFile?.content ?? "";
     return isBibWorkspaceFile ? bibSourceText : blockSourceText;
   }, [activeFile, bibSourceText, blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile]);
+  const isDirtyFile = useMemo(() => {
+    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+      return false;
+    }
+    const currentContent = activeFile.content ?? "";
+    const currentFormat = activeFile.sourceFormat ?? inferSourceFormat(activeFile.name, null);
+    return currentContent !== sourceText || currentFormat !== sourceFormat;
+  }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
+  const isDirtyTitle = useMemo(() => {
+    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+      return false;
+    }
+    if (isExistingArticle) {
+      return false;
+    }
+    return title.trim() !== defaultTitleFromFileName(activeFile.name);
+  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
+
+  const {
+    saveCurrentFile,
+    persistTitleAsFileName,
+  } = useWorkspaceDocumentSync({
+    canEditCurrentFile,
+    canEditTextCurrentFile,
+    activeFile,
+    sourceText,
+    sourceFormat,
+    title,
+    isExistingArticle,
+    isDirtyFile,
+    isDirtyTitle,
+    setSavingFile,
+    setFiles,
+    setTitle,
+    setStatusMessage,
+  });
+
   const citationKeys = useMemo(
     () => (isImageWorkspaceFile ? [] : extractCitationKeysFromText(sourceText)),
     [isImageWorkspaceFile, sourceText],
@@ -348,24 +451,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     [articles, sessionDid],
   );
 
-  const isDirtyFile = useMemo(() => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
-      return false;
-    }
-    const currentContent = activeFile.content ?? "";
-    const currentFormat = activeFile.sourceFormat ?? inferSourceFormat(activeFile.name, null);
-    return currentContent !== sourceText || currentFormat !== sourceFormat;
-  }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
-  const isDirtyTitle = useMemo(() => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
-      return false;
-    }
-    if (isExistingArticle) {
-      return false;
-    }
-    return title.trim() !== defaultTitleFromFileName(activeFile.name);
-  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
-
   const readOnlyMessage = !isLoggedIn
     ? "ログインしていないため閲覧専用です。"
     : isExistingArticle && currentAuthorDid !== sessionDid
@@ -386,196 +471,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       // noop
     }
   }, []);
-
-  const syncLegacyArticles = useCallback(
-    async (options?: { force?: boolean; silent?: boolean }) => {
-      if (!sessionDid) return 0;
-      const force = options?.force === true;
-      if (!force && legacySyncRequestedRef.current) return 0;
-      if (!force) {
-        legacySyncRequestedRef.current = true;
-      }
-
-      try {
-        const response = await fetch("/api/workspace/sync-articles", {
-          method: "POST",
-          cache: "no-store",
-        });
-        const data = (await response.json()) as {
-          success?: boolean;
-          created?: number;
-          error?: string;
-        };
-        if (!response.ok || !data.success) {
-          throw new Error(data.error ?? "Failed to sync legacy articles");
-        }
-        const created = data.created ?? 0;
-        if (created > 0) {
-          await loadFiles(sessionDid, setBusy, setStatusMessage);
-        }
-        if (!options?.silent) {
-          setStatusMessage(
-            created > 0
-              ? `Linked ${created} article(s) to the file tree`
-              : "No unlinked articles found",
-          );
-        }
-        return created;
-      } catch (err: unknown) {
-        setStatusMessage(err instanceof Error ? err.message : "Failed to sync legacy articles");
-        return 0;
-      }
-    },
-    [loadFiles, sessionDid],
-  );
-
-  const openFile = useCallback(
-    async (file: WorkspaceFile) => {
-      setActiveFileId(file.id);
-      setActiveArticleUri(file.linkedArticleUri ?? null);
-
-      if (file.kind !== "file") {
-        return;
-      }
-
-      const format = inferSourceFormat(file.name, file.sourceFormat);
-      setSourceFormat(format);
-      if (isWorkspaceImageFile(file)) {
-        setEditorBlocks([]);
-      } else if (file.name.toLowerCase().endsWith(".bib")) {
-        setEditorBlocks(sourceToBibEditorBlocks(file.content ?? ""));
-      } else {
-        setEditorBlocks(sourceToEditorBlocks(file.content ?? "", format));
-      }
-
-      const linked = file.linkedArticleUri ? articleByUri.get(file.linkedArticleUri) : undefined;
-      if (linked) {
-        setCurrentDid(linked.did);
-        setCurrentRkey(linked.rkey);
-        setCurrentAuthorDid(linked.authorDid);
-        setTitle(linked.title);
-        setAuthorsText(formatAuthors(linked.authors));
-        setBroadcastToBsky(Boolean(linked.announcementUri));
-      } else if (file.linkedArticleDid && file.linkedArticleRkey) {
-        setCurrentDid(file.linkedArticleDid);
-        setCurrentRkey(file.linkedArticleRkey);
-        setCurrentAuthorDid(sessionDid ?? null);
-        setTitle(defaultTitleFromFileName(file.name));
-        setAuthorsText(sessionDid ? `<${sessionDid}>` : "");
-        setBroadcastToBsky(true);
-      } else {
-        setCurrentDid(null);
-        setCurrentRkey(null);
-        setCurrentAuthorDid(sessionDid ?? null);
-        setTitle(defaultTitleFromFileName(file.name));
-        setAuthorsText(sessionDid ? `<${sessionDid}>` : "");
-        setBroadcastToBsky(true);
-        setArticleBibliography([]);
-      }
-
-      if (linked || (file.linkedArticleDid && file.linkedArticleRkey)) {
-        const detailDid = linked?.did ?? file.linkedArticleDid;
-        const detailRkey = linked?.rkey ?? file.linkedArticleRkey;
-        if (detailDid && detailRkey) {
-          try {
-            const response = await fetch(
-              `/api/articles/${encodeURIComponent(detailDid)}/${encodeURIComponent(detailRkey)}`,
-              { cache: "no-store" },
-            );
-            const data = (await response.json()) as {
-              success?: boolean;
-              article?: Partial<ArticleDetailPayload>;
-            };
-            if (response.ok && data.success && data.article) {
-              setArticleBibliography(
-                Array.isArray(data.article.bibliography) ? data.article.bibliography : [],
-              );
-            } else {
-              setArticleBibliography([]);
-            }
-          } catch {
-            setArticleBibliography([]);
-          }
-        }
-      }
-
-      setSelectedQuote("");
-      setQuoteComment("");
-      setShowMoreMenu(false);
-      setActiveBlockId(null);
-      setBlockMenuForId(null);
-      setCitationMenu(null);
-      setStatusMessage("");
-    },
-    [articleByUri, sessionDid],
-  );
-
-  const openArticle = useCallback(
-    async (article: ArticleSummary) => {
-      let linkedFile = files.find(
-        (file) => file.kind === "file" && file.linkedArticleUri === article.uri,
-      );
-      if (!linkedFile && article.authorDid === sessionDid) {
-        await syncLegacyArticles({ force: true, silent: true });
-        const latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
-        linkedFile = latestFiles.find(
-          (file) => file.kind === "file" && file.linkedArticleUri === article.uri,
-        );
-      }
-      if (linkedFile) {
-        await openFile(linkedFile);
-        return;
-      }
-
-      const response = await fetch(
-        `/api/articles/${encodeURIComponent(article.did)}/${encodeURIComponent(article.rkey)}`,
-        { cache: "no-store" },
-      );
-      const data = (await response.json()) as {
-        success?: boolean;
-        article?: Partial<ArticleDetailPayload>;
-        error?: string;
-      };
-      if (!response.ok || !data.success || !data.article) {
-        throw new Error(data.error ?? "Failed to open article");
-      }
-
-      const detail = data.article;
-      const detailSourceFormat = detail.sourceFormat === "tex" ? "tex" : "markdown";
-      const blocks = Array.isArray(detail.blocks) ? detail.blocks : [];
-      const source = blocksToSource(blocks, detailSourceFormat);
-
-      setActiveFileId(null);
-      setActiveArticleUri(article.uri);
-      setSourceFormat(detailSourceFormat);
-      setEditorBlocks(sourceToEditorBlocks(source, detailSourceFormat));
-      setCurrentDid(typeof detail.did === "string" ? detail.did : article.did);
-      setCurrentRkey(typeof detail.rkey === "string" ? detail.rkey : article.rkey);
-      setCurrentAuthorDid(
-        typeof detail.authorDid === "string" ? detail.authorDid : article.authorDid,
-      );
-      setTitle(typeof detail.title === "string" ? detail.title : article.title);
-      setAuthorsText(
-        formatAuthors(Array.isArray(detail.authors) ? detail.authors : article.authors),
-      );
-      setBroadcastToBsky(
-        detail.broadcasted === 1 ||
-          (typeof detail.announcementUri === "string" && detail.announcementUri.length > 0) ||
-          Boolean(article.announcementUri),
-      );
-      setArticleBibliography(
-        Array.isArray(detail.bibliography) ? detail.bibliography : [],
-      );
-      setSelectedQuote("");
-      setQuoteComment("");
-      setShowMoreMenu(false);
-      setActiveBlockId(null);
-      setBlockMenuForId(null);
-      setCitationMenu(null);
-      setStatusMessage("");
-    },
-    [files, loadFiles, openFile, sessionDid, syncLegacyArticles],
-  );
 
   useEffect(() => {
     void loadFiles(sessionDid, setBusy, setStatusMessage).catch((err: unknown) => {
@@ -706,118 +601,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setStatusMessage(`Renamed to ${nextName}`);
     }
   };
-
-  const saveCurrentFile = useCallback(async (options?: { silent?: boolean }) => {
-    if (!canEditTextCurrentFile || !activeFile || activeFile.kind !== "file") {
-      return null;
-    }
-    if (saveInFlightRef.current) {
-      return null;
-    }
-
-    saveInFlightRef.current = true;
-    setSavingFile(true);
-
-    try {
-      const response = await fetch(`/api/workspace/files/${encodeURIComponent(activeFile.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: sourceText,
-          sourceFormat,
-        }),
-      });
-
-      const data = (await response.json()) as {
-        success?: boolean;
-        file?: WorkspaceFile;
-        error?: string;
-      };
-
-      if (!response.ok || !data.success || !data.file) {
-        throw new Error(data.error ?? "Failed to save file");
-      }
-
-      setFiles((prev) => prev.map((item) => (item.id === data.file?.id ? data.file : item)));
-      if (!options?.silent) {
-        setStatusMessage(`Saved ${data.file.name}`);
-      }
-      return data.file;
-    } finally {
-      saveInFlightRef.current = false;
-      setSavingFile(false);
-    }
-  }, [activeFile, canEditTextCurrentFile, sourceFormat, sourceText]);
-
-  const persistTitleAsFileName = useCallback(async (options?: { silent?: boolean }) => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
-      return null;
-    }
-    if (isExistingArticle) {
-      return null;
-    }
-    if (titleSaveInFlightRef.current) {
-      return null;
-    }
-
-    const nextName = composeFileNameFromTitle(title, activeFile.name);
-    if (!nextName) {
-      return null;
-    }
-    if (nextName === activeFile.name) {
-      return null;
-    }
-
-    titleSaveInFlightRef.current = true;
-    try {
-      const response = await fetch(`/api/workspace/files/${encodeURIComponent(activeFile.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: nextName }),
-      });
-      const data = (await response.json()) as {
-        success?: boolean;
-        file?: WorkspaceFile;
-        error?: string;
-      };
-      if (!response.ok || !data.success || !data.file) {
-        throw new Error(data.error ?? "Failed to save file name");
-      }
-
-      setFiles((prev) => prev.map((item) => (item.id === data.file?.id ? data.file : item)));
-      setTitle(defaultTitleFromFileName(data.file.name));
-      if (!options?.silent) {
-        setStatusMessage(`Renamed to ${data.file.name}`);
-      }
-      return data.file;
-    } finally {
-      titleSaveInFlightRef.current = false;
-    }
-  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
-
-  useEffect(() => {
-    if (!isDirtyFile || !canEditTextCurrentFile) return;
-
-    const timer = window.setTimeout(() => {
-      void saveCurrentFile({ silent: true }).catch((err: unknown) => {
-        setStatusMessage(err instanceof Error ? err.message : "Failed to autosave file");
-      });
-    }, 800);
-
-    return () => window.clearTimeout(timer);
-  }, [canEditTextCurrentFile, isDirtyFile, saveCurrentFile]);
-
-  useEffect(() => {
-    if (!isDirtyTitle || !canEditCurrentFile) return;
-
-    const timer = window.setTimeout(() => {
-      void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
-        setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
-      });
-    }, 800);
-
-    return () => window.clearTimeout(timer);
-  }, [canEditCurrentFile, isDirtyTitle, persistTitleAsFileName]);
 
   const updateCitationMenu = useCallback(
     (blockId: string, text: string, cursor: number) => {
