@@ -1,30 +1,19 @@
 "use client";
 
 import {
-  Fragment,
-  type DragEvent,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type DragEvent,
 } from "react";
 
-import { LoginForm } from "@/components/LoginForm";
-import { LogoutButton } from "@/components/LogoutButton";
 import type { ArticleBlock } from "@/lib/articles/blocks";
 import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
-import {
-  extractCitationKeysFromText,
-  formatBibtexSource,
-  formatBibliographyIEEE,
-  parseBibtexEntries,
-  type BibliographyEntry,
-} from "@/lib/articles/citations";
-import { parseAuthors } from "@/lib/articles/authors";
+import { type BibliographyEntry } from "@/lib/articles/citations";
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
-  type CitationMenuState,
   type ImageDropPosition,
   type NewFileType,
   type RightTab,
@@ -33,20 +22,12 @@ import {
   type BlockMoveDropTarget,
 } from "@/lib/workspace/types";
 import {
-  blockTextClass,
-  isImeComposing,
   newId,
-  referenceAnchorId,
   resizeTextarea,
-  timeAgo,
 } from "@/lib/workspace/utils";
 import {
-  createBibtexTemplate,
-  detectCitationTrigger,
   editorBlocksToSource,
   inferSourceFormat,
-  isClosedBibtexEntryBlock,
-  normalizeEditedBlockInput,
   sourceToEditorBlocks,
   bibEditorBlocksToSource,
 } from "@/lib/workspace/editor-logic";
@@ -55,22 +36,14 @@ import {
   defaultTitleFromFileName,
   ensureFileExtension,
   resolveWorkspacePathFromDocument,
-  collectProjectBibFiles,
 } from "@/lib/workspace/file-logic";
 import {
-  imageAlignFromAttrs,
   isWorkspaceImageFile,
-  parseMarkdownImageLine,
-  setImageAlignOnMarkdownLine,
   rewriteImagePathReferencesInMarkdown,
 } from "@/lib/workspace/image-logic";
-import {
-  renderBibtexHighlighted,
-  renderInlineText,
-  renderRichParagraphs,
-} from "./RichRenderer";
-import { FileTree } from "./FileTree";
-import { ArticleList } from "./ArticleList";
+import { Sidebar } from "./UI/Sidebar";
+import { EditorPanel } from "./UI/EditorPanel";
+import { RightPanel } from "./UI/RightPanel";
 import { OnboardingTour } from "./OnboardingTour";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
@@ -109,7 +82,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [busy, setBusy] = useState(false);
 
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [showLoginBox, setShowLoginBox] = useState(false);
   const [showNewFileForm, setShowNewFileForm] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [newFileType, setNewFileType] = useState<NewFileType>("markdown");
@@ -166,10 +138,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setEditorBlocks,
     activeBlockId,
     setActiveBlockId,
-    selectedBlockIds,
     setSelectedBlockIds,
     setSelectionAnchorBlockId,
-    blockMenuForId,
     setBlockMenuForId,
     textareaRefs,
     titleRef,
@@ -178,7 +148,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     insertBlockAfter,
     removeBlock,
     moveBlockByDelta,
-    updateSelectionRange,
     focusBlockByIndex,
     activateBlockEditor,
     moveBlockByDrop,
@@ -310,7 +279,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     loadDiscussion,
     submitInlineComment,
     runEngagement,
-    captureWindowSelection,
   } = useWorkspaceDiscussion({
     sessionDid,
     currentDid,
@@ -324,8 +292,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     citationMenu,
     setCitationMenu,
     citationMenuIndex,
-    setCitationMenuIndex,
-    projectBibEntries,
     resolvedBibliography,
     missingCitationKeys,
     citationNumberByKey,
@@ -401,15 +367,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setTitle,
     setStatusMessage,
   });
-
-  const previewBlocks = useMemo(
-    () => (isBibWorkspaceFile || isImageWorkspaceFile ? [] : parseSourceToBlocks(sourceText, sourceFormat)),
-    [isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat, sourceText],
-  );
-  const myArticles = useMemo(
-    () => articles.filter((article) => article.authorDid === sessionDid),
-    [articles, sessionDid],
-  );
 
   const readOnlyMessage = !isLoggedIn
     ? "ログインしていないため閲覧専用です。"
@@ -616,22 +573,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setBlockMenuForId(null);
       setActiveBlockId(null);
     },
-    [blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat],
+    [blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat, setEditorBlocks, setCitationMenu, setBlockMenuForId, setActiveBlockId],
   );
-
-  const hasDraggedImageData = (event: DragEvent<HTMLElement>): boolean =>
-    Array.from(event.dataTransfer.items ?? []).some(
-      (item) => item.kind === "file" && item.type.startsWith("image/"),
-    );
-  const BLOCK_DRAG_MIME = "application/x-scholarview-editor-block";
-  const hasDraggedEditorBlock = (event: DragEvent<HTMLElement>): boolean =>
-    Array.from(event.dataTransfer.types ?? []).includes(BLOCK_DRAG_MIME) || Boolean(draggingEditorBlockId);
-
-  const determineBlockDropPosition = (event: DragEvent<HTMLElement>): ImageDropPosition => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const offsetY = event.clientY - rect.top;
-    return offsetY < rect.height / 2 ? "before" : "after";
-  };
 
   const handleMoveWorkspaceItem = useCallback(
     async (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => {
@@ -717,35 +660,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     ],
   );
 
-  const handleEditorCanvasClick = (event: React.MouseEvent<HTMLElement>) => {
-    if (!canEditTextCurrentFile) return;
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    if (target !== event.currentTarget) return;
-    if (target.closest("[data-editor-block-id]")) return;
-    if (target.closest("textarea,button,input,select,a,label,[role='button']")) return;
-
-    if (editorBlocks.length === 0) {
-      const created = { id: newId(), kind: "paragraph" as const, text: "" };
-      setEditorBlocks([created]);
-      setActiveBlockId(created.id);
-      setSelectedBlockIds([created.id]);
-      setSelectionAnchorBlockId(created.id);
-      setBlockMenuForId(null);
-      setCitationMenu(null);
-      window.setTimeout(() => {
-        const textarea = textareaRefs.current[created.id];
-        if (!textarea) return;
-        textarea.focus();
-        textarea.setSelectionRange(0, 0);
-        resizeTextarea(textarea);
-      }, 0);
-      return;
-    }
-
-    focusBlockByIndex(editorBlocks.length - 1, { position: "end" });
-  };
-
   const insertInlineMath = (blockId: string) => {
     const target = textareaRefs.current[blockId];
     if (!target) return;
@@ -784,1607 +698,116 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6">
       <OnboardingTour storageKey={TUTORIAL_STORAGE_KEY} />
 
-      {shouldShowStatus ? (
-        <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">{statusMessage}</p>
-      ) : null}
-
-      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px]">
-        <aside data-tour-id="sidebar" className="rounded-xl border bg-white p-3 shadow-sm">
-          <section className="mb-4 space-y-3 rounded-lg border bg-slate-50 p-3">
-            <div>
-              <h1 className="text-lg font-semibold text-slate-900">ScholarView Workspace</h1>
-            </div>
-            <form method="GET" action="/articles" className="flex gap-2">
-              <input
-                type="search"
-                name="q"
-                placeholder="Search published articles..."
-                className="w-full rounded border px-2 py-1 text-xs outline-none focus:border-[#0085FF]"
-              />
-              <button type="submit" className="rounded border px-2 py-1 text-xs hover:bg-white">
-                Search
-              </button>
-            </form>
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  window.localStorage.removeItem(TUTORIAL_STORAGE_KEY);
-                  window.location.reload();
-                }}
-                className="rounded border px-2 py-1 text-xs hover:bg-white"
-                title="Show tutorial"
-              >
-                ?
-              </button>
-              {sessionDid ? (
-                <div className="flex items-center gap-2">
-                  <span className="max-w-[8rem] truncate text-xs text-slate-700">@{accountHandle ?? sessionDid}</span>
-                  <LogoutButton />
-                </div>
-              ) : (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowLoginBox((prev) => !prev)}
-                    className="rounded border px-2 py-1 text-xs hover:bg-white"
-                  >
-                    Sign in
-                  </button>
-                  {showLoginBox ? (
-                    <div className="absolute right-0 top-9 z-30 w-64 rounded-md border bg-white p-2 shadow-lg">
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-xs font-semibold text-slate-700">Login</p>
-                        <button
-                          type="button"
-                          onClick={() => setShowLoginBox(false)}
-                          className="rounded px-1 text-xs text-slate-500 hover:bg-slate-100"
-                          aria-label="Close login panel"
-                        >
-                          ×
-                        </button>
-                      </div>
-                      <LoginForm />
-                    </div>
-                  ) : null}
-                </div>
-              )}
-            </div>
-          </section>
-
-          <section>
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Files</h2>
-              {sessionDid ? (
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void createWorkspaceItem("folder").catch((err: unknown) => {
-                        setStatusMessage(err instanceof Error ? err.message : "Failed to create folder");
-                      });
-                    }}
-                    className="rounded border px-2 py-0.5 text-xs"
-                  >
-                    +Dir
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNewFileForm((prev) => !prev);
-                    }}
-                    className="rounded border px-2 py-0.5 text-xs"
-                  >
-                    +File
-                  </button>
-                </div>
-              ) : null}
-            </div>
-            {sessionDid && showNewFileForm ? (
-              <form
-                className="mb-2 space-y-2 rounded border bg-slate-50 p-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void createWorkspaceFileFromForm().catch((err: unknown) => {
-                    setStatusMessage(err instanceof Error ? err.message : "Failed to create file");
-                  });
-                }}
-              >
-                <input
-                  value={newFileName}
-                  onChange={(event) => setNewFileName(event.target.value)}
-                  placeholder="File name"
-                  className="w-full rounded border px-2 py-1 text-xs"
-                  autoFocus
-                />
-                <div className="flex items-center gap-2">
-                  <select
-                    value={newFileType}
-                    onChange={(event) => setNewFileType(event.target.value as NewFileType)}
-                    className="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
-                  >
-                    <option value="markdown">Markdown (.md)</option>
-                    <option value="tex">TeX (.tex)</option>
-                    <option value="bib">BibTeX (.bib)</option>
-                  </select>
-                  <button type="submit" className="rounded border px-2 py-1 text-xs">
-                    Create
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowNewFileForm(false);
-                      setNewFileName("");
-                      setNewFileType("markdown");
-                    }}
-                    className="rounded border px-2 py-1 text-xs text-slate-600"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
+            {shouldShowStatus ? (
+              <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">{statusMessage}</p>
             ) : null}
-
-            {sessionDid ? (
-              <FileTree
-                files={files}
-                activeFileId={activeFileId}
-                onSelect={(file) => {
-                  void openFile(file).catch((err: unknown) => {
-                    setStatusMessage(err instanceof Error ? err.message : "Failed to open file");
-                  });
-                }}
-                onToggleFolder={(file) => {
-                  void fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ expanded: file.expanded === 1 ? 0 : 1 }),
-                  })
-                    .then(() => loadFiles(sessionDid, setBusy, setStatusMessage))
-                    .catch((err: unknown) => {
-                      setStatusMessage(err instanceof Error ? err.message : "Failed to toggle folder");
-                    });
-                }}
-                onRename={(file) => {
-                  void renameWorkspaceItem(file).catch((err: unknown) => {
-                    setStatusMessage(err instanceof Error ? err.message : "Failed to rename item");
-                  });
-                }}
-                onDelete={(file) => {
-                  void deleteWorkspaceItem(file).catch((err: unknown) => {
-                    setStatusMessage(err instanceof Error ? err.message : "Failed to delete item");
-                  });
-                }}
-                onMove={(draggedId, target, position) => {
-                  void handleMoveWorkspaceItem(draggedId, target, position).catch((err: unknown) => {
-                    setStatusMessage(err instanceof Error ? err.message : "Failed to reorder file tree");
-                  });
-                }}
-                draggable={Boolean(sessionDid)}
-              />
-            ) : (
-              <p className="text-xs text-slate-500">Login to access your private workspace files.</p>
-            )}
-          </section>
-
-          {sessionDid ? (
-            <ArticleList
-              title="My Articles"
-              articles={myArticles}
-              activeArticleUri={activeArticleUri}
-              actionLabel="Link Existing"
-              onAction={() => {
-                void syncLegacyArticles({ force: true }).catch((err: unknown) => {
-                  setStatusMessage(err instanceof Error ? err.message : "Failed to sync legacy articles");
-                });
-              }}
-              onOpen={(article) => {
-                void openArticle(article).catch((err: unknown) => {
-                  setStatusMessage(err instanceof Error ? err.message : "Failed to open article");
-                });
-              }}
-            />
-          ) : null}
-
-        </aside>
-
-        <section
-          data-tour-id="editor"
-          className="min-w-0 rounded-xl border bg-white p-4 shadow-sm"
-          onClick={handleEditorCanvasClick}
-          onDragOver={(event) => {
-            if (!canEditTextCurrentFile) return;
-            if (hasDraggedEditorBlock(event)) {
-              event.preventDefault();
-              if (imageDropTarget !== null) {
-                setImageDropTarget(null);
-              }
-              return;
-            }
-            if (isBibWorkspaceFile) return;
-            if (!hasDraggedImageData(event)) return;
-            event.preventDefault();
-            if (imageDropTarget !== null) {
-              setImageDropTarget(null);
-            }
-          }}
-          onDragLeave={() => {
-            if (imageDropTarget !== null) {
-              setImageDropTarget(null);
-            }
-            if (blockMoveDropTarget !== null) {
-              setBlockMoveDropTarget(null);
-            }
-          }}
-          onDrop={(event) => {
-            if (hasDraggedEditorBlock(event)) {
-              event.preventDefault();
-              setDraggingEditorBlockId(null);
-              setBlockMoveDropTarget(null);
-              return;
-            }
-            void handleImageDrop(event, imageDropTarget);
-            setBlockMoveDropTarget(null);
-          }}
-        >
-          {!hasOpenDocument ? (
-            <div className="flex h-full min-h-[26rem] items-center justify-center rounded-xl border border-dashed text-sm text-slate-500">
-              Select a file or article from the sidebar.
-            </div>
-          ) : (
-            <>
-              <div className="mb-4 flex items-start justify-between gap-3" data-tour-id="publish-flow">
-                <div className="flex flex-1 flex-col">
-                  <input
-                    ref={titleRef}
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    onBlur={() => {
-                      if (!title.trim()) {
-                        if (activeFile?.kind === "file") {
-                          setTitle(defaultTitleFromFileName(activeFile.name));
-                        }
-                        return;
-                      }
-                      void persistTitleAsFileName({ silent: true }).catch((err: unknown) => {
-                        setStatusMessage(err instanceof Error ? err.message : "Failed to save file name");
-                      });
-                    }}
-                    onKeyDown={(e) => {
-                      if (isImeComposing(e)) return;
-                      
-                      if (e.key === "ArrowDown" || e.key === "Enter") {
-                        e.preventDefault();
-                        if (!title.trim() && activeFile?.kind === "file") {
-                          setTitle(defaultTitleFromFileName(activeFile.name));
-                        }
-                        void persistTitleAsFileName({ silent: true }).catch(() => {});
-                        setIsAuthorsFocused(true);
-                        setTimeout(() => {
-                          authorsRef.current?.focus();
-                        }, 10);
-                        return;
-                      }
-                    }}
-                    readOnly={!canEditCurrentFile}
-                    className="w-full border-none bg-transparent text-3xl font-semibold outline-none"
-                    placeholder="Untitled"
-                  />
-
-                                                                        {canPublishCurrentFile && (
-                                                                          <div className="mt-1">
-                                                                            {isAuthorsFocused || !authorsText.trim() ? (
-                                                                              <>
-                                                                                <textarea
-                                                                                  ref={authorsRef}
-                                                                                  autoFocus={isAuthorsFocused}
-                                                                                  value={authorsText}
-                                                                                  onChange={(e) => setAuthorsText(e.target.value)}
-                                                                                  onBlur={() => setIsAuthorsFocused(false)}
-                                                                                                              onKeyDown={(e) => {
-                                                                                                                if (isImeComposing(e)) return;
-                                                                                  
-                                                                                                                const atStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0;
-                                                                                                                const atEnd = e.currentTarget.selectionStart === e.currentTarget.value.length && e.currentTarget.selectionEnd === e.currentTarget.value.length;
-                                                                                  
-                                                                                                                if (e.key === "ArrowUp" && atStart) {
-                                                                                                                  e.preventDefault();
-                                                                                                                  e.stopPropagation();
-                                                                                                                  titleRef.current?.focus();
-                                                                                                                  return;
-                                                                                                                }
-                                                                                  
-                                                                                                                if (e.key === "ArrowDown" || e.key === "Enter") {
-                                                                                                                  if (e.key === "Enter" || atEnd) {
-                                                                                                                    e.preventDefault();
-                                                                                                                    e.stopPropagation();
-                                                                                                                    
-                                                                                                                    // まず本文にフォーカスを移動
-                                                                                                                    if (editorBlocks.length > 0) {
-                                                                                                                      focusBlockByIndex(0, { position: "start" });
-                                                                                                                    }
-                                                                                                                    
-                                                                                                                    // その後で著者欄を閉じる
-                                                                                                                    setIsAuthorsFocused(false);
-                                                                                                                  }
-                                                                                                                }
-                                                                                                              }}
-                                                                                  
-                                                                                  readOnly={!canEditCurrentFile}
-                                                                                  className="w-full resize-none border-none bg-transparent font-mono text-sm text-slate-500 outline-none"
-                                                                                  placeholder="著者名 <did:plc:...> (所属) ※コンマやセミコロンで区切り"
-                                                                                  rows={Math.max(1, authorsText.split("\n").length)}
-                                                                                />
-                                                                                                                    {authorsText.trim() && (
-                                                                <div className="mt-1 flex flex-wrap gap-1 opacity-60">
-                                                                  {parseAuthors(authorsText).map((a, i) => (
-                                                                    <span
-                                                                      key={i}
-                                                                      className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
-                                                                    >
-                                                                      <span>{a.name || "Unknown"}</span>
-                                                                      {a.affiliation && <span className="opacity-60">({a.affiliation})</span>}
-                                                                      {a.did && <span className="text-[8px] text-blue-500">DID</span>}
-                                                                    </span>
-                                                                  ))}
-                                                                </div>
-                                                              )}
-                                                            </>
-                                                          ) : (
-                                                            <div
-                                                              onClick={() => setIsAuthorsFocused(true)}
-                                                              className="flex min-h-[1.5rem] cursor-text flex-wrap gap-1 py-1"
-                                                            >
-                                                              {parseAuthors(authorsText).map((a, i) => (
-                                                                <span
-                                                                  key={i}
-                                                                  className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
-                                                                >
-                                                                  <span>{a.name || "Unknown"}</span>
-                                                                  {a.affiliation && <span className="opacity-60">({a.affiliation})</span>}
-                                                                  {a.did && <span className="text-[8px] text-blue-500">DID</span>}
-                                                                </span>
-                                                              ))}
-                                                            </div>
-                                                          )}
-                                                        </div>
-                                                      )}
-                                                    </div>
-
-                <div className="relative flex items-center gap-2">
-                  {canEditCurrentFile ? (
-                    <span className="text-xs text-slate-500">
-                      {savingFile ? "Saving..." : isDirtyFile || isDirtyTitle ? "Unsaved changes" : "Saved"}
-                    </span>
-                  ) : null}
-
-                  {canPublishCurrentFile ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        void handlePublish().catch((err: unknown) => {
-                          setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
-                        });
-                      }}
-                      className="rounded-md bg-[#0085FF] px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    >
-                      Publish
-                    </button>
-                  ) : null}
-
-                  {canEditTextCurrentFile && !isBibWorkspaceFile ? (
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowMoreMenu((prev) => !prev)}
-                        className="rounded-md border px-3 py-2 text-sm"
-                      >
-                        More
-                      </button>
-                      {showMoreMenu ? (
-                        <div className="absolute right-0 top-11 z-20 w-64 rounded-lg border bg-white p-3 shadow-lg">
-                          {isBibWorkspaceFile ? (
-                            <p className="mb-2 text-xs text-slate-500">BibTeX files use code view only.</p>
-                          ) : (
-                            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Format
-                              <select
-                                value={sourceFormat}
-                                onChange={(e) => handleSourceFormatChange(e.target.value as SourceFormat)}
-                                className="mt-1 w-full rounded-md border px-2 py-1 text-sm font-normal"
-                              >
-                                <option value="markdown">Markdown</option>
-                                <option value="tex">TeX</option>
-                              </select>
-                            </label>
-                          )}
-
-                          <label className="mb-2 flex items-center gap-2 text-sm text-slate-700">
-                            <input
-                              type="checkbox"
-                              checked={broadcastToBsky}
-                              onChange={(e) => setBroadcastToBsky(e.target.checked)}
-                            />
-                            Bluesky Sync
-                          </label>
-
-                          {!isBibWorkspaceFile ? (
-                            <div className="mb-2 space-y-1">
-                              <button
-                                type="button"
-                                onClick={() => handleExport("md")}
-                                className="w-full rounded border px-2 py-1 text-left text-xs hover:bg-slate-50"
-                              >
-                                Export .md
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleExport("tex")}
-                                className="w-full rounded border px-2 py-1 text-left text-xs hover:bg-slate-50"
-                              >
-                                Export .tex
-                              </button>
-                            </div>
-                          ) : null}
-
-                          {currentDid && currentRkey ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void handleUnpublish().catch((err: unknown) => {
-                                  setStatusMessage(err instanceof Error ? err.message : "Failed to unpublish");
-                                });
-                              }}
-                              className="rounded border border-red-300 px-2 py-1 text-xs text-red-700"
-                            >
-                              Unpublish
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
+      
+            <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-start">
+              <div className="sticky top-6 h-[calc(100vh-5rem)]">
+                <Sidebar
+                  articles={articles}
+                  activeArticleUri={activeArticleUri}
+                  openArticle={openArticle}
+                  syncLegacyArticles={syncLegacyArticles}
+                  files={files}
+                  activeFileId={activeFileId}
+                  openFile={openFile}
+                  renameWorkspaceItem={renameWorkspaceItem}
+                  deleteWorkspaceItem={deleteWorkspaceItem}
+                  handleMoveWorkspaceItem={handleMoveWorkspaceItem}
+                  createWorkspaceItem={createWorkspaceItem}
+                  setShowNewFileForm={setShowNewFileForm}
+                  isLoggedIn={isLoggedIn}
+                  accountHandle={accountHandle}
+                  loadFiles={loadFiles}
+                  sessionDid={sessionDid}
+                  setBusy={setBusy}
+                  setStatusMessage={setStatusMessage}
+                />
               </div>
+      
+              <EditorPanel
+      
+          hasOpenDocument={hasOpenDocument}
+          activeFile={activeFile}
+          title={title}
+          setTitle={setTitle}
+          authorsText={authorsText}
+          setAuthorsText={setAuthorsText}
+          isAuthorsFocused={isAuthorsFocused}
+          setIsAuthorsFocused={setIsAuthorsFocused}
+          editorBlocks={editorBlocks}
+          activeBlockId={activeBlockId}
+          canEditCurrentFile={canEditCurrentFile}
+          canEditTextCurrentFile={canEditTextCurrentFile}
+          canPublishCurrentFile={canPublishCurrentFile}
+          isImageWorkspaceFile={isImageWorkspaceFile}
+          isBibWorkspaceFile={isBibWorkspaceFile}
+          isDirtyFile={isDirtyFile}
+          isDirtyTitle={isDirtyTitle}
+          savingFile={savingFile}
+          busy={busy}
+          broadcastToBsky={broadcastToBsky}
+          setBroadcastToBsky={setBroadcastToBsky}
+          sourceFormat={sourceFormat}
+          currentDid={currentDid}
+          currentRkey={currentRkey}
+          readOnlyMessage={readOnlyMessage}
+          handlePublish={handlePublish}
+          handleUnpublish={handleUnpublish}
+          handleExport={handleExport}
+          handleSourceFormatChange={handleSourceFormatChange}
+          persistTitleAsFileName={persistTitleAsFileName}
+          updateBlock={updateBlock}
+          insertBlockAfter={insertBlockAfter}
+          removeBlock={removeBlock}
+          focusBlockByIndex={focusBlockByIndex}
+          activateBlockEditor={activateBlockEditor}
+          insertInlineMath={insertInlineMath}
+          setStatusMessage={setStatusMessage}
+          setTab={setTab}
+          citationMenu={citationMenu}
+          citationMenuIndex={citationMenuIndex}
+          filteredCitationEntries={filteredCitationEntries}
+          applyCitationSuggestion={applyCitationSuggestion}
+          renderCitationLookup={renderCitationLookup}
+          citationNumberByKey={citationNumberByKey}
+          resolvedBibliography={resolvedBibliography}
+          updateCitationMenu={updateCitationMenu}
+          selectedQuote={selectedQuote}
+          activeImagePreviewSrc={activeImagePreviewSrc}
+          resolveWorkspaceImageSrc={resolveWorkspaceImageSrc}
+          handleImageDrop={handleImageDrop}
+          imageDropTarget={imageDropTarget}
+          setImageDropTarget={setImageDropTarget}
+          draggingEditorBlockId={draggingEditorBlockId}
+          setDraggingEditorBlockId={setDraggingEditorBlockId}
+          blockMoveDropTarget={blockMoveDropTarget}
+          setBlockMoveDropTarget={setBlockMoveDropTarget}
+          moveBlockByDrop={moveBlockByDrop}
+          titleRef={titleRef}
+          authorsRef={authorsRef}
+          textareaRefs={textareaRefs}
+          bibHighlightScrollRefs={bibHighlightScrollRefs}
+          showMoreMenu={showMoreMenu}
+          setShowMoreMenu={setShowMoreMenu}
+          formatBibtexBlockById={formatBibtexBlockById}
+        />
 
-              {readOnlyMessage ? (
-                <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                  {readOnlyMessage}
-                </div>
-              ) : null}
-
-              <div className="min-h-[18rem]">
-                {isImageWorkspaceFile ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-slate-500">Image Preview</p>
-                    <div className="flex min-h-[18rem] items-center justify-center rounded-md border bg-slate-50 p-3">
-                      {activeImagePreviewSrc ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={activeImagePreviewSrc}
-                          alt={activeFile?.name ?? "image"}
-                          className="max-h-[70vh] w-auto max-w-full rounded border bg-white object-contain"
-                        />
-                      ) : (
-                        <p className="text-sm text-slate-500">No image data.</p>
-                      )}
-                    </div>
-                  </div>
-                ) : isBibWorkspaceFile ? (
-                  <div className="space-y-3">
-                    <p className="text-xs text-slate-500">BibTeX Code View</p>
-                    <div className="space-y-1">
-                      {editorBlocks.map((block, index) => (
-                        <div
-                          key={block.id}
-                          data-editor-block-id={block.id}
-                          className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
-                            activeBlockId === block.id
-                              ? "bg-slate-50/70"
-                              : selectedBlockIds.includes(block.id)
-                                ? "bg-blue-50/50"
-                                : "hover:bg-slate-50/60"
-                          }`}
-                          style={{
-                            opacity:
-                              draggingEditorBlockId &&
-                              (draggingEditorBlockId === block.id ||
-                                (selectedBlockIds.includes(draggingEditorBlockId) &&
-                                  selectedBlockIds.includes(block.id)))
-                                ? 0.4
-                                : 1,
-                          }}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (!canEditCurrentFile) return;
-                            const target = event.target;
-                            if (
-                              target instanceof HTMLElement &&
-                              target.closest("button,input,select,textarea,a,label,[role='button']")
-                            ) {
-                              return;
-                            }
-                            setActiveBlockId(block.id);
-                            setSelectedBlockIds([block.id]);
-                            setSelectionAnchorBlockId(block.id);
-                            activateBlockEditor(block.id, "end");
-                          }}
-                        >
-                          <div className="relative mt-1 w-5 shrink-0">
-                            {canEditCurrentFile &&
-                            (selectedBlockIds.includes(block.id) || draggingEditorBlockId === block.id) ? (
-                              <button
-                                type="button"
-                                draggable
-                                onDragStart={(event) => {
-                                  const ids = selectedBlockIds.includes(block.id) ? selectedBlockIds : [block.id];
-                                  if (ids.length > 1) {
-                                    const ghost = document.createElement("div");
-                                    ghost.style.position = "absolute";
-                                    ghost.style.top = "-2000px";
-                                    ghost.style.left = "-2000px";
-                                    ghost.style.width = "400px";
-                                    ghost.style.pointerEvents = "none";
-                                    ghost.style.zIndex = "1000";
-
-                                    ids.slice(0, 5).forEach((id) => {
-                                      const el = document.querySelector(`[data-editor-block-id="${id}"]`);
-                                      if (el) {
-                                        const clone = el.cloneNode(true) as HTMLElement;
-                                        clone.style.opacity = "0.6";
-                                        clone.style.marginBottom = "4px";
-                                        clone.style.border = "1px solid #E2E8F0";
-                                        clone.style.backgroundColor = "white";
-                                        clone.style.borderRadius = "4px";
-                                        clone.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)";
-                                        const controls = clone.querySelector(".shrink-0");
-                                        if (controls) (controls as HTMLElement).style.display = "none";
-                                        ghost.appendChild(clone);
-                                      }
-                                    });
-
-                                    if (ids.length > 5) {
-                                      const more = document.createElement("div");
-                                      more.innerText = `+ ${ids.length - 5} more blocks`;
-                                      more.style.padding = "4px";
-                                      more.style.fontSize = "10px";
-                                      more.style.color = "#64748b";
-                                      more.style.textAlign = "center";
-                                      ghost.appendChild(more);
-                                    }
-
-                                    document.body.appendChild(ghost);
-                                    event.dataTransfer.setDragImage(ghost, 20, 20);
-                                    window.setTimeout(() => document.body.removeChild(ghost), 0);
-                                  }
-                                  setDraggingEditorBlockId(block.id);
-                                  setBlockMoveDropTarget(null);
-                                  setImageDropTarget(null);
-                                  event.dataTransfer.setData(BLOCK_DRAG_MIME, block.id);
-                                  event.dataTransfer.effectAllowed = "move";
-                                }}
-                                onDragEnd={() => {
-                                  setDraggingEditorBlockId(null);
-                                  setBlockMoveDropTarget(null);
-                                }}
-                                onClick={() => {
-                                  setActiveBlockId(block.id);
-                                  setBlockMenuForId((prev) => (prev === block.id ? null : block.id));
-                                }}
-                                className={`flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600 ${
-                                  draggingEditorBlockId === block.id ? "cursor-grabbing" : "cursor-grab"
-                                }`}
-                                title="Drag to move block"
-                              >
-                                ⋮⋮
-                              </button>
-                            ) : (
-                              <div className="text-center text-[11px] text-slate-400">{index + 1}</div>
-                            )}
-                            {blockMenuForId === block.id ? (
-                              <div className="absolute left-6 top-0 z-30 w-32 rounded-md border bg-white p-1 text-xs shadow-lg">
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    removeBlock(index);
-                                    setBlockMenuForId(null);
-                                  }}
-                                  className="block w-full rounded px-2 py-1 text-left text-red-600 hover:bg-red-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="min-w-0 w-full">
-                            {canEditCurrentFile && activeBlockId === block.id ? (
-                              <div className="relative max-w-full rounded border bg-white">
-                                <div
-                                  ref={(el) => {
-                                    bibHighlightScrollRefs.current[block.id] = el;
-                                  }}
-                                  aria-hidden
-                                  className="pointer-events-none absolute inset-0 overflow-x-auto px-2 py-1"
-                                >
-                                  <p className="whitespace-pre font-mono text-xs leading-6 text-slate-800">
-                                    {block.text.length > 0
-                                      ? renderBibtexHighlighted(block.text, `editor-bib-active-${block.id}`)
-                                      : " "}
-                                  </p>
-                                </div>
-                                <textarea
-                                  data-editor-block-id={block.id}
-                                  ref={(el) => {
-                                    textareaRefs.current[block.id] = el;
-                                    resizeTextarea(el);
-                                  }}
-                                  value={block.text}
-                                  readOnly={!canEditCurrentFile}
-                                  rows={1}
-                                  wrap="off"
-                                  spellCheck={false}
-                                  onScroll={(event) => {
-                                    const overlay = bibHighlightScrollRefs.current[block.id];
-                                    if (!overlay) return;
-                                    overlay.scrollLeft = event.currentTarget.scrollLeft;
-                                    overlay.scrollTop = event.currentTarget.scrollTop;
-                                  }}
-                                  onFocus={() => {
-                                    setActiveBlockId(block.id);
-                                    setSelectedBlockIds((prev) => (prev.includes(block.id) ? prev : [block.id]));
-                                    setSelectionAnchorBlockId((prev) => {
-                                      // 関数型アップデートの中で、最新のselectedBlockIdsの状態を確認できないため
-                                      // prevが存在し、かつそれが今のブロックではない場合はアンカーを維持する方針にする
-                                      return prev || block.id;
-                                    });
-                                  }}
-                                  onBlur={(event) => {
-                                    const nextFocusedElement =
-                                      event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
-                                    formatBibtexBlockById(block.id, event.currentTarget.value);
-                                    window.setTimeout(() => {
-                                      if (draggingEditorBlockIdRef.current === block.id) return;
-                                      if (
-                                        nextFocusedElement &&
-                                        nextFocusedElement.closest(`[data-editor-block-id="${block.id}"]`)
-                                      ) {
-                                        return;
-                                      }
-                                      setActiveBlockId((prev) => (prev === block.id ? null : prev));
-                                    }, 0);
-                                  }}
-                                  onChange={(event) => {
-                                    updateBlock(block.id, { kind: "paragraph", text: event.target.value });
-                                    resizeTextarea(event.target);
-                                  }}
-                                  onKeyDown={(event) => {
-                                    if (!canEditCurrentFile) return;
-                                    if (isImeComposing(event)) return;
-                                    if ((event.metaKey || event.ctrlKey) && event.shiftKey) {
-                                      if (event.key === "ArrowUp") {
-                                        event.preventDefault();
-                                        moveBlockByDelta(index, -1);
-                                        return;
-                                      }
-                                      if (event.key === "ArrowDown") {
-                                        event.preventDefault();
-                                        moveBlockByDelta(index, 1);
-                                        return;
-                                      }
-                                    }
-                                    const {
-                                      selectionStart,
-                                      selectionEnd,
-                                      selectionDirection: dir,
-                                    } = event.currentTarget;
-                                    const valueLength = event.currentTarget.value.length;
-                                    const atEnd = selectionStart === valueLength && selectionEnd === valueLength;
-
-                                    const canJumpUp = event.shiftKey
-                                      ? selectionStart === 0 && (dir === "backward" || selectionEnd === 0)
-                                      : selectionStart === 0 && selectionEnd === 0;
-                                    const canJumpDown = event.shiftKey
-                                      ? selectionEnd === valueLength &&
-                                        (dir === "forward" || selectionStart === valueLength)
-                                      : selectionStart === valueLength && selectionEnd === valueLength;
-
-                                    if (event.key === "ArrowUp" && canJumpUp && index > 0) {
-                                      event.preventDefault();
-                                      if (event.shiftKey) {
-                                        const prevId = editorBlocks[index - 1].id;
-                                        updateSelectionRange(prevId, true);
-                                        setActiveBlockId(prevId);
-                                        window.setTimeout(() => {
-                                          const prevTextarea = textareaRefs.current[prevId];
-                                          if (prevTextarea) {
-                                            prevTextarea.focus();
-                                            // Set cursor to the end, no selection yet
-                                            const len = prevTextarea.value.length;
-                                            prevTextarea.setSelectionRange(len, len);
-                                          }
-                                        }, 0);
-                                      } else {
-                                        focusBlockByIndex(index - 1, { position: "end" });
-                                      }
-                                      return;
-                                    }
-                                    if (event.key === "ArrowDown" && canJumpDown && index < editorBlocks.length - 1) {
-                                      event.preventDefault();
-                                      if (event.shiftKey) {
-                                        const nextId = editorBlocks[index + 1].id;
-                                        updateSelectionRange(nextId, true);
-                                        setActiveBlockId(nextId);
-                                        window.setTimeout(() => {
-                                          const nextTextarea = textareaRefs.current[nextId];
-                                          if (nextTextarea) {
-                                            nextTextarea.focus();
-                                            // Set cursor to the start, no selection yet
-                                            nextTextarea.setSelectionRange(0, 0);
-                                          }
-                                        }, 0);
-                                      } else {
-                                        focusBlockByIndex(index + 1, { position: "start" });
-                                      }
-                                      return;
-                                    }
-                                    if (
-                                      event.key === "Enter" &&
-                                      !event.shiftKey &&
-                                      atEnd &&
-                                      isClosedBibtexEntryBlock(block.text)
-                                    ) {
-                                      event.preventDefault();
-                                      const template = createBibtexTemplate(sourceText);
-                                      insertBlockAfter(index, "paragraph", template);
-                                      return;
-                                    }
-                                    if (event.key === "Enter" && event.shiftKey) {
-                                      event.preventDefault();
-                                      const template = createBibtexTemplate(sourceText);
-                                      insertBlockAfter(index, "paragraph", template);
-                                      return;
-                                    }
-                                    if (
-                                      event.key === "Backspace" &&
-                                      block.text.length === 0 &&
-                                      editorBlocks.length > 1
-                                    ) {
-                                      event.preventDefault();
-                                      removeBlock(index);
-                                    }
-                                  }}
-                                  placeholder="@article{citation_key, ...}"
-                                  className="relative z-10 max-w-full w-full resize-none overflow-x-auto whitespace-pre bg-transparent px-2 py-1 font-mono text-xs leading-6 text-transparent caret-slate-800 outline-none selection:bg-sky-300/30 selection:text-transparent"
-                                />
-                              </div>
-                            ) : (
-                              <div
-                                role={canEditCurrentFile ? "button" : undefined}
-                                tabIndex={canEditCurrentFile ? 0 : undefined}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  if (!canEditCurrentFile) return;
-                                  activateBlockEditor(block.id, "end");
-                                }}
-                                onKeyDown={(event) => {
-                                  if (!canEditCurrentFile) return;
-                                  if (event.key !== "Enter" && event.key !== " ") return;
-                                  event.preventDefault();
-                                  activateBlockEditor(block.id, "start");
-                                }}
-                                className={`min-h-[1.75rem] min-w-0 w-full rounded border bg-white px-2 py-1 ${
-                                  canEditCurrentFile ? "cursor-text" : ""
-                                }`}
-                              >
-                                {block.text.trim().length > 0 ? (
-                                                                  <div className={`max-w-full overflow-x-auto ${selectedBlockIds.includes(block.id) ? "bg-[#B4D5FF]" : ""}`}>
-                                                                    <p className="whitespace-pre font-mono text-xs leading-6 text-slate-800">
-                                                                      {renderBibtexHighlighted(
-                                                                        block.text,
-                                                                        `editor-bib-block-preview-${block.id}`,
-                                                                      )}
-                                                                    </p>
-                                                                  </div>                                ) : (
-                                  <p className="font-mono text-xs text-slate-400">
-                                    {"@article{citation_key, ...}"}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-slate-500">{parseBibtexEntries(sourceText).length} entries detected.</p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-0.5">
-                  {editorBlocks.map((block, index) => (
-                    (() => {
-                      const imageLine = block.kind === "paragraph" ? parseMarkdownImageLine(block.text) : null;
-                      const imageAlign = imageLine ? imageAlignFromAttrs(imageLine.attrs) : "center";
-                      return (
-                    <div
-                      key={block.id}
-                      data-editor-block="true"
-                      data-editor-block-id={block.id}
-                      className={`group flex items-start gap-2 rounded-md px-0.5 py-0.5 ${
-                        activeBlockId === block.id
-                          ? "bg-slate-50/70"
-                          : selectedBlockIds.includes(block.id)
-                            ? "bg-blue-50/50"
-                            : "hover:bg-slate-50/60"
-                      } ${
-                        blockMoveDropTarget?.blockId === block.id && blockMoveDropTarget.position === "before"
-                          ? "border-t-2 border-emerald-500"
-                          : blockMoveDropTarget?.blockId === block.id &&
-                              blockMoveDropTarget.position === "after"
-                            ? "border-b-2 border-emerald-500"
-                            : imageDropTarget?.blockId === block.id && imageDropTarget.position === "before"
-                              ? "border-t-2 border-[#0085FF]"
-                              : imageDropTarget?.blockId === block.id &&
-                                  imageDropTarget.position === "after"
-                                ? "border-b-2 border-[#0085FF]"
-                                : ""
-                      }`}
-                      style={{
-                        opacity:
-                          draggingEditorBlockId &&
-                          (draggingEditorBlockId === block.id ||
-                            (selectedBlockIds.includes(draggingEditorBlockId) &&
-                              selectedBlockIds.includes(block.id)))
-                            ? 0.4
-                            : 1,
-                      }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (!canEditCurrentFile) return;
-                        const target = event.target;
-                        if (
-                          target instanceof HTMLElement &&
-                          target.closest("button,input,select,textarea,a,label,[role='button']")
-                        ) {
-                          return;
-                        }
-                        setActiveBlockId(block.id);
-                        setSelectedBlockIds([block.id]);
-                        setSelectionAnchorBlockId(block.id);
-                        activateBlockEditor(block.id, "end");
-                      }}
-                      onDragOver={(event) => {
-                        if (!canEditTextCurrentFile) return;
-                        if (hasDraggedEditorBlock(event)) {
-                          const draggedId =
-                            event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingEditorBlockId;
-                          if (!draggedId || draggedId === block.id) return;
-                          event.preventDefault();
-                          event.stopPropagation();
-                          const position = determineBlockDropPosition(event);
-                          if (
-                            blockMoveDropTarget?.blockId !== block.id ||
-                            blockMoveDropTarget.position !== position
-                          ) {
-                            setBlockMoveDropTarget({ blockId: block.id, position });
-                          }
-                          if (imageDropTarget !== null) {
-                            setImageDropTarget(null);
-                          }
-                          return;
-                        }
-                        if (isBibWorkspaceFile) return;
-                        if (!hasDraggedImageData(event)) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        const position = determineBlockDropPosition(event);
-                        if (
-                          imageDropTarget?.blockId !== block.id ||
-                          imageDropTarget.position !== position
-                        ) {
-                          setImageDropTarget({ blockId: block.id, position });
-                        }
-                      }}
-                      onDrop={(event) => {
-                        if (!canEditTextCurrentFile) return;
-                        if (hasDraggedEditorBlock(event)) {
-                          const draggedId =
-                            event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingEditorBlockId;
-                          const position = determineBlockDropPosition(event);
-                          event.preventDefault();
-                          event.stopPropagation();
-                          if (draggedId && draggedId !== block.id) {
-                            moveBlockByDrop(draggedId, block.id, position);
-                          }
-                          setDraggingEditorBlockId(null);
-                          setBlockMoveDropTarget(null);
-                          return;
-                        }
-                        if (isBibWorkspaceFile) return;
-                        const position = determineBlockDropPosition(event);
-                        event.stopPropagation();
-                        void handleImageDrop(event, { blockId: block.id, position });
-                      }}
-                    >
-                      <div className="relative mt-1 w-5 shrink-0">
-                        {canEditCurrentFile &&
-                        (selectedBlockIds.includes(block.id) || draggingEditorBlockId === block.id) ? (
-                          <>
-                            <button
-                              type="button"
-                              draggable
-                              onDragStart={(event) => {
-                                const ids = selectedBlockIds.includes(block.id) ? selectedBlockIds : [block.id];
-                                if (ids.length > 1) {
-                                  const ghost = document.createElement("div");
-                                  ghost.style.position = "absolute";
-                                  ghost.style.top = "-2000px";
-                                  ghost.style.left = "-2000px";
-                                  ghost.style.width = "400px";
-                                  ghost.style.pointerEvents = "none";
-                                  ghost.style.zIndex = "1000";
-
-                                  ids.slice(0, 5).forEach((id) => {
-                                    const el = document.querySelector(`[data-editor-block-id="${id}"]`);
-                                    if (el) {
-                                      const clone = el.cloneNode(true) as HTMLElement;
-                                      clone.style.opacity = "0.6";
-                                      clone.style.marginBottom = "4px";
-                                      clone.style.border = "1px solid #E2E8F0";
-                                      clone.style.backgroundColor = "white";
-                                      clone.style.borderRadius = "4px";
-                                      clone.style.boxShadow = "0 2px 4px rgba(0,0,0,0.05)";
-                                      const controls = clone.querySelector(".shrink-0");
-                                      if (controls) (controls as HTMLElement).style.display = "none";
-                                      ghost.appendChild(clone);
-                                    }
-                                  });
-
-                                  if (ids.length > 5) {
-                                    const more = document.createElement("div");
-                                    more.innerText = `+ ${ids.length - 5} more blocks`;
-                                    more.style.padding = "4px";
-                                    more.style.fontSize = "10px";
-                                    more.style.color = "#64748b";
-                                    more.style.textAlign = "center";
-                                    ghost.appendChild(more);
-                                  }
-
-                                  document.body.appendChild(ghost);
-                                  event.dataTransfer.setDragImage(ghost, 20, 20);
-                                  window.setTimeout(() => document.body.removeChild(ghost), 0);
-                                }
-                                setDraggingEditorBlockId(block.id);
-                                setBlockMoveDropTarget(null);
-                                setImageDropTarget(null);
-                                event.dataTransfer.setData(BLOCK_DRAG_MIME, block.id);
-                                event.dataTransfer.effectAllowed = "move";
-                              }}
-                              onDragEnd={() => {
-                                setDraggingEditorBlockId(null);
-                                setBlockMoveDropTarget(null);
-                              }}
-                              onClick={() => {
-                                setActiveBlockId(block.id);
-                                setBlockMenuForId((prev) => (prev === block.id ? null : block.id));
-                              }}
-                              className={`flex h-5 w-5 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-600 ${
-                                draggingEditorBlockId === block.id ? "cursor-grabbing" : "cursor-grab"
-                              }`}
-                              title="Drag to move block"
-                            >
-                              ⋮⋮
-                            </button>
-                            {blockMenuForId === block.id ? (
-                              <div className="absolute left-6 top-0 z-30 w-32 rounded-md border bg-white p-1 text-xs shadow-lg">
-                                {([
-                                  ["Text", "paragraph"],
-                                  ["Heading 1", "h1"],
-                                  ["Heading 2", "h2"],
-                                  ["Heading 3", "h3"],
-                                ] as const).map(([label, value]) => (
-                                  <button
-                                    key={value}
-                                    type="button"
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      updateBlock(block.id, { kind: value });
-                                      setBlockMenuForId(null);
-                                    }}
-                                    className={`block w-full rounded px-2 py-1 text-left hover:bg-slate-100 ${
-                                      block.kind === value ? "text-[#0085FF]" : "text-slate-700"
-                                    }`}
-                                  >
-                                    {label}
-                                  </button>
-                                ))}
-                                <button
-                                  type="button"
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    removeBlock(index);
-                                    setBlockMenuForId(null);
-                                  }}
-                                  className="mt-1 block w-full rounded px-2 py-1 text-left text-red-600 hover:bg-red-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <span className="block h-5 w-5" />
-                        )}
-                      </div>
-
-                      <div className="w-full">
-                        {canEditCurrentFile && activeBlockId === block.id ? (
-                          <>
-                            {imageLine ? (
-                              <div className="mb-1 flex items-center gap-1 text-xs">
-                                {(["left", "center", "right"] as const).map((align) => (
-                                  <button
-                                    key={align}
-                                    type="button"
-                                    onMouseDown={(event) => event.preventDefault()}
-                                    onClick={() => {
-                                      updateBlock(block.id, {
-                                        text: setImageAlignOnMarkdownLine(block.text, align),
-                                      });
-                                    }}
-                                    className={`rounded border px-2 py-0.5 ${
-                                      imageAlign === align
-                                        ? "border-[#0085FF] bg-[#E7F2FF] text-[#0068CC]"
-                                        : "text-slate-600 hover:bg-slate-50"
-                                    }`}
-                                  >
-                                    {align === "left" ? "Left" : align === "right" ? "Right" : "Center"}
-                                  </button>
-                                ))}
-                              </div>
-                            ) : null}
-                            <textarea
-                              data-editor-block-id={block.id}
-                              ref={(el) => {
-                                textareaRefs.current[block.id] = el;
-                                resizeTextarea(el);
-                              }}
-                              value={block.text}
-                              readOnly={!canEditCurrentFile}
-                              rows={1}
-                              onFocus={() => {
-                                setActiveBlockId(block.id);
-                                setSelectedBlockIds((prev) => (prev.includes(block.id) ? prev : [block.id]));
-                                setSelectionAnchorBlockId((prev) => prev || block.id);
-                              }}
-                              onBlur={(event) => {
-                                const nextFocusedElement =
-                                  event.relatedTarget instanceof HTMLElement ? event.relatedTarget : null;
-                                window.setTimeout(() => {
-                                  if (citationMenu?.blockId === block.id) return;
-                                  if (draggingEditorBlockIdRef.current === block.id) return;
-                                  if (
-                                    nextFocusedElement &&
-                                    nextFocusedElement.closest(`[data-editor-block-id="${block.id}"]`)
-                                  ) {
-                                    return;
-                                  }
-                                  setActiveBlockId((prev) => (prev === block.id ? null : prev));
-                                }, 0);
-                              }}
-                              onChange={(e) => {
-                                const nextValue = e.target.value;
-                                const normalized = normalizeEditedBlockInput(
-                                  block,
-                                  nextValue,
-                                  sourceFormat,
-                                );
-                                updateBlock(block.id, normalized);
-                                resizeTextarea(e.target);
-                                updateCitationMenu(block.id, normalized.text, e.target.selectionStart);
-                              }}
-                              onSelect={(e) => {
-                                const target = e.currentTarget;
-                                const quote = target.value.slice(target.selectionStart, target.selectionEnd).trim();
-                                setSelectedQuote(quote.slice(0, 280));
-                              }}
-                              onKeyDown={(e) => {
-                                if (!canEditCurrentFile) return;
-                                if (isImeComposing(e)) return;
-                                if ((e.metaKey || e.ctrlKey) && e.shiftKey) {
-                                  if (e.key === "ArrowUp") {
-                                    e.preventDefault();
-                                    moveBlockByDelta(index, -1);
-                                    return;
-                                  }
-                                  if (e.key === "ArrowDown") {
-                                    e.preventDefault();
-                                    moveBlockByDelta(index, 1);
-                                    return;
-                                  }
-                                }
-
-                                const menuOpenForBlock =
-                                  citationMenu?.blockId === block.id &&
-                                  filteredCitationEntries.length > 0;
-                                if (menuOpenForBlock && e.key === "ArrowDown") {
-                                  e.preventDefault();
-                                  setCitationMenuIndex(
-                                    (prev) => (prev + 1) % filteredCitationEntries.length,
-                                  );
-                                  return;
-                                }
-                                if (menuOpenForBlock && e.key === "ArrowUp") {
-                                  e.preventDefault();
-                                  setCitationMenuIndex(
-                                    (prev) =>
-                                      (prev - 1 + filteredCitationEntries.length) %
-                                      filteredCitationEntries.length,
-                                  );
-                                  return;
-                                }
-                                if (menuOpenForBlock && e.key === "Escape") {
-                                  e.preventDefault();
-                                  setCitationMenu(null);
-                                  return;
-                                }
-                                if (menuOpenForBlock && e.key === "Enter" && !e.shiftKey) {
-                                  e.preventDefault();
-                                  const picked = filteredCitationEntries[citationMenuIndex];
-                                  if (picked) {
-                                    applyCitationSuggestion(picked);
-                                  }
-                                  return;
-                                }
-
-                                const {
-                                  selectionStart,
-                                  selectionEnd,
-                                  selectionDirection: dir,
-                                } = e.currentTarget;
-                                const valueLength = e.currentTarget.value.length;
-
-                                const canJumpUp = e.shiftKey
-                                  ? selectionStart === 0 && (dir === "backward" || selectionEnd === 0)
-                                  : selectionStart === 0 && selectionEnd === 0;
-                                const canJumpDown = e.shiftKey
-                                  ? selectionEnd === valueLength && (dir === "forward" || selectionStart === valueLength)
-                                  : selectionStart === valueLength && selectionEnd === valueLength;
-
-                                if (e.key === "ArrowUp" && canJumpUp) {
-                                  if (index > 0) {
-                                    e.preventDefault();
-                                    if (e.shiftKey) {
-                                      const prevId = editorBlocks[index - 1].id;
-                                      updateSelectionRange(prevId, true);
-                                      setActiveBlockId(prevId);
-                                      window.setTimeout(() => {
-                                        const prevTextarea = textareaRefs.current[prevId];
-                                        if (prevTextarea) {
-                                          prevTextarea.focus();
-                                          // Set cursor to the end
-                                          const len = prevTextarea.value.length;
-                                          prevTextarea.setSelectionRange(len, len);
-                                        }
-                                      }, 0);
-                                    } else {
-                                      focusBlockByIndex(index - 1, { position: "end" });
-                                    }
-                                  } else if (!e.shiftKey) {
-                                    // 最初のブロックから著者欄へ戻る
-                                    e.preventDefault();
-                                    setIsAuthorsFocused(true);
-                                    setTimeout(() => {
-                                      authorsRef.current?.focus();
-                                      const len = authorsRef.current?.value.length ?? 0;
-                                      authorsRef.current?.setSelectionRange(len, len);
-                                    }, 10);
-                                  }
-                                  return;
-                                }
-                                if (e.key === "ArrowDown" && canJumpDown && index < editorBlocks.length - 1) {
-                                  e.preventDefault();
-                                  if (e.shiftKey) {
-                                    const nextId = editorBlocks[index + 1].id;
-                                    updateSelectionRange(nextId, true);
-                                    setActiveBlockId(nextId);
-                                    window.setTimeout(() => {
-                                      const nextTextarea = textareaRefs.current[nextId];
-                                      if (nextTextarea) {
-                                        nextTextarea.focus();
-                                        // Set cursor to the start
-                                        nextTextarea.setSelectionRange(0, 0);
-                                      }
-                                    }, 0);
-                                  } else {
-                                    focusBlockByIndex(index + 1, { position: "start" });
-                                  }
-                                  return;
-                                }
-
-                                if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "m") {
-                                  e.preventDefault();
-                                  insertInlineMath(block.id);
-                                  return;
-                                }
-                                if (e.key === "Enter" && !e.shiftKey) {
-                                  e.preventDefault();
-                                  insertBlockAfter(index, "paragraph");
-                                  return;
-                                }
-                                if (
-                                  e.key === "Backspace" &&
-                                  block.text.length === 0 &&
-                                  editorBlocks.length > 1
-                                ) {
-                                  e.preventDefault();
-                                  removeBlock(index);
-                                }
-                              }}
-                              placeholder={block.kind === "paragraph" ? "" : "Heading"}
-                              className={`w-full resize-none border-none bg-transparent p-0 outline-none ${blockTextClass(
-                                block.kind,
-                              )} select-text`}
-                            />
-                            {citationMenu?.blockId === block.id ? (
-                              <div className="mt-1 rounded-md border bg-white p-1 shadow-sm">
-                                {filteredCitationEntries.length === 0 ? (
-                                  <p className="px-2 py-1 text-xs text-slate-500">No citation match.</p>
-                                ) : (
-                                  <ul className="max-h-64 overflow-y-auto">
-                                    {filteredCitationEntries.map((entry, idx) => (
-                                      <li
-                                        key={entry.key}
-                                        ref={(el) => {
-                                          if (idx === citationMenuIndex) {
-                                            el?.scrollIntoView({ block: "nearest" });
-                                          }
-                                        }}
-                                      >
-                                        <button
-                                          type="button"
-                                          onMouseDown={(event) => event.preventDefault()}
-                                          onClick={() => applyCitationSuggestion(entry)}
-                                          className={`w-full rounded px-2 py-1 text-left text-xs ${
-                                            idx === citationMenuIndex ? "bg-[#E7F2FF]" : "hover:bg-slate-50"
-                                          }`}
-                                        >
-                                          <p className="font-mono text-[11px] text-slate-700">[@{entry.key}]</p>
-                                          <p className="truncate text-slate-500">{entry.title ?? entry.author ?? "-"}</p>
-                                        </button>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                )}
-                              </div>
-                            ) : null}
-                          </>
-                        ) : (
-                          <div
-                            role={canEditCurrentFile ? "button" : undefined}
-                            tabIndex={canEditCurrentFile ? 0 : undefined}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              if (!canEditCurrentFile) return;
-                              const target = event.target;
-                              if (target instanceof HTMLElement && target.closest("a")) {
-                                return;
-                              }
-                              activateBlockEditor(block.id, "end");
-                            }}
-                            onKeyDown={(event) => {
-                              if (!canEditCurrentFile) return;
-                              if (event.key !== "Enter" && event.key !== " ") return;
-                              event.preventDefault();
-                              activateBlockEditor(block.id, "start");
-                            }}
-                            className={`min-h-[1.5rem] w-full rounded px-0.5 py-0.5 ${
-                              canEditCurrentFile ? "cursor-text" : ""
-                            }`}
-                          >
-                            {block.text.trim().length > 0 ? (
-                              block.kind === "paragraph" ? (
-                                renderRichParagraphs(block.text, `editor-block-preview-${block.id}`, {
-                                  citationLookup: renderCitationLookup,
-                                  citationNumberByKey,
-                                  referenceAnchorPrefix: "editor-ref",
-                                  resolveImageSrc: resolveWorkspaceImageSrc,
-                                  isSelected: selectedBlockIds.includes(block.id),
-                                })
-                              ) : (
-                                <p className={`${blockTextClass(block.kind)} whitespace-pre-wrap`}>
-                                  {renderInlineText(
-                                    block.text,
-                                    `editor-heading-preview-${block.id}`,
-                                    {
-                                      citationLookup: renderCitationLookup,
-                                      citationNumberByKey,
-                                      referenceAnchorPrefix: "editor-ref",
-                                      isSelected: selectedBlockIds.includes(block.id),
-                                    },
-                                  )}
-                                </p>
-                              )
-                            ) : (
-                              block.kind === "paragraph" ? (
-                                <p className="h-6" />
-                              ) : (
-                                <p className="text-sm text-slate-400">Heading</p>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                      );
-                    })()
-                  ))}
-                </div>
-
-                {resolvedBibliography.length > 0 ? (
-                  <section className="mt-4 rounded-md border p-3">
-                    <p className="text-xs text-slate-500">References</p>
-                    <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                      {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
-                        <li
-                          key={`${line}-${index}`}
-                          id={referenceAnchorId("editor-ref", resolvedBibliography[index].key)}
-                          className="scroll-mt-24"
-                        >
-                          {line}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-
-                {selectedQuote ? (
-                  <div data-tour-id="selection-hook" className="mt-3 rounded-md border bg-white p-2">
-                    <p className="line-clamp-2 text-xs text-slate-600">{selectedQuote}</p>
-                    <button
-                      type="button"
-                      onClick={() => setTab("discussion")}
-                      className="mt-2 rounded bg-[#0085FF] px-2 py-1 text-xs text-white"
-                    >
-                      Blueskyで熟議する
-                    </button>
-                  </div>
-                ) : null}
-                  </>
-                )}
-              </div>
-            </>
-          )}
-        </section>
-
-        <aside data-tour-id="right-panel" className="min-w-0 rounded-xl border bg-white p-3 shadow-sm">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Discussion</p>
-
-          {tab === "preview" ? (
-            <div className="space-y-3" onMouseUp={captureWindowSelection}>
-              {isImageWorkspaceFile ? (
-                <>
-                  <p className="text-xs text-slate-500">Image Preview</p>
-                  <div className="flex min-h-[18rem] items-center justify-center rounded-md border bg-slate-50 p-3">
-                    {activeImagePreviewSrc ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={activeImagePreviewSrc}
-                        alt={activeFile?.name ?? "image"}
-                        className="max-h-[70vh] w-auto max-w-full rounded border bg-white object-contain"
-                      />
-                    ) : (
-                      <p className="text-sm text-slate-500">No image data.</p>
-                    )}
-                  </div>
-                </>
-              ) : isBibWorkspaceFile ? (
-                <>
-                  <p className="text-xs text-slate-500">BibTeX Preview</p>
-                  <div className="max-w-full overflow-x-auto overflow-y-auto rounded-md border bg-white p-3">
-                    <p className="whitespace-pre font-mono text-xs leading-6 text-slate-800">
-                      {sourceText.trim()
-                        ? renderBibtexHighlighted(formatBibtexSource(sourceText), "preview-bib")
-                        : "No entries yet."}
-                    </p>
-                  </div>
-                </>
-              ) : sourceFormat === "markdown" ? (
-                <>
-                  <p className="text-xs text-slate-500">Markdown Preview</p>
-                  <div className="rounded-md border p-3 select-text">
-                    {sourceText.trim() ? (
-                      renderRichParagraphs(sourceText, "md-preview", {
-                        citationLookup: renderCitationLookup,
-                        citationNumberByKey,
-                        referenceAnchorPrefix: "preview-ref",
-                        resolveImageSrc: resolveWorkspaceImageSrc,
-                      })
-                    ) : (
-                      <p className="text-sm text-slate-500">No blocks yet.</p>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-xs text-slate-500">TeX Preview ({previewBlocks.length} sections)</p>
-                  {previewBlocks.length === 0 ? (
-                    <p className="text-sm text-slate-500">No blocks yet.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {previewBlocks.map((block, idx) => {
-                        const headingClass =
-                          block.level <= 1
-                            ? "text-2xl font-semibold"
-                            : block.level === 2
-                              ? "text-xl font-semibold"
-                              : "text-lg font-semibold";
-                        return (
-                          <section key={`${block.heading}-${idx}`} className="rounded-md border p-3">
-                            <p className={headingClass}>{block.heading}</p>
-                            <div className="mt-2">
-                              {renderRichParagraphs(block.content, `tex-${idx}`, {
-                                citationLookup: renderCitationLookup,
-                                citationNumberByKey,
-                                referenceAnchorPrefix: "preview-ref",
-                                resolveImageSrc: resolveWorkspaceImageSrc,
-                              })}
-                            </div>
-                          </section>
-                        );
-                      })}
-                    </div>
-                  )}
-                </>
-              )}
-              {!isBibWorkspaceFile && !isImageWorkspaceFile && resolvedBibliography.length > 0 ? (
-                <section className="rounded-md border p-3">
-                  <p className="text-xs text-slate-500">References (IEEE)</p>
-                  <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                    {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
-                      <li
-                        key={`${line}-${index}`}
-                        id={referenceAnchorId("preview-ref", resolvedBibliography[index].key)}
-                        className="scroll-mt-24"
-                      >
-                        {line}
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              ) : null}
-              {!isBibWorkspaceFile && !isImageWorkspaceFile && missingCitationKeys.length > 0 ? (
-                <p className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-900">
-                  Missing bibliography keys: {missingCitationKeys.join(", ")}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {selectedQuote ? (
-                <div className="rounded-md border bg-[#FFFCDB] p-2">
-                  <p className="text-xs font-semibold text-slate-700">Highlighted quote</p>
-                  <p className="mt-1 text-xs text-slate-600">{selectedQuote}</p>
-                  <textarea
-                    value={quoteComment}
-                    onChange={(e) => setQuoteComment(e.target.value)}
-                    placeholder="Post inline review comment"
-                    rows={3}
-                    className="mt-2 w-full rounded border bg-white px-2 py-1 text-xs"
-                  />
-                  <button
-                    type="button"
-                    disabled={!sessionDid || busy || !quoteComment.trim()}
-                    onClick={() => {
-                      void submitInlineComment().catch((err: unknown) => {
-                        setStatusMessage(err instanceof Error ? err.message : "Failed to post comment");
-                      });
-                    }}
-                    className="mt-2 rounded bg-[#0085FF] px-2 py-1 text-xs text-white disabled:opacity-50"
-                  >
-                    Post Quote Comment
-                  </button>
-                </div>
-              ) : null}
-
-              {discussionRoot ? (
-                <div className="rounded-md border bg-slate-50 p-2">
-                  <p className="text-xs font-semibold text-slate-500">Root Post</p>
-                  <p className="mt-1 break-all text-sm text-slate-800">{discussionRoot.text}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-500">No announcement thread yet.</p>
-              )}
-
-              <ul className="space-y-2">
-                {discussionPosts.map((post) => (
-                  <li
-                    key={post.uri}
-                    className={`rounded-md border p-2 ${post.quoted ? "border-amber-200 bg-amber-50/50" : ""}`}
-                    style={{ marginLeft: `${Math.min(post.depth, 6) * 12}px` }}
-                  >
-                    <p className="text-xs text-slate-500">
-                      @{post.handle ?? post.authorDid} · {timeAgo(post.createdAt)}
-                    </p>
-                    <div className="mt-1 flex items-center gap-1">
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase text-slate-600">
-                        {post.source}
-                      </span>
-                      {post.quoted ? (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] uppercase text-amber-700">
-                          quote
-                        </span>
-                      ) : null}
-                    </div>
-                    {post.quote ? (
-                      <p className="mt-1 break-all rounded bg-[#FFFCDB] px-2 py-1 text-xs text-slate-600">
-                        {post.quote}
-                      </p>
-                    ) : null}
-                    <p className="mt-2 whitespace-pre-wrap break-all text-sm text-slate-800">{post.text}</p>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        disabled={!sessionDid}
-                        onClick={() => {
-                          void runEngagement("like", post).catch((err: unknown) => {
-                            setStatusMessage(err instanceof Error ? err.message : "Like failed");
-                          });
-                        }}
-                        className={`rounded border px-2 py-1 text-xs disabled:opacity-50 ${
-                          post.liked ? "border-[#0085FF] text-[#0085FF]" : ""
-                        }`}
-                      >
-                        Like
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!sessionDid}
-                        onClick={() => {
-                          void runEngagement("repost", post).catch((err: unknown) => {
-                            setStatusMessage(err instanceof Error ? err.message : "Repost failed");
-                          });
-                        }}
-                        className={`rounded border px-2 py-1 text-xs disabled:opacity-50 ${
-                          post.reposted ? "border-[#0085FF] text-[#0085FF]" : ""
-                        }`}
-                      >
-                        Repost
-                      </button>
-                      <input
-                        value={replyDrafts[post.uri] ?? ""}
-                        onChange={(e) =>
-                          setReplyDrafts((prev) => ({
-                            ...prev,
-                            [post.uri]: e.target.value,
-                          }))
-                        }
-                        placeholder="Reply..."
-                        disabled={!sessionDid}
-                        className="min-w-28 flex-1 rounded border px-2 py-1 text-xs disabled:opacity-50"
-                      />
-                      <button
-                        type="button"
-                        disabled={!sessionDid}
-                        onClick={() => {
-                          const text = (replyDrafts[post.uri] ?? "").trim();
-                          if (!text) return;
-                          void runEngagement("reply", post, text).catch((err: unknown) => {
-                            setStatusMessage(err instanceof Error ? err.message : "Reply failed");
-                          });
-                        }}
-                        className="rounded border px-2 py-1 text-xs disabled:opacity-50"
-                      >
-                        Reply
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </aside>
+        <RightPanel
+          selectedQuote={selectedQuote}
+          quoteComment={quoteComment}
+          setQuoteComment={setQuoteComment}
+          submitInlineComment={submitInlineComment}
+          discussionRoot={discussionRoot}
+          discussionPosts={discussionPosts}
+          replyDrafts={replyDrafts}
+          setReplyDrafts={setReplyDrafts}
+          runEngagement={runEngagement}
+          sessionDid={sessionDid}
+          busy={busy}
+          setStatusMessage={setStatusMessage}
+        />
       </div>
     </div>
   );
