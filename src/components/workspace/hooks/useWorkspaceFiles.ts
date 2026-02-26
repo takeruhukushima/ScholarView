@@ -30,8 +30,8 @@ export function useWorkspaceFiles() {
 
       setFiles(data.files);
       return data.files;
-    } catch (err: any) {
-      setStatusMessage(err.message || "Failed to load files");
+    } catch (err: unknown) {
+      setStatusMessage(err instanceof Error ? err.message : "Failed to load files");
       return [] as WorkspaceFile[];
     } finally {
       setBusy(false);
@@ -68,8 +68,8 @@ export function useWorkspaceFiles() {
 
         await loadFiles(sessionDid, setBusy, setStatusMessage);
         return data.file;
-      } catch (err: any) {
-        setStatusMessage(err.message || "Failed to create item");
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to create item");
         return null;
       } finally {
         setBusy(false);
@@ -93,8 +93,8 @@ export function useWorkspaceFiles() {
         }
         const latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
         return latestFiles;
-      } catch (err: any) {
-        setStatusMessage(err.message || "Failed to delete item");
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to delete item");
         return null;
       } finally {
         setBusy(false);
@@ -128,8 +128,8 @@ export function useWorkspaceFiles() {
 
         const latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
         return { latestFiles, updates: data.updates || [] };
-      } catch (err: any) {
-        setStatusMessage(err.message || "Failed to move item");
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to move item");
         return null;
       } finally {
         setBusy(false);
@@ -156,8 +156,8 @@ export function useWorkspaceFiles() {
         }
         await loadFiles(sessionDid, setBusy, setStatusMessage);
         return true;
-      } catch (err: any) {
-        setStatusMessage(err.message || "Failed to rename item");
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to rename item");
         return false;
       } finally {
         setBusy(false);

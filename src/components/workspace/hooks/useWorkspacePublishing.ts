@@ -1,5 +1,6 @@
-import { useCallback } from "react";
-import { SourceFormat, WorkspaceFile, ArticleAuthor, BibliographyEntry, ArticleSummary } from "@/lib/types";
+import { SourceFormat } from "@/lib/types";
+import { BibliographyEntry } from "@/lib/articles/citations";
+import { WorkspaceFile } from "@/lib/workspace/types";
 import { parseAuthors } from "@/lib/articles/authors";
 import { exportSource } from "@/lib/export/document";
 import { sanitizeFileStem } from "@/lib/workspace/image-logic";

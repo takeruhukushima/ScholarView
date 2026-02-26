@@ -1,4 +1,5 @@
-import type { ArticleAuthor, ArticleBlock, SourceFormat } from "../types";
+import type { ArticleAuthor, SourceFormat } from "../types";
+import type { ArticleBlock } from "../articles/blocks";
 import type { BibliographyEntry } from "../articles/citations";
 
 export interface WorkspaceFile {
