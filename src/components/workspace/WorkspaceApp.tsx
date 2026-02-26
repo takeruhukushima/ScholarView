@@ -79,6 +79,7 @@ import { useWorkspacePublishing } from "./hooks/useWorkspacePublishing";
 import { useWorkspaceMedia } from "./hooks/useWorkspaceMedia";
 import { useWorkspaceNavigation } from "./hooks/useWorkspaceNavigation";
 import { useWorkspaceDocumentSync } from "./hooks/useWorkspaceDocumentSync";
+import { useWorkspaceCitations } from "./hooks/useWorkspaceCitations";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -97,8 +98,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
   const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
   const [articleBibliography, setArticleBibliography] = useState<BibliographyEntry[]>([]);
-  const [citationMenu, setCitationMenu] = useState<CitationMenuState | null>(null);
-  const [citationMenuIndex, setCitationMenuIndex] = useState(0);
   const [broadcastToBsky, setBroadcastToBsky] = useState(true);
 
   const [currentDid, setCurrentDid] = useState<string | null>(null);
@@ -272,6 +271,33 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     [loadFiles, sessionDid, setBusy, setStatusMessage],
   );
 
+  const blockSourceText = useMemo(
+    () => editorBlocksToSource(editorBlocks, sourceFormat),
+    [editorBlocks, sourceFormat],
+  );
+  const bibSourceText = useMemo(() => bibEditorBlocksToSource(editorBlocks), [editorBlocks]);
+  const sourceText = useMemo(() => {
+    if (isImageWorkspaceFile) return activeFile?.content ?? "";
+    return isBibWorkspaceFile ? bibSourceText : blockSourceText;
+  }, [activeFile, bibSourceText, blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile]);
+  const isDirtyFile = useMemo(() => {
+    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+      return false;
+    }
+    const currentContent = activeFile.content ?? "";
+    const currentFormat = activeFile.sourceFormat ?? inferSourceFormat(activeFile.name, null);
+    return currentContent !== sourceText || currentFormat !== sourceFormat;
+  }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
+  const isDirtyTitle = useMemo(() => {
+    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
+      return false;
+    }
+    if (isExistingArticle) {
+      return false;
+    }
+    return title.trim() !== defaultTitleFromFileName(activeFile.name);
+  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
+
   const {
     discussionRoot,
     discussionPosts,
@@ -292,6 +318,31 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setBusy,
     setStatusMessage,
     setTab,
+  });
+
+  const {
+    citationMenu,
+    setCitationMenu,
+    citationMenuIndex,
+    setCitationMenuIndex,
+    projectBibEntries,
+    resolvedBibliography,
+    missingCitationKeys,
+    citationNumberByKey,
+    renderCitationLookup,
+    updateCitationMenu,
+    filteredCitationEntries,
+    applyCitationSuggestion,
+    normalizeBibtexBlock,
+    formatBibtexBlockById,
+  } = useWorkspaceCitations({
+    files,
+    activeFileId,
+    articleBibliography,
+    sourceText,
+    isImageWorkspaceFile,
+    setEditorBlocks,
+    textareaRefs,
   });
 
   const {
@@ -332,60 +383,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     draggingEditorBlockIdRef.current = draggingEditorBlockId;
   }, [draggingEditorBlockId]);
 
-  const projectBibFiles = useMemo(
-    () => collectProjectBibFiles(files, activeFileId),
-    [activeFileId, files],
-  );
-  const projectBibEntries = useMemo(() => {
-    const merged = new Map<string, BibliographyEntry>();
-    for (const file of projectBibFiles) {
-      const entries = parseBibtexEntries(file.content ?? "");
-      for (const entry of entries) {
-        if (!merged.has(entry.key)) {
-          merged.set(entry.key, entry);
-        }
-      }
-    }
-    return Array.from(merged.values());
-  }, [projectBibFiles]);
-  const activeBibByKey = useMemo(() => {
-    const map = new Map<string, BibliographyEntry>();
-    for (const entry of projectBibEntries) map.set(entry.key, entry);
-    return map;
-  }, [projectBibEntries]);
-  const persistedBibByKey = useMemo(() => {
-    const map = new Map<string, BibliographyEntry>();
-    for (const entry of articleBibliography) map.set(entry.key, entry);
-    return map;
-  }, [articleBibliography]);
-
-  const blockSourceText = useMemo(
-    () => editorBlocksToSource(editorBlocks, sourceFormat),
-    [editorBlocks, sourceFormat],
-  );
-  const bibSourceText = useMemo(() => bibEditorBlocksToSource(editorBlocks), [editorBlocks]);
-  const sourceText = useMemo(() => {
-    if (isImageWorkspaceFile) return activeFile?.content ?? "";
-    return isBibWorkspaceFile ? bibSourceText : blockSourceText;
-  }, [activeFile, bibSourceText, blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile]);
-  const isDirtyFile = useMemo(() => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
-      return false;
-    }
-    const currentContent = activeFile.content ?? "";
-    const currentFormat = activeFile.sourceFormat ?? inferSourceFormat(activeFile.name, null);
-    return currentContent !== sourceText || currentFormat !== sourceFormat;
-  }, [activeFile, canEditCurrentFile, sourceFormat, sourceText]);
-  const isDirtyTitle = useMemo(() => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
-      return false;
-    }
-    if (isExistingArticle) {
-      return false;
-    }
-    return title.trim() !== defaultTitleFromFileName(activeFile.name);
-  }, [activeFile, canEditCurrentFile, isExistingArticle, title]);
-
   const {
     saveCurrentFile,
     persistTitleAsFileName,
@@ -404,43 +401,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setTitle,
     setStatusMessage,
   });
-
-  const citationKeys = useMemo(
-    () => (isImageWorkspaceFile ? [] : extractCitationKeysFromText(sourceText)),
-    [isImageWorkspaceFile, sourceText],
-  );
-  const resolvedBibliography = useMemo(() => {
-    const resolved: BibliographyEntry[] = [];
-    for (const key of citationKeys) {
-      const fromBib = activeBibByKey.get(key);
-      if (fromBib) {
-        resolved.push(fromBib);
-        continue;
-      }
-      const fromPersisted = persistedBibByKey.get(key);
-      if (fromPersisted) resolved.push(fromPersisted);
-    }
-    return resolved;
-  }, [activeBibByKey, citationKeys, persistedBibByKey]);
-  const missingCitationKeys = useMemo(
-    () =>
-      citationKeys.filter(
-        (key) => !activeBibByKey.has(key) && !persistedBibByKey.has(key),
-      ),
-    [activeBibByKey, citationKeys, persistedBibByKey],
-  );
-  const citationNumberByKey = useMemo(() => {
-    const map = new Map<string, number>();
-    for (let i = 0; i < resolvedBibliography.length; i += 1) {
-      map.set(resolvedBibliography[i].key, i + 1);
-    }
-    return map;
-  }, [resolvedBibliography]);
-  const renderCitationLookup = useMemo(() => {
-    const map = new Map<string, BibliographyEntry>();
-    for (const entry of resolvedBibliography) map.set(entry.key, entry);
-    return map;
-  }, [resolvedBibliography]);
 
   const previewBlocks = useMemo(
     () => (isBibWorkspaceFile || isImageWorkspaceFile ? [] : parseSourceToBlocks(sourceText, sourceFormat)),
@@ -602,67 +562,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }
   };
 
-  const updateCitationMenu = useCallback(
-    (blockId: string, text: string, cursor: number) => {
-      const trigger = detectCitationTrigger(text, cursor);
-      if (!trigger) {
-        setCitationMenu((prev) => (prev?.blockId === blockId ? null : prev));
-        return;
-      }
-      setCitationMenu({
-        blockId,
-        start: trigger.start,
-        end: trigger.end,
-        query: trigger.query,
-      });
-      setCitationMenuIndex(0);
-    },
-    [],
-  );
-
-  const filteredCitationEntries = useMemo(() => {
-    if (!citationMenu) return [] as BibliographyEntry[];
-    const query = citationMenu.query.trim().toLowerCase();
-    const searchPool = projectBibEntries.length > 0 ? projectBibEntries : articleBibliography;
-    if (!query) return searchPool;
-    return searchPool
-      .filter((entry) => {
-        const haystack = `${entry.key} ${entry.title ?? ""} ${entry.author ?? ""}`.toLowerCase();
-        return haystack.includes(query);
-      });
-  }, [articleBibliography, citationMenu, projectBibEntries]);
-
-  const applyCitationSuggestion = useCallback(
-    (entry: BibliographyEntry) => {
-      if (!citationMenu) return;
-      const replacement = `[@${entry.key}]`;
-      const targetId = citationMenu.blockId;
-
-      setEditorBlocks((prev) =>
-        prev.map((block) => {
-          if (block.id !== targetId) return block;
-          const before = block.text.slice(0, citationMenu.start);
-          const after = block.text.slice(citationMenu.end);
-          return {
-            ...block,
-            text: `${before}${replacement}${after}`,
-          };
-        }),
-      );
-
-      setCitationMenu(null);
-
-      window.setTimeout(() => {
-        const textarea = textareaRefs.current[targetId];
-        if (!textarea) return;
-        const nextPos = citationMenu.start + replacement.length;
-        textarea.focus();
-        textarea.setSelectionRange(nextPos, nextPos);
-      }, 0);
-    },
-    [citationMenu],
-  );
-
   const normalizeWorkspaceImageUrisForExport = useCallback(
     (input: string) =>
       input.replace(/!\[([^\]]*)\]\(workspace:\/\/([^)]+)\)(\{[^}]*\})?/g, (_all, alt, id, attrs) => {
@@ -718,26 +617,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setActiveBlockId(null);
     },
     [blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat],
-  );
-
-  const normalizeBibtexBlock = useCallback((raw: string): string => {
-    const normalized = raw.replace(/\r\n?/g, "\n").trim();
-    if (!normalized) return "";
-    return formatBibtexSource(normalized);
-  }, []);
-
-  const formatBibtexBlockById = useCallback(
-    (blockId: string, raw: string) => {
-      const formatted = normalizeBibtexBlock(raw);
-      setEditorBlocks((prev) =>
-        prev.map((block) =>
-          block.id === blockId && block.text !== formatted
-            ? { ...block, kind: "paragraph", text: formatted }
-            : block,
-        ),
-      );
-    },
-    [normalizeBibtexBlock],
   );
 
   const hasDraggedImageData = (event: DragEvent<HTMLElement>): boolean =>
