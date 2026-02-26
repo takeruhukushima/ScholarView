@@ -98,6 +98,7 @@ import {
 import { FileTree } from "./FileTree";
 import { ArticleList } from "./ArticleList";
 import { OnboardingTour } from "./OnboardingTour";
+import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -106,9 +107,18 @@ function parseSourceToBlocks(source: string, sourceFormat: SourceFormat): Articl
 }
 
 export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: WorkspaceAppProps) {
+  const {
+    files,
+    setFiles,
+    activeFileId,
+    setActiveFileId,
+    loadFiles,
+    createWorkspaceItem: apiCreateItem,
+    deleteFileItem: apiDeleteItem,
+    moveWorkspaceItem: apiMoveItem,
+    renameFileItem: apiRenameItem,
+  } = useWorkspaceFiles();
   const [articles, setArticles] = useState<ArticleSummary[]>(initialArticles);
-  const [files, setFiles] = useState<WorkspaceFile[]>([]);
-  const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
@@ -393,26 +403,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         ? "この投稿はワークスペースのファイルに未リンクのため閲覧専用です。"
       : null;
 
-  const loadFiles = useCallback(async () => {
-    if (!sessionDid) {
-      setFiles([]);
-      return [] as WorkspaceFile[];
-    }
-
-    const response = await fetch("/api/workspace/files", { cache: "no-store" });
-    const data = (await response.json()) as {
-      success?: boolean;
-      files?: WorkspaceFile[];
-      error?: string;
-    };
-
-    if (!response.ok || !data.success || !data.files) {
-      throw new Error(data.error ?? "Failed to load workspace files");
-    }
-
-    setFiles(data.files);
-    return data.files;
-  }, [sessionDid]);
 
   const refreshArticles = useCallback(async () => {
     try {
@@ -450,7 +440,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         }
         const created = data.created ?? 0;
         if (created > 0) {
-          await loadFiles();
+          await loadFiles(sessionDid, setBusy, setStatusMessage);
         }
         if (!options?.silent) {
           setStatusMessage(
@@ -556,7 +546,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       );
       if (!linkedFile && article.authorDid === sessionDid) {
         await syncLegacyArticles({ force: true, silent: true });
-        const latestFiles = await loadFiles();
+        const latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
         linkedFile = latestFiles.find(
           (file) => file.kind === "file" && file.linkedArticleUri === article.uri,
         );
@@ -617,7 +607,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   );
 
   useEffect(() => {
-    void loadFiles().catch((err: unknown) => {
+    void loadFiles(sessionDid, setBusy, setStatusMessage).catch((err: unknown) => {
       setStatusMessage(err instanceof Error ? err.message : "Failed to load files");
     });
   }, [loadFiles]);
@@ -708,30 +698,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
     const parentId = activeFile?.kind === "folder" ? activeFile.id : activeFile?.parentId ?? null;
 
-    const response = await fetch("/api/workspace/files", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        parentId,
-        name,
-        kind,
-        ...(kind === "file" && options?.format ? { format: options.format } : {}),
-        ...(kind === "file" && options?.content !== undefined ? { content: options.content } : {}),
-      }),
-    });
+    const created = await apiCreateItem(
+      name,
+      kind,
+      parentId,
+      sessionDid,
+      setBusy,
+      setStatusMessage
+    );
 
-    const data = (await response.json()) as {
-      success?: boolean;
-      file?: WorkspaceFile;
-      error?: string;
-    };
-
-    if (!response.ok || !data.success || !data.file) {
-      throw new Error(data.error ?? "Failed to create item");
+    if (created) {
+      await openFile(created);
     }
-
-    await loadFiles();
-    await openFile(data.file);
   };
 
   const createWorkspaceFileFromForm = async () => {
@@ -756,24 +734,24 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     const confirmed = window.confirm(`Delete this ${label}?`);
     if (!confirmed) return;
 
-    const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
-      method: "DELETE",
-    });
-    const data = (await response.json()) as { success?: boolean; error?: string };
-    if (!response.ok || !data.success) {
-      throw new Error(data.error ?? "Failed to delete item");
-    }
+    const latestFiles = await apiDeleteItem(
+      file.id,
+      sessionDid,
+      setBusy,
+      setStatusMessage
+    );
 
-    const latestFiles = await loadFiles();
-    if (activeFileId && !latestFiles.some((item) => item.id === activeFileId)) {
-      setActiveFileId(null);
-      if (!activeArticleUri) {
-        setCurrentDid(null);
-        setCurrentRkey(null);
-        setEditorBlocks([{ id: newId(), kind: "paragraph", text: "" }]);
-        setTitle("");
-        setSelectedQuote("");
-        setQuoteComment("");
+    if (latestFiles) {
+      if (activeFileId && !latestFiles.some((item) => item.id === activeFileId)) {
+        setActiveFileId(null);
+        if (!activeArticleUri) {
+          setCurrentDid(null);
+          setCurrentRkey(null);
+          setEditorBlocks([{ id: newId(), kind: "paragraph", text: "" }]);
+          setTitle("");
+          setSelectedQuote("");
+          setQuoteComment("");
+        }
       }
     }
   };
@@ -792,17 +770,17 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     const nextName = isBibFile ? ensureFileExtension(trimmed, "bib") : trimmed;
     if (!nextName || nextName === file.name) return;
 
-    const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: nextName }),
-    });
-    const data = (await response.json()) as { success?: boolean; error?: string };
-    if (!response.ok || !data.success) {
-      throw new Error(data.error ?? "Failed to rename item");
+    const success = await apiRenameItem(
+      file.id,
+      nextName,
+      sessionDid,
+      setBusy,
+      setStatusMessage
+    );
+
+    if (success) {
+      setStatusMessage(`Renamed to ${nextName}`);
     }
-    await loadFiles();
-    setStatusMessage(`Renamed to ${nextName}`);
   };
 
   const saveCurrentFile = useCallback(async (options?: { silent?: boolean }) => {
@@ -1363,7 +1341,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       if (lastInsertedId) {
         setActiveBlockId(lastInsertedId);
       }
-      await loadFiles();
+      await loadFiles(sessionDid, setBusy, setStatusMessage);
       setStatusMessage("Inserted image figure block(s).");
     } catch (err: unknown) {
       setStatusMessage(err instanceof Error ? err.message : "Failed to insert image");
@@ -1376,156 +1354,69 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const handleMoveWorkspaceItem = useCallback(
     async (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => {
       if (!sessionDid) return;
-      if (draggedId === target.id) return;
 
-      const byId = new Map(files.map((file) => [file.id, file]));
-      const dragged = byId.get(draggedId);
-      const targetFile = byId.get(target.id);
-      if (!dragged || !targetFile) return;
-
-      const nextParentId =
-        position === "inside" && targetFile.kind === "folder" ? targetFile.id : targetFile.parentId;
-      let cursor = nextParentId;
-      while (cursor) {
-        if (cursor === dragged.id) {
-          setStatusMessage("Cannot move a folder into its descendant.");
-          return;
-        }
-        cursor = byId.get(cursor)?.parentId ?? null;
-      }
-
-      const siblingSorter = (a: WorkspaceFile, b: WorkspaceFile) =>
-        a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
-
-      const nextSiblings = files
-        .filter((file) => file.parentId === nextParentId && file.id !== dragged.id)
-        .sort(siblingSorter);
-      if (position === "inside" && targetFile.kind === "folder") {
-        nextSiblings.push({ ...dragged, parentId: nextParentId });
-      } else {
-        const targetIndex = nextSiblings.findIndex((file) => file.id === targetFile.id);
-        if (targetIndex === -1) return;
-        const insertIndex = position === "after" ? targetIndex + 1 : targetIndex;
-        nextSiblings.splice(insertIndex, 0, { ...dragged, parentId: nextParentId });
-      }
-
-      const oldParentSiblings =
-        dragged.parentId === nextParentId
-          ? []
-          : files
-              .filter((file) => file.parentId === dragged.parentId && file.id !== dragged.id)
-              .sort(siblingSorter);
-
-      const updates: Array<{ id: string; parentId?: string | null; sortOrder: number }> = [];
-      for (let i = 0; i < nextSiblings.length; i += 1) {
-        const file = nextSiblings[i];
-        updates.push({
-          id: file.id,
-          sortOrder: i,
-          ...(file.id === dragged.id ? { parentId: nextParentId } : {}),
-        });
-      }
-      for (let i = 0; i < oldParentSiblings.length; i += 1) {
-        updates.push({
-          id: oldParentSiblings[i].id,
-          sortOrder: i,
-        });
-      }
-
-      const deduped = new Map<string, { id: string; parentId?: string | null; sortOrder: number }>();
-      for (const update of updates) {
-        deduped.set(update.id, update);
-      }
-
-      const oldDraggedPath = filePathMap.get(dragged.id) ?? null;
-      const nextFiles = files.map((file) => {
-        const update = deduped.get(file.id);
-        if (!update) return file;
-        return {
-          ...file,
-          parentId: update.parentId !== undefined ? update.parentId : file.parentId,
-          sortOrder: update.sortOrder,
-        };
-      });
-      const nextFilePathMap = buildFilePathMap(nextFiles);
-      const nextDraggedPath = nextFilePathMap.get(dragged.id) ?? null;
-
-      await Promise.all(
-        Array.from(deduped.values()).map(async (update) => {
-          const response = await fetch(`/api/workspace/files/${encodeURIComponent(update.id)}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              ...(update.parentId !== undefined ? { parentId: update.parentId } : {}),
-              sortOrder: update.sortOrder,
-            }),
-          });
-          const data = (await response.json()) as { success?: boolean; error?: string };
-          if (!response.ok || !data.success) {
-            throw new Error(data.error ?? "Failed to reorder file tree");
-          }
-        }),
+      const res = await apiMoveItem(
+        draggedId,
+        target.id,
+        position,
+        sessionDid,
+        setBusy,
+        setStatusMessage,
       );
 
+      if (!res) return;
+
+      const { latestFiles, updates } = res;
+
       let rewrittenCount = 0;
-      if (
-        isWorkspaceImageFile(dragged) &&
-        oldDraggedPath &&
-        nextDraggedPath &&
-        oldDraggedPath !== nextDraggedPath
-      ) {
-        const contentUpdates = nextFiles
-          .filter((file) => {
-            if (file.kind !== "file") return false;
-            if (isWorkspaceImageFile(file)) return false;
-            if (file.name.toLowerCase().endsWith(".bib")) return false;
-            return inferSourceFormat(file.name, file.sourceFormat) === "markdown";
-          })
-          .map((file) => {
-            const documentPath = nextFilePathMap.get(file.id) ?? null;
-            const source =
-              file.id === activeFileId && canEditTextCurrentFile
-                ? sourceText
-                : (file.content ?? "");
-            const nextContent = rewriteImagePathReferencesInMarkdown(source, {
-              movedFileId: dragged.id,
-              oldPath: oldDraggedPath,
-              newPath: nextDraggedPath,
-              documentPath,
-              resolveWorkspacePathFromDocument,
-            });
-            if (nextContent === source) return null;
-            return { file, nextContent };
-          })
-          .filter((item): item is { file: WorkspaceFile; nextContent: string } => item !== null);
+      if (updates.length > 0) {
+        const nextFilePathMap = buildFilePathMap(latestFiles);
+        for (const update of updates) {
+          const dragged = latestFiles.find((f) => f.id === update.id);
+          if (!dragged) continue;
 
-        if (contentUpdates.length > 0) {
-          await Promise.all(
-            contentUpdates.map(async ({ file, nextContent }) => {
-              const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  content: nextContent,
-                  sourceFormat: inferSourceFormat(file.name, file.sourceFormat),
-                }),
+          const oldDraggedPath = update.oldPath;
+          const nextDraggedPath = update.newPath;
+
+          for (const file of latestFiles) {
+            if (
+              file.kind === "file" &&
+              !isWorkspaceImageFile(file) &&
+              inferSourceFormat(file.name, file.sourceFormat) === "markdown"
+            ) {
+              const documentPath = nextFilePathMap.get(file.id) ?? null;
+              const source =
+                file.id === activeFileId && canEditTextCurrentFile
+                  ? sourceText
+                  : (file.content ?? "");
+              const nextContent = rewriteImagePathReferencesInMarkdown(source, {
+                movedFileId: dragged.id,
+                oldPath: oldDraggedPath,
+                newPath: nextDraggedPath,
+                documentPath,
+                resolveWorkspacePathFromDocument,
               });
-              const data = (await response.json()) as { success?: boolean; error?: string };
-              if (!response.ok || !data.success) {
-                throw new Error(data.error ?? "Failed to update image references");
-              }
-            }),
-          );
-          rewrittenCount = contentUpdates.length;
 
-          const activeUpdate = contentUpdates.find((item) => item.file.id === activeFileId);
-          if (activeUpdate && sourceFormat === "markdown") {
-            setEditorBlocks(sourceToEditorBlocks(activeUpdate.nextContent, sourceFormat));
+              if (nextContent !== source) {
+                rewrittenCount += 1;
+                if (file.id === activeFileId) {
+                  setEditorBlocks(sourceToEditorBlocks(nextContent, sourceFormat));
+                } else {
+                  await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      content: nextContent,
+                      sourceFormat: inferSourceFormat(file.name, file.sourceFormat),
+                    }),
+                  });
+                }
+              }
+            }
           }
         }
       }
 
-      await loadFiles();
       setStatusMessage(
         rewrittenCount > 0
           ? `Updated file order and ${rewrittenCount} image reference file(s).`
@@ -1535,12 +1426,12 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     [
       activeFileId,
       canEditTextCurrentFile,
-      filePathMap,
-      files,
-      loadFiles,
       sessionDid,
       sourceFormat,
       sourceText,
+      apiMoveItem,
+      setBusy,
+      setStatusMessage,
     ],
   );
 
@@ -1987,7 +1878,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ expanded: file.expanded === 1 ? 0 : 1 }),
                   })
-                    .then(() => loadFiles())
+                    .then(() => loadFiles(sessionDid, setBusy, setStatusMessage))
                     .catch((err: unknown) => {
                       setStatusMessage(err instanceof Error ? err.message : "Failed to toggle folder");
                     });
