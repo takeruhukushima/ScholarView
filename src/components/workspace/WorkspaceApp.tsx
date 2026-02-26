@@ -100,6 +100,8 @@ import { ArticleList } from "./ArticleList";
 import { OnboardingTour } from "./OnboardingTour";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
+import { useWorkspaceDiscussion } from "./hooks/useWorkspaceDiscussion";
+import { useWorkspacePublishing } from "./hooks/useWorkspacePublishing";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -108,6 +110,42 @@ function parseSourceToBlocks(source: string, sourceFormat: SourceFormat): Articl
 }
 
 export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: WorkspaceAppProps) {
+  const [articles, setArticles] = useState<ArticleSummary[]>(initialArticles);
+  const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
+  const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
+  const [articleBibliography, setArticleBibliography] = useState<BibliographyEntry[]>([]);
+  const [citationMenu, setCitationMenu] = useState<CitationMenuState | null>(null);
+  const [citationMenuIndex, setCitationMenuIndex] = useState(0);
+  const [broadcastToBsky, setBroadcastToBsky] = useState(true);
+
+  const [currentDid, setCurrentDid] = useState<string | null>(null);
+  const [currentRkey, setCurrentRkey] = useState<string | null>(null);
+  const [currentAuthorDid, setCurrentAuthorDid] = useState<string | null>(null);
+
+  const [tab, setTab] = useState<RightTab>("discussion");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showLoginBox, setShowLoginBox] = useState(false);
+  const [showNewFileForm, setShowNewFileForm] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
+  const [newFileType, setNewFileType] = useState<NewFileType>("markdown");
+  const [savingFile, setSavingFile] = useState(false);
+  const [activeImagePreviewSrc, setActiveImagePreviewSrc] = useState<string | null>(null);
+  const [imageDropTarget, setImageDropTarget] = useState<{
+    blockId: string;
+    position: ImageDropPosition;
+  } | null>(null);
+  const [draggingEditorBlockId, setDraggingEditorBlockId] = useState<string | null>(null);
+  const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
+  const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const saveInFlightRef = useRef(false);
+  const titleSaveInFlightRef = useRef(false);
+  const legacySyncRequestedRef = useRef(false);
+  const imagePreviewFetchRequestedRef = useRef(new Set<string>());
+  const draggingEditorBlockIdRef = useRef<string | null>(null);
+
   const {
     files,
     setFiles,
@@ -119,8 +157,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     moveWorkspaceItem: apiMoveItem,
     renameFileItem: apiRenameItem,
   } = useWorkspaceFiles();
-  const [articles, setArticles] = useState<ArticleSummary[]>(initialArticles);
-  const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
 
   const {
     title,
@@ -152,44 +188,27 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     moveBlockByDrop,
   } = useWorkspaceEditor();
 
-  const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
-  const [articleBibliography, setArticleBibliography] = useState<BibliographyEntry[]>([]);
-  const [citationMenu, setCitationMenu] = useState<CitationMenuState | null>(null);
-  const [citationMenuIndex, setCitationMenuIndex] = useState(0);
-  const [broadcastToBsky, setBroadcastToBsky] = useState(true);
-
-  const [currentDid, setCurrentDid] = useState<string | null>(null);
-  const [currentRkey, setCurrentRkey] = useState<string | null>(null);
-  const [currentAuthorDid, setCurrentAuthorDid] = useState<string | null>(null);
-
-  const [tab, setTab] = useState<RightTab>("discussion");
-  const [discussionRoot, setDiscussionRoot] = useState<DiscussionRoot | null>(null);
-  const [discussionPosts, setDiscussionPosts] = useState<DiscussionPost[]>([]);
-  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
-  const [selectedQuote, setSelectedQuote] = useState("");
-  const [quoteComment, setQuoteComment] = useState("");
-
-  const [statusMessage, setStatusMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [showLoginBox, setShowLoginBox] = useState(false);
-  const [showNewFileForm, setShowNewFileForm] = useState(false);
-  const [newFileName, setNewFileName] = useState("");
-  const [newFileType, setNewFileType] = useState<NewFileType>("markdown");
-  const [savingFile, setSavingFile] = useState(false);
-  const [activeImagePreviewSrc, setActiveImagePreviewSrc] = useState<string | null>(null);
-  const [imageDropTarget, setImageDropTarget] = useState<{
-    blockId: string;
-    position: ImageDropPosition;
-  } | null>(null);
-  const [draggingEditorBlockId, setDraggingEditorBlockId] = useState<string | null>(null);
-  const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
-  const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const saveInFlightRef = useRef(false);
-  const titleSaveInFlightRef = useRef(false);
-  const legacySyncRequestedRef = useRef(false);
-  const imagePreviewFetchRequestedRef = useRef(new Set<string>());
-  const draggingEditorBlockIdRef = useRef<string | null>(null);
+  const {
+    discussionRoot,
+    discussionPosts,
+    replyDrafts,
+    setReplyDrafts,
+    selectedQuote,
+    setSelectedQuote,
+    quoteComment,
+    setQuoteComment,
+    loadDiscussion,
+    submitInlineComment,
+    runEngagement,
+    captureWindowSelection,
+  } = useWorkspaceDiscussion({
+    sessionDid,
+    currentDid,
+    currentRkey,
+    setBusy,
+    setStatusMessage,
+    setTab,
+  });
 
   useEffect(() => {
     setArticles(initialArticles);
@@ -645,53 +664,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }
   }, [editorBlocks]);
 
-  const loadDiscussion = useCallback(async () => {
-    if (!currentDid || !currentRkey) {
-      setDiscussionRoot(null);
-      setDiscussionPosts([]);
-      return;
-    }
-
-    const query = selectedQuote ? `?quote=${encodeURIComponent(selectedQuote)}` : "";
-    const response = await fetch(
-      `/api/articles/${encodeURIComponent(currentDid)}/${encodeURIComponent(currentRkey)}/discussion${query}`,
-      { cache: "no-store" },
-    );
-
-    const data = (await response.json()) as {
-      success?: boolean;
-      root?: DiscussionRoot | null;
-      thread?: Array<Partial<DiscussionPost>>;
-    };
-
-    if (!response.ok || !data.success) {
-      throw new Error("Failed to load discussion");
-    }
-
-    setDiscussionRoot(data.root ?? null);
-    const normalizedThread = (data.thread ?? []).map((post) => ({
-      uri: typeof post.uri === "string" ? post.uri : "",
-      cid: typeof post.cid === "string" ? post.cid : null,
-      handle: typeof post.handle === "string" ? post.handle : null,
-      authorDid: typeof post.authorDid === "string" ? post.authorDid : "",
-      text: typeof post.text === "string" ? post.text : "",
-      quote: typeof post.quote === "string" ? post.quote : "",
-      externalUri: typeof post.externalUri === "string" ? post.externalUri : "",
-      createdAt:
-        typeof post.createdAt === "string" ? post.createdAt : new Date().toISOString(),
-      parentUri: typeof post.parentUri === "string" ? post.parentUri : null,
-      depth: typeof post.depth === "number" ? Math.max(0, post.depth) : 1,
-      source:
-        post.source === "tap" || post.source === "live" || post.source === "merged"
-          ? post.source
-          : "tap",
-      quoted: post.quoted === true,
-      liked: post.liked === true,
-      reposted: post.reposted === true,
-    }));
-    setDiscussionPosts(normalizedThread.filter((post) => post.uri));
-  }, [currentDid, currentRkey, selectedQuote]);
-
   useEffect(() => {
     if (tab !== "discussion") return;
     void loadDiscussion().catch((err: unknown) => {
@@ -914,191 +886,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     return () => window.clearTimeout(timer);
   }, [canEditCurrentFile, isDirtyTitle, persistTitleAsFileName]);
 
-  const handlePublish = async () => {
-    if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
-      setStatusMessage("Select a file and ensure you have edit permission.");
-      return;
-    }
-    if (isImageWorkspaceFile) {
-      setStatusMessage("Image files cannot be published.");
-      return;
-    }
-    if (activeFile.name.toLowerCase().endsWith(".bib")) {
-      setStatusMessage("BibTeX files are citation data and cannot be published.");
-      return;
-    }
-
-    if (!title.trim()) {
-      setStatusMessage("Title is required.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await saveCurrentFile({ silent: true });
-
-      const response = await fetch(
-        `/api/workspace/files/${encodeURIComponent(activeFile.id)}/publish`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            authors: parseAuthors(authorsText),
-            broadcastToBsky,
-            bibliography: resolvedBibliography.map((entry) => ({
-              key: entry.key,
-              rawBibtex: entry.rawBibtex,
-            })),
-          }),
-        },
-      );
-
-      const data = (await response.json()) as {
-        success?: boolean;
-        did?: string;
-        rkey?: string;
-        uri?: string;
-        broadcasted?: 0 | 1;
-        file?: WorkspaceFile;
-        diagnostics?: Array<{ code: string; path: string; message: string }>;
-        error?: string;
-      };
-
-      if (!response.ok || !data.success || !data.did || !data.rkey) {
-        throw new Error(data.error ?? "Failed to publish file");
-      }
-
-      setCurrentDid(data.did);
-      setCurrentRkey(data.rkey);
-      setActiveArticleUri(data.uri ?? null);
-      setCurrentAuthorDid(sessionDid ?? null);
-      setBroadcastToBsky(data.broadcasted === 1);
-      if (data.file) {
-        setFiles((prev) => prev.map((item) => (item.id === data.file?.id ? data.file : item)));
-      }
-
-      await refreshArticles();
-      if (tab === "discussion") {
-        await loadDiscussion();
-      }
-
-      if (data.diagnostics && data.diagnostics.length > 0) {
-        setStatusMessage(`Published with ${data.diagnostics.length} import warning(s).`);
-      } else if (missingCitationKeys.length > 0) {
-        setStatusMessage(`Published with ${missingCitationKeys.length} missing citation warning(s).`);
-      } else {
-        setStatusMessage("Published article.");
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleUnpublish = async () => {
-    if (!canEditCurrentFile || !currentDid || !currentRkey) {
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const response = await fetch(
-        `/api/articles/${encodeURIComponent(currentDid)}/${encodeURIComponent(currentRkey)}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            sourceFormat,
-            broadcastToBsky: false,
-            ...(sourceFormat === "tex" ? { tex: sourceText } : { markdown: sourceText }),
-            bibliography: resolvedBibliography.map((entry) => ({
-              key: entry.key,
-              rawBibtex: entry.rawBibtex,
-            })),
-          }),
-        },
-      );
-
-      const data = (await response.json()) as { success?: boolean; error?: string };
-      if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Failed to unpublish article");
-      }
-
-      setBroadcastToBsky(false);
-      setStatusMessage("Unpublished from Bluesky.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitInlineComment = async () => {
-    if (!sessionDid) {
-      setStatusMessage("Login required to comment.");
-      return;
-    }
-    if (!currentDid || !currentRkey) {
-      setStatusMessage("Publish article before commenting.");
-      return;
-    }
-    if (!selectedQuote.trim() || !quoteComment.trim()) {
-      setStatusMessage("Quote and comment text are required.");
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const response = await fetch(
-        `/api/articles/${encodeURIComponent(currentDid)}/${encodeURIComponent(currentRkey)}/comments`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quote: selectedQuote, text: quoteComment }),
-        },
-      );
-
-      const data = (await response.json()) as { success?: boolean; error?: string };
-      if (!response.ok || !data.success) {
-        throw new Error(data.error ?? "Failed to post comment");
-      }
-
-      setQuoteComment("");
-      setTab("discussion");
-      await loadDiscussion();
-      setStatusMessage("Posted inline discussion comment.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runEngagement = async (
-    action: "like" | "repost" | "reply",
-    post: DiscussionPost,
-    text?: string,
-  ) => {
-    if (!sessionDid) {
-      setStatusMessage("Login required.");
-      return;
-    }
-
-    const response = await fetch("/api/bsky/engagement", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, uri: post.uri, cid: post.cid, text }),
-    });
-
-    const data = (await response.json()) as { success?: boolean; error?: string };
-    if (!response.ok || !data.success) {
-      throw new Error(data.error ?? "Failed to send engagement");
-    }
-
-    if (action === "reply") {
-      setReplyDrafts((prev) => ({ ...prev, [post.uri]: "" }));
-    }
-
-    await loadDiscussion();
-  };
-
   const updateCitationMenu = useCallback(
     (blockId: string, text: string, cursor: number) => {
       const trigger = detectCitationTrigger(text, cursor);
@@ -1171,29 +958,36 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     [filePathMap, files],
   );
 
-  const downloadTextAsFile = (filename: string, text: string, mimeType = "text/plain;charset=utf-8") => {
-    const blob = new Blob([text], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleExport = (target: "md" | "tex") => {
-    const normalizedSource = normalizeWorkspaceImageUrisForExport(sourceText);
-    const result = exportSource(normalizedSource, sourceFormat, target, resolvedBibliography);
-    const base = sanitizeFileStem(title || activeFile?.name || "untitled");
-    downloadTextAsFile(`${base}.${target}`, result.content);
-    if (missingCitationKeys.length > 0) {
-      setStatusMessage(`Exported with ${missingCitationKeys.length} unresolved citation warning(s).`);
-    } else {
-      setStatusMessage(`Exported ${base}.${target}`);
-    }
-  };
+  const {
+    handlePublish,
+    handleUnpublish,
+    handleExport,
+  } = useWorkspacePublishing({
+    sessionDid,
+    activeFile,
+    title,
+    authorsText,
+    broadcastToBsky,
+    resolvedBibliography,
+    sourceText,
+    sourceFormat,
+    currentDid,
+    currentRkey,
+    missingCitationKeys,
+    tab,
+    setBusy,
+    setStatusMessage,
+    setBroadcastToBsky,
+    setFiles,
+    setCurrentDid,
+    setCurrentRkey,
+    setActiveArticleUri,
+    setCurrentAuthorDid,
+    saveCurrentFile,
+    refreshArticles,
+    loadDiscussion,
+    normalizeWorkspaceImageUrisForExport,
+  });
 
   const handleSourceFormatChange = useCallback(
     (nextFormat: SourceFormat) => {
@@ -1513,14 +1307,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       textarea.focus();
       textarea.setSelectionRange(start + 1, start + 1);
     }, 0);
-  };
-
-  const captureWindowSelection = () => {
-    const selection = window.getSelection();
-    if (!selection) return;
-    const quote = selection.toString().trim();
-    if (!quote) return;
-    setSelectedQuote(quote.slice(0, 280));
   };
 
   const shouldShowStatus = Boolean(statusMessage);
