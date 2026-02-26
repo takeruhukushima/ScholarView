@@ -99,6 +99,7 @@ import { FileTree } from "./FileTree";
 import { ArticleList } from "./ArticleList";
 import { OnboardingTour } from "./OnboardingTour";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
+import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
@@ -121,11 +122,37 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [articles, setArticles] = useState<ArticleSummary[]>(initialArticles);
   const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
 
-  const [title, setTitle] = useState("");
-  const [authorsText, setAuthorsText] = useState("");
-  const [isAuthorsFocused, setIsAuthorsFocused] = useState(false);
+  const {
+    title,
+    setTitle,
+    authorsText,
+    setAuthorsText,
+    isAuthorsFocused,
+    setIsAuthorsFocused,
+    editorBlocks,
+    setEditorBlocks,
+    activeBlockId,
+    setActiveBlockId,
+    selectedBlockIds,
+    setSelectedBlockIds,
+    selectionAnchorBlockId,
+    setSelectionAnchorBlockId,
+    blockMenuForId,
+    setBlockMenuForId,
+    textareaRefs,
+    titleRef,
+    authorsRef,
+    updateBlock,
+    insertBlockAfter,
+    removeBlock,
+    moveBlockByDelta,
+    updateSelectionRange,
+    focusBlockByIndex,
+    activateBlockEditor,
+    moveBlockByDrop,
+  } = useWorkspaceEditor();
+
   const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
-  const [editorBlocks, setEditorBlocks] = useState<EditorBlock[]>([{ id: newId(), kind: "paragraph", text: "" }]);
   const [articleBibliography, setArticleBibliography] = useState<BibliographyEntry[]>([]);
   const [citationMenu, setCitationMenu] = useState<CitationMenuState | null>(null);
   const [citationMenuIndex, setCitationMenuIndex] = useState(0);
@@ -149,10 +176,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [showNewFileForm, setShowNewFileForm] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [newFileType, setNewFileType] = useState<NewFileType>("markdown");
-  const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
-  const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
-  const [selectionAnchorBlockId, setSelectionAnchorBlockId] = useState<string | null>(null);
-  const [blockMenuForId, setBlockMenuForId] = useState<string | null>(null);
   const [savingFile, setSavingFile] = useState(false);
   const [activeImagePreviewSrc, setActiveImagePreviewSrc] = useState<string | null>(null);
   const [imageDropTarget, setImageDropTarget] = useState<{
@@ -161,10 +184,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   } | null>(null);
   const [draggingEditorBlockId, setDraggingEditorBlockId] = useState<string | null>(null);
   const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
-
-  const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
-  const titleRef = useRef<HTMLInputElement>(null);
-  const authorsRef = useRef<HTMLTextAreaElement>(null);
   const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const saveInFlightRef = useRef(false);
   const titleSaveInFlightRef = useRef(false);
@@ -1435,199 +1454,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     ],
   );
 
-  const updateBlock = (id: string, patch: Partial<EditorBlock>) => {
-    setEditorBlocks((prev) => prev.map((block) => (block.id === id ? { ...block, ...patch } : block)));
-  };
-
-  const updateSelectionRange = useCallback(
-    (targetId: string, isShift: boolean) => {
-      if (isShift && selectionAnchorBlockId) {
-        const anchorIndex = editorBlocks.findIndex((b) => b.id === selectionAnchorBlockId);
-        const targetIndex = editorBlocks.findIndex((b) => b.id === targetId);
-        if (anchorIndex >= 0 && targetIndex >= 0) {
-          const start = Math.min(anchorIndex, targetIndex);
-          const end = Math.max(anchorIndex, targetIndex);
-          const rangeIds = editorBlocks.slice(start, end + 1).map((b) => b.id);
-          setSelectedBlockIds(rangeIds);
-        }
-      } else {
-        setSelectedBlockIds([targetId]);
-        setSelectionAnchorBlockId(targetId);
-      }
-    },
-    [editorBlocks, selectionAnchorBlockId],
-  );
-
-  const insertBlockAfter = (
-    index: number,
-    kind: BlockKind = "paragraph",
-    options?: { text?: string; selectionStart?: number; selectionEnd?: number },
-  ) => {
-    const block = { id: newId(), kind, text: options?.text ?? "" };
-    const selectionStart = options?.selectionStart ?? 0;
-    const selectionEnd = options?.selectionEnd ?? selectionStart;
-    setEditorBlocks((prev) => {
-      const next = [...prev];
-      next.splice(index + 1, 0, block);
-      return next;
-    });
-    setActiveBlockId(block.id);
-    setSelectedBlockIds([block.id]);
-    setSelectionAnchorBlockId(block.id);
-    setBlockMenuForId(null);
-    setCitationMenu(null);
-
-    window.setTimeout(() => {
-      const textarea = textareaRefs.current[block.id];
-      if (!textarea) {
-        window.setTimeout(() => {
-          const retry = textareaRefs.current[block.id];
-          if (!retry) return;
-          retry.focus();
-          retry.setSelectionRange(selectionStart, selectionEnd);
-          resizeTextarea(retry);
-        }, 0);
-        return;
-      }
-      textarea.focus();
-      textarea.setSelectionRange(selectionStart, selectionEnd);
-      resizeTextarea(textarea);
-    }, 0);
-  };
-
-  const focusBlockByIndex = (
-    index: number,
-    options?: {
-      position?: "start" | "end";
-    },
-  ) => {
-    const block = editorBlocks[index];
-    if (!block) return;
-    setActiveBlockId(block.id);
-    setSelectedBlockIds([block.id]);
-    setSelectionAnchorBlockId(block.id);
-    setBlockMenuForId(null);
-    setCitationMenu(null);
-    window.setTimeout(() => {
-      const textarea = textareaRefs.current[block.id];
-      if (!textarea) return;
-      textarea.focus();
-      const position = options?.position === "start" ? 0 : textarea.value.length;
-      textarea.setSelectionRange(position, position);
-      resizeTextarea(textarea);
-    }, 0);
-  };
-
-  const activateBlockEditor = (blockId: string, position: "start" | "end" = "start") => {
-    setActiveBlockId(blockId);
-    setSelectedBlockIds([blockId]);
-    setSelectionAnchorBlockId(blockId);
-    setBlockMenuForId(null);
-    setCitationMenu(null);
-    const focusWithRetry = (attempt = 0) => {
-      const textarea = textareaRefs.current[blockId];
-      if (!textarea) {
-        if (attempt < 6) {
-          window.setTimeout(() => focusWithRetry(attempt + 1), 0);
-        }
-        return;
-      }
-      textarea.focus();
-      const nextPosition = position === "end" ? textarea.value.length : 0;
-      textarea.setSelectionRange(nextPosition, nextPosition);
-      resizeTextarea(textarea);
-    };
-    window.setTimeout(() => {
-      focusWithRetry();
-    }, 0);
-  };
-
-  const moveBlockByDelta = (index: number, delta: -1 | 1) => {
-    if (!canEditTextCurrentFile) return;
-    const block = editorBlocks[index];
-    if (!block) return;
-
-    const idsToMove = selectedBlockIds.includes(block.id) ? selectedBlockIds : [block.id];
-
-    setEditorBlocks((prev) => {
-      const indices = idsToMove
-        .map((id) => prev.findIndex((b) => b.id === id))
-        .filter((idx) => idx >= 0)
-        .sort((a, b) => a - b);
-      if (indices.length === 0) return prev;
-
-      const firstIdx = indices[0];
-      const lastIdx = indices[indices.length - 1];
-
-      if (delta === -1 && firstIdx === 0) return prev;
-      if (delta === 1 && lastIdx === prev.length - 1) return prev;
-
-      const movingBlocks = prev.filter((b) => idsToMove.includes(b.id));
-      const remaining = prev.filter((b) => !idsToMove.includes(b.id));
-
-      const targetBlock = prev[delta === -1 ? firstIdx - 1 : lastIdx + 1];
-      const targetIdxInRemaining = remaining.findIndex((b) => b.id === targetBlock.id);
-
-      const next = [...remaining];
-      next.splice(delta === -1 ? targetIdxInRemaining : targetIdxInRemaining + 1, 0, ...movingBlocks);
-      return next;
-    });
-
-    setBlockMenuForId(null);
-    setCitationMenu(null);
-    setActiveBlockId(block.id);
-
-    window.setTimeout(() => {
-      const textarea = textareaRefs.current[block.id];
-      if (!textarea) return;
-      textarea.focus();
-      resizeTextarea(textarea);
-    }, 0);
-  };
-
-  const moveBlockByDrop = (draggedId: string, targetId: string, position: ImageDropPosition) => {
-    if (!canEditTextCurrentFile) return;
-    if (draggedId === targetId) return;
-
-    const idsToMove = selectedBlockIds.includes(draggedId) ? selectedBlockIds : [draggedId];
-
-    setEditorBlocks((prev) => {
-      const movingBlocks = prev.filter((block) => idsToMove.includes(block.id));
-      if (movingBlocks.length === 0) return prev;
-
-      const remaining = prev.filter((block) => !idsToMove.includes(block.id));
-      const targetIndexInRemaining = remaining.findIndex((block) => block.id === targetId);
-      if (targetIndexInRemaining < 0) return prev;
-
-      const insertAt = position === "before" ? targetIndexInRemaining : targetIndexInRemaining + 1;
-
-      const next = [...remaining];
-      next.splice(insertAt, 0, ...movingBlocks);
-      return next;
-    });
-
-    setBlockMenuForId(null);
-    setCitationMenu(null);
-
-    // Focus the specifically dragged block without resetting selection of others
-    setActiveBlockId(draggedId);
-    window.setTimeout(() => {
-      const focusWithRetry = (attempt = 0) => {
-        const textarea = textareaRefs.current[draggedId];
-        if (!textarea) {
-          if (attempt < 6) {
-            window.setTimeout(() => focusWithRetry(attempt + 1), 0);
-          }
-          return;
-        }
-        textarea.focus();
-        textarea.setSelectionRange(0, 0);
-        resizeTextarea(textarea);
-      };
-      focusWithRetry();
-    }, 0);
-  };
-
   const handleEditorCanvasClick = (event: React.MouseEvent<HTMLElement>) => {
     if (!canEditTextCurrentFile) return;
     const target = event.target;
@@ -1655,25 +1481,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }
 
     focusBlockByIndex(editorBlocks.length - 1, { position: "end" });
-  };
-
-  const removeBlock = (index: number) => {
-    setEditorBlocks((prev) => {
-      if (prev.length <= 1) return prev;
-      const next = prev.filter((_, idx) => idx !== index);
-      const fallback = next[Math.max(0, index - 1)];
-      window.setTimeout(() => {
-        if (fallback) {
-          setActiveBlockId(fallback.id);
-          setSelectedBlockIds([fallback.id]);
-          setSelectionAnchorBlockId(fallback.id);
-          window.setTimeout(() => {
-            textareaRefs.current[fallback.id]?.focus();
-          }, 0);
-        }
-      }, 0);
-      return next;
-    });
   };
 
   const insertInlineMath = (blockId: string) => {
