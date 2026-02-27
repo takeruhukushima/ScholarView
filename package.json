@@ -7,7 +7,9 @@
     "build": "pnpm generate-client-metadata && next build",
     "start": "next start",
     "lint": "eslint",
-    "generate-client-metadata": "node src/scripts/generate-client-metadata.mjs"
+    "generate-client-metadata": "node src/scripts/generate-client-metadata.mjs",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@atproto/common-web": "^0.4.16",
@@ -21,13 +23,16 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "jsdom": "^28.1.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }

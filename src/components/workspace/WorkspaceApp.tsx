@@ -138,6 +138,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setEditorBlocks,
     activeBlockId,
     setActiveBlockId,
+    selectedBlockIds,
     setSelectedBlockIds,
     setSelectionAnchorBlockId,
     setBlockMenuForId,
@@ -145,6 +146,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     titleRef,
     authorsRef,
     updateBlock,
+    updateSelectionRange,
     insertBlockAfter,
     removeBlock,
     moveBlockByDelta,
@@ -292,6 +294,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     citationMenu,
     setCitationMenu,
     citationMenuIndex,
+    setCitationMenuIndex,
     resolvedBibliography,
     missingCitationKeys,
     citationNumberByKey,
@@ -738,6 +741,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           setIsAuthorsFocused={setIsAuthorsFocused}
           editorBlocks={editorBlocks}
           activeBlockId={activeBlockId}
+          selectedBlockIds={selectedBlockIds}
           canEditCurrentFile={canEditCurrentFile}
           canEditTextCurrentFile={canEditTextCurrentFile}
           canPublishCurrentFile={canPublishCurrentFile}
@@ -759,6 +763,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           handleSourceFormatChange={handleSourceFormatChange}
           persistTitleAsFileName={persistTitleAsFileName}
           updateBlock={updateBlock}
+          updateSelectionRange={updateSelectionRange}
           insertBlockAfter={insertBlockAfter}
           removeBlock={removeBlock}
           focusBlockByIndex={focusBlockByIndex}
@@ -768,6 +773,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           setTab={setTab}
           citationMenu={citationMenu}
           citationMenuIndex={citationMenuIndex}
+          setCitationMenuIndex={setCitationMenuIndex}
           filteredCitationEntries={filteredCitationEntries}
           applyCitationSuggestion={applyCitationSuggestion}
           renderCitationLookup={renderCitationLookup}

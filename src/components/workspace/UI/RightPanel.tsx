@@ -1,6 +1,5 @@
 import React from "react";
 import { 
-  WorkspaceFile, 
   DiscussionRoot, 
   DiscussionPost
 } from "@/lib/workspace/types";
