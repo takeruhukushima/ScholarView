@@ -3,6 +3,8 @@ import { WorkspaceFile, TreeDropPosition } from "@/lib/workspace/types";
 import { ArticleSummary } from "@/lib/types";
 import { ArticleList } from "../ArticleList";
 import { FileTree } from "../FileTree";
+import { LoginForm } from "@/components/LoginForm";
+import { LogoutButton } from "@/components/LogoutButton";
 
 interface SidebarProps {
   articles: ArticleSummary[];
@@ -143,7 +145,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               draggable={isLoggedIn}
             />
           ) : (
-            <p className="text-xs text-slate-500 px-1 italic">Sign in to access local workspace.</p>
+            <div className="p-1">
+              <p className="text-xs text-slate-500 mb-4 italic">Sign in to access local workspace.</p>
+              <LoginForm />
+            </div>
           )}
         </div>
       </div>
@@ -178,6 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="text-[10px] text-slate-400">Researcher</span>
             </div>
           </div>
+          <LogoutButton />
         </div>
       )}
     </div>
