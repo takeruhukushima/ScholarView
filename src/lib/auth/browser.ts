@@ -127,8 +127,7 @@ async function createClient(): Promise<BrowserOAuthClientLike> {
 
   const loopback = isLoopbackHost(window.location.hostname);
   const handleResolver = "https://bsky.social";
-  const loopbackClientId = buildLoopbackClientIdWithScope(OAUTH_SCOPE);
-  const clientId = loopback ? loopbackClientId : getClientIdUrl();
+  const clientId = loopback ? buildLoopbackClientIdWithScope(OAUTH_SCOPE) : getClientIdUrl();
   const client = Ctor.load
     ? await Ctor.load({ clientId, handleResolver })
     : new Ctor(
