@@ -21,11 +21,6 @@ import {
   normalizeEditedBlockInput 
 } from "@/lib/workspace/editor-logic";
 import { 
-  imageAlignFromAttrs, 
-  parseMarkdownImageLine, 
-  setImageAlignOnMarkdownLine 
-} from "@/lib/workspace/image-logic";
-import { 
   formatBibliographyIEEE,
   BibliographyEntry
 } from "@/lib/articles/citations";
@@ -50,6 +45,7 @@ interface EditorPanelProps {
   setIsAuthorsFocused: (val: boolean) => void;
   editorBlocks: EditorBlock[];
   activeBlockId: string | null;
+  selectedBlockIds: string[];
   
   // Permissions & Flags
   canEditCurrentFile: boolean;
@@ -75,9 +71,10 @@ interface EditorPanelProps {
   handleSourceFormatChange: (format: SourceFormat) => void;
   persistTitleAsFileName: (options?: { silent?: boolean }) => Promise<WorkspaceFile | null>;
   updateBlock: (id: string, patch: Partial<EditorBlock>) => void;
+  updateSelectionRange: (targetId: string, isShift: boolean) => void;
   insertBlockAfter: (index: number, kind: "paragraph" | "h1" | "h2" | "h3") => void;
   removeBlock: (index: number) => void;
-  focusBlockByIndex: (index: number, options?: { position: "start" | "end" }) => void;
+  focusBlockByIndex: (index: number, options?: { position?: "start" | "end"; skipSelectionReset?: boolean }) => void;
   activateBlockEditor: (id: string, position?: "start" | "end") => void;
   insertInlineMath: (id: string) => void;
   setStatusMessage: (msg: string) => void;
@@ -86,6 +83,7 @@ interface EditorPanelProps {
   // Citations
   citationMenu: CitationMenuState | null;
   citationMenuIndex: number;
+  setCitationMenuIndex: React.Dispatch<React.SetStateAction<number>>;
   filteredCitationEntries: BibliographyEntry[];
   applyCitationSuggestion: (entry: BibliographyEntry) => void;
   renderCitationLookup: Map<string, BibliographyEntry>;
@@ -129,6 +127,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   setIsAuthorsFocused,
   editorBlocks,
   activeBlockId,
+  selectedBlockIds,
   canEditCurrentFile,
   canEditTextCurrentFile,
   canPublishCurrentFile,
@@ -150,6 +149,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   handleSourceFormatChange,
   persistTitleAsFileName,
   updateBlock,
+  updateSelectionRange,
   insertBlockAfter,
   removeBlock,
   focusBlockByIndex,
@@ -159,6 +159,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   setTab,
   citationMenu,
   citationMenuIndex,
+  setCitationMenuIndex,
   filteredCitationEntries,
   applyCitationSuggestion,
   renderCitationLookup,
@@ -621,10 +622,14 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                                 if (citationMenu?.blockId === block.id) {
                                   if (e.key === "ArrowDown") {
                                     e.preventDefault();
+                                    setCitationMenuIndex((prev) => 
+                                      prev < filteredCitationEntries.length - 1 ? prev + 1 : prev
+                                    );
                                     return;
                                   }
                                   if (e.key === "ArrowUp") {
                                     e.preventDefault();
+                                    setCitationMenuIndex((prev) => (prev > 0 ? prev - 1 : 0));
                                     return;
                                   }
                                   if (e.key === "Enter" || e.key === "Tab") {
@@ -644,17 +649,35 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
 
                                 if (e.key === "ArrowUp" && isAtStart) {
                                   e.preventDefault();
-                                  if (index === 0) {
-                                    setIsAuthorsFocused(true);
-                                    setTimeout(() => authorsRef.current?.focus(), 10);
+                                  if (e.shiftKey) {
+                                    updateSelectionRange(block.id, true);
+                                    if (index > 0) {
+                                      const prevBlock = editorBlocks[index - 1];
+                                      updateSelectionRange(prevBlock.id, true);
+                                      focusBlockByIndex(index - 1, { position: "start", skipSelectionReset: true });
+                                    }
                                   } else {
-                                    focusBlockByIndex(index - 1, { position: "end" });
+                                    if (index === 0) {
+                                      setIsAuthorsFocused(true);
+                                      setTimeout(() => authorsRef.current?.focus(), 10);
+                                    } else {
+                                      focusBlockByIndex(index - 1, { position: "end" });
+                                    }
                                   }
                                   return;
                                 }
                                 if (e.key === "ArrowDown" && isAtEnd) {
                                   e.preventDefault();
-                                  focusBlockByIndex(index + 1, { position: "start" });
+                                  if (e.shiftKey) {
+                                    updateSelectionRange(block.id, true);
+                                    if (index < editorBlocks.length - 1) {
+                                      const nextBlock = editorBlocks[index + 1];
+                                      updateSelectionRange(nextBlock.id, true);
+                                      focusBlockByIndex(index + 1, { position: "end", skipSelectionReset: true });
+                                    }
+                                  } else {
+                                    focusBlockByIndex(index + 1, { position: "start" });
+                                  }
                                   return;
                                 }
                                 if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "m") {

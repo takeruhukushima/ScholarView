@@ -7,12 +7,13 @@ export function useWorkspaceEditor() {
   const [authorsText, setAuthorsText] = useState("");
   const [isAuthorsFocused, setIsAuthorsFocused] = useState(false);
   
+  const initialId = newId();
   const [editorBlocks, setEditorBlocks] = useState<EditorBlock[]>([
-    { id: newId(), kind: "paragraph", text: "" },
+    { id: initialId, kind: "paragraph", text: "" },
   ]);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([]);
-  const [selectionAnchorBlockId, setSelectionAnchorBlockId] = useState<string | null>(null);
+  const [selectionAnchorBlockId, setSelectionAnchorBlockId] = useState<string | null>(initialId);
   const [blockMenuForId, setBlockMenuForId] = useState<string | null>(null);
 
   const textareaRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -183,14 +184,17 @@ export function useWorkspaceEditor() {
     index: number,
     options?: {
       position?: "start" | "end";
+      skipSelectionReset?: boolean;
     },
   ) => {
     setEditorBlocks((prev) => {
       const block = prev[index];
       if (!block) return prev;
       setActiveBlockId(block.id);
-      setSelectedBlockIds([block.id]);
-      setSelectionAnchorBlockId(block.id);
+      if (!options?.skipSelectionReset) {
+        setSelectedBlockIds([block.id]);
+        setSelectionAnchorBlockId(block.id);
+      }
       setBlockMenuForId(null);
       window.setTimeout(() => {
         const textarea = textareaRefs.current[block.id];

@@ -11,8 +11,7 @@ import {
   formatBibtexSource
 } from "@/lib/articles/citations";
 import { 
-  collectProjectBibFiles,
-  buildFilePathMap
+  collectProjectBibFiles
 } from "@/lib/workspace/file-logic";
 import { 
   detectCitationTrigger
