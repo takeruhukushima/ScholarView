@@ -67,6 +67,7 @@ export interface CitationMenuState {
   start: number;
   end: number;
   query: string;
+  format?: "bracket" | "latex" | "latex-inline";
 }
 
 export type TreeDropPosition = "before" | "after" | "inside";

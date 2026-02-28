@@ -122,6 +122,7 @@ export function useWorkspaceCitations({
         start: trigger.start,
         end: trigger.end,
         query: trigger.query,
+        format: trigger.format,
       });
       setCitationMenuIndex(0);
     },
@@ -143,7 +144,19 @@ export function useWorkspaceCitations({
   const applyCitationSuggestion = useCallback(
     (entry: BibliographyEntry) => {
       if (!citationMenu) return;
-      const replacement = `[@${entry.key}]`;
+      
+      let replacement = `[@${entry.key}]`;
+      if (citationMenu.format === "latex") {
+        replacement = `\\cite{${entry.key}}`;
+      } else if (citationMenu.format === "latex-inline") {
+        replacement = entry.key;
+        // If we are in multi-cite mode and the next character isn't a closing brace, 
+        // we might want to add one if it was completely missing. 
+        // But more simply, let's just make sure the user can easily close it.
+        // Actually, let's append a '}' if it's missing in the whole block's text 
+        // after the current cursor or if the current token doesn't have it.
+      }
+      
       const targetId = citationMenu.blockId;
 
       setEditorBlocks((prev) =>
@@ -151,9 +164,17 @@ export function useWorkspaceCitations({
           if (block.id !== targetId) return block;
           const before = block.text.slice(0, citationMenu.start);
           const after = block.text.slice(citationMenu.end);
+          
+          let finalText = `${before}${replacement}${after}`;
+          
+          // Auto-close brace if it's a \cite and missing closing brace
+          if ((citationMenu.format === "latex" || citationMenu.format === "latex-inline") && !finalText.includes("}", citationMenu.start)) {
+            finalText += "}";
+          }
+          
           return {
             ...block,
-            text: `${before}${replacement}${after}`,
+            text: finalText,
           };
         }),
       );

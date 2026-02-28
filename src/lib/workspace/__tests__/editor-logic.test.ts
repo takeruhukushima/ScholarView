@@ -3,10 +3,53 @@ import {
   inferSourceFormat,
   normalizeEditedBlockInput,
   sourceToEditorBlocks,
-  editorBlocksToSource
+  editorBlocksToSource,
+  detectCitationTrigger
 } from '../editor-logic';
 
 describe('editor-logic', () => {
+  describe('detectCitationTrigger', () => {
+    it('detects standard @ trigger', () => {
+      const result = detectCitationTrigger('See @key', 8);
+      expect(result).toMatchObject({ start: 4, query: 'key', format: 'bracket' });
+    });
+
+    it('detects @ trigger with bracket', () => {
+      const result = detectCitationTrigger('See [@key', 9);
+      expect(result).toMatchObject({ start: 4, query: 'key', format: 'bracket' });
+    });
+
+    it('detects \ trigger', () => {
+      const result = detectCitationTrigger('See \\key', 8);
+      expect(result).toMatchObject({ start: 4, query: 'key', format: 'latex' });
+    });
+
+    it('detects \cite{ trigger', () => {
+      const result = detectCitationTrigger('See \\cite{key', 13);
+      expect(result).toMatchObject({ start: 4, query: 'key', format: 'latex' });
+    });
+
+    it('detects trigger after comma in \cite{}', () => {
+      const result = detectCitationTrigger('\\cite{key1, key2', 16);
+      expect(result).toMatchObject({ start: 11, query: 'key2', format: 'latex-inline' });
+    });
+
+    it('does not trigger if already closed', () => {
+      const result = detectCitationTrigger('\\cite{key1} ', 12);
+      expect(result).toBeNull();
+    });
+
+    it('handles query with special characters', () => {
+      const result = detectCitationTrigger('@key:2020', 9);
+      expect(result).toMatchObject({ query: 'key:2020' });
+    });
+
+    it('stops on invalid characters in query', () => {
+      const result = detectCitationTrigger('@key!', 5);
+      expect(result).toBeNull();
+    });
+  });
+
   describe('inferSourceFormat', () => {
     it('infers tex for .tex files', () => {
       expect(inferSourceFormat('file.tex', null)).toBe('tex');

@@ -93,6 +93,18 @@ More Comment
       expect(keys).toEqual(['key1', 'key2:2020']);
     });
 
+    it('extracts latex cite keys', () => {
+      const text = "As seen in \\cite{key1} and \\cite{key2:2020}.";
+      const keys = extractCitationKeysFromText(text);
+      expect(keys).toEqual(['key1', 'key2:2020']);
+    });
+
+    it('extracts multiple keys from a single latex cite', () => {
+      const text = "Multiple: \\cite{Wu2003, Furusawa2007, Bachu2021}.";
+      const keys = extractCitationKeysFromText(text);
+      expect(keys).toEqual(['Wu2003', 'Furusawa2007', 'Bachu2021']);
+    });
+
     it('handles keys with special characters', () => {
       const text = "[@author_name-2023] and [@org:project:v1]";
       const keys = extractCitationKeysFromText(text);

@@ -81,9 +81,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [busy, setBusy] = useState(false);
 
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [showNewFileForm, setShowNewFileForm] = useState(false);
-  const [newFileName, setNewFileName] = useState("");
-  const [newFileType, setNewFileType] = useState<NewFileType>("markdown");
   const [savingFile, setSavingFile] = useState(false);
   const [draggingEditorBlockId, setDraggingEditorBlockId] = useState<string | null>(null);
   const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
@@ -432,9 +429,13 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       throw new Error("Login required");
     }
 
-    const name =
+    let name =
       options?.name ?? window.prompt(kind === "folder" ? "Folder name" : "File name");
     if (!name) return;
+
+    if (kind === "file" && !name.includes(".")) {
+      name = `${name}.md`;
+    }
 
     const parentId = activeFile?.kind === "folder" ? activeFile.id : activeFile?.parentId ?? null;
 
@@ -450,23 +451,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     if (created) {
       await openFile(created);
     }
-  };
-
-  const createWorkspaceFileFromForm = async () => {
-    const name = ensureFileExtension(newFileName, newFileType);
-    if (!name) {
-      setStatusMessage("File name is required.");
-      return;
-    }
-    const format: SourceFormat = newFileType === "tex" ? "tex" : "markdown";
-    await createWorkspaceItem("file", {
-      name,
-      format,
-      content: "",
-    });
-    setShowNewFileForm(false);
-    setNewFileName("");
-    setNewFileType("markdown");
   };
 
   const deleteWorkspaceItem = async (file: WorkspaceFile) => {
@@ -729,7 +713,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   downloadWorkspaceItem={(file) => downloadFileItem(file, setBusy, setStatusMessage)}
                   handleMoveWorkspaceItem={handleMoveWorkspaceItem}
                   createWorkspaceItem={createWorkspaceItem}
-                  setShowNewFileForm={setShowNewFileForm}
                   isLoggedIn={isLoggedIn}
                   accountHandle={accountHandle}
                   loadFiles={loadFiles}
