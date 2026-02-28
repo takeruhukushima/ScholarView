@@ -32,6 +32,8 @@ import {
   renderInlineText,
   renderBibtexHighlighted
 } from "../RichRenderer";
+import { ExportPreview } from "../hooks/useWorkspacePublishing";
+import { ExportPreviewModal } from "./ExportPreviewModal";
 
 interface EditorPanelProps {
   // Document State
@@ -68,6 +70,10 @@ interface EditorPanelProps {
   handlePublish: () => Promise<void>;
   handleUnpublish: () => Promise<void>;
   handleExport: (target: "md" | "tex") => void;
+  exportPreview: ExportPreview | null;
+  confirmExport: () => void;
+  cancelExport: () => void;
+  toggleIncludeBibInExport: () => void;
   handleSourceFormatChange: (format: SourceFormat) => void;
   persistTitleAsFileName: (options?: { silent?: boolean }) => Promise<WorkspaceFile | null>;
   updateBlock: (id: string, patch: Partial<EditorBlock>) => void;
@@ -146,6 +152,10 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   handlePublish,
   handleUnpublish,
   handleExport,
+  exportPreview,
+  confirmExport,
+  cancelExport,
+  toggleIncludeBibInExport,
   handleSourceFormatChange,
   persistTitleAsFileName,
   updateBlock,
@@ -240,6 +250,15 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         setBlockMoveDropTarget(null);
       }}
     >
+      {exportPreview && (
+        <ExportPreviewModal
+          exportPreview={exportPreview}
+          confirmExport={confirmExport}
+          cancelExport={cancelExport}
+          toggleIncludeBibInExport={toggleIncludeBibInExport}
+        />
+      )}
+
       {!hasOpenDocument ? (
         <div className="flex h-full min-h-[26rem] flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-100 bg-slate-50/30 text-slate-400">
           <div className="mb-4 rounded-full bg-slate-100 p-4">
