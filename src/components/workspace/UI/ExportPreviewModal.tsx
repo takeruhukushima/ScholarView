@@ -4,6 +4,7 @@ import { ExportPreview } from "../hooks/useWorkspacePublishing";
 interface ExportPreviewModalProps {
   exportPreview: ExportPreview;
   confirmExport: () => void;
+  confirmExportToFolder: () => void;
   cancelExport: () => void;
   toggleIncludeBibInExport: () => void;
 }
@@ -11,6 +12,7 @@ interface ExportPreviewModalProps {
 export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
   exportPreview,
   confirmExport,
+  confirmExportToFolder,
   cancelExport,
   toggleIncludeBibInExport,
 }) => {
@@ -93,6 +95,14 @@ export const ExportPreviewModal: React.FC<ExportPreviewModalProps> = ({
               className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-50 rounded-lg transition-colors"
             >
               Cancel
+            </button>
+            <button
+              onClick={confirmExportToFolder}
+              className="px-4 py-2 text-xs font-bold text-indigo-600 border border-indigo-100 bg-indigo-50/50 hover:bg-indigo-50 rounded-lg transition-colors flex items-center gap-2"
+              title="Export document, images, and bibliography to a local folder"
+            >
+              <span>Export folder with image and .bib</span>
+              <span className="opacity-60 text-[10px]">📁</span>
             </button>
             <button
               onClick={confirmExport}

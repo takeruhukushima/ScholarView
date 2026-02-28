@@ -16,6 +16,7 @@ interface SidebarProps {
   openFile: (file: WorkspaceFile) => Promise<void>;
   renameWorkspaceItem: (file: WorkspaceFile) => Promise<void>;
   deleteWorkspaceItem: (file: WorkspaceFile) => Promise<void>;
+  downloadWorkspaceItem: (file: WorkspaceFile) => Promise<void>;
   handleMoveWorkspaceItem: (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => Promise<void>;
   createWorkspaceItem: (kind: "folder" | "file") => Promise<void>;
   setShowNewFileForm: (show: boolean) => void;
@@ -37,6 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   openFile,
   renameWorkspaceItem,
   deleteWorkspaceItem,
+  downloadWorkspaceItem,
   handleMoveWorkspaceItem,
   createWorkspaceItem,
   setShowNewFileForm,
@@ -141,6 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
               onRename={renameWorkspaceItem}
               onDelete={deleteWorkspaceItem}
+              onDownload={downloadWorkspaceItem}
               onMove={handleMoveWorkspaceItem}
               draggable={isLoggedIn}
             />

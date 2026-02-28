@@ -1,5 +1,7 @@
 import { useState, useCallback } from "react";
 import { WorkspaceFile } from "@/lib/workspace/types";
+import { triggerFileDownload } from "@/lib/workspace/utils";
+import { isWorkspaceImageFile } from "@/lib/workspace/image-logic";
 
 export function useWorkspaceFiles() {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -159,6 +161,34 @@ export function useWorkspaceFiles() {
       } catch (err: unknown) {
         setStatusMessage(err instanceof Error ? err.message : "Failed to rename item");
         return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    downloadFileItem: async (
+      file: WorkspaceFile,
+      setBusy: (b: boolean) => void,
+      setStatusMessage: (m: string) => void
+    ) => {
+      if (file.kind !== "file") return;
+      try {
+        setBusy(true);
+        let content = file.content;
+        if (!content && isWorkspaceImageFile(file)) {
+          const response = await fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`);
+          const data = (await response.json()) as { success?: boolean; file?: WorkspaceFile };
+          if (data.success && data.file) {
+            content = data.file.content;
+          }
+        }
+        if (!content) {
+          setStatusMessage("No content available for download.");
+          return;
+        }
+        triggerFileDownload(file.name, content);
+        setStatusMessage(`Downloaded ${file.name}`);
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to download file");
       } finally {
         setBusy(false);
       }

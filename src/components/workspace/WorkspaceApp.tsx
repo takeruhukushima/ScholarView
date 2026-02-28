@@ -6,7 +6,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
 } from "react";
 
 import type { ArticleBlock } from "@/lib/articles/blocks";
@@ -102,6 +101,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     deleteFileItem: apiDeleteItem,
     moveWorkspaceItem: apiMoveItem,
     renameFileItem: apiRenameItem,
+    downloadFileItem,
   } = useWorkspaceFiles();
 
   const activeFile = useMemo(
@@ -538,6 +538,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     handlePublish,
     handleUnpublish,
     handleExport,
+    confirmExportToFolder,
+    handleExportImage,
     exportPreview,
     confirmExport,
     cancelExport,
@@ -568,6 +570,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     refreshArticles,
     loadDiscussion,
     normalizeWorkspaceImageUrisForExport,
+    files,
   });
 
   const handleSourceFormatChange = useCallback(
@@ -723,6 +726,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                   openFile={openFile}
                   renameWorkspaceItem={renameWorkspaceItem}
                   deleteWorkspaceItem={deleteWorkspaceItem}
+                  downloadWorkspaceItem={(file) => downloadFileItem(file, setBusy, setStatusMessage)}
                   handleMoveWorkspaceItem={handleMoveWorkspaceItem}
                   createWorkspaceItem={createWorkspaceItem}
                   setShowNewFileForm={setShowNewFileForm}
@@ -766,6 +770,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           handlePublish={handlePublish}
           handleUnpublish={handleUnpublish}
           handleExport={handleExport}
+          confirmExportToFolder={confirmExportToFolder}
+          handleExportImage={handleExportImage}
           exportPreview={exportPreview}
           confirmExport={confirmExport}
           cancelExport={cancelExport}
