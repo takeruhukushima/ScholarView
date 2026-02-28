@@ -1,9 +1,18 @@
+import { useState } from "react";
 import { SourceFormat } from "@/lib/types";
 import { BibliographyEntry } from "@/lib/articles/citations";
 import { WorkspaceFile } from "@/lib/workspace/types";
 import { parseAuthors } from "@/lib/articles/authors";
 import { exportSource } from "@/lib/export/document";
 import { sanitizeFileStem } from "@/lib/workspace/image-logic";
+
+export interface ExportPreview {
+  content: string;
+  bibSource?: string;
+  target: "md" | "tex";
+  filename: string;
+  includeBib: boolean;
+}
 
 interface UseWorkspacePublishingProps {
   sessionDid: string | null;
@@ -12,6 +21,7 @@ interface UseWorkspacePublishingProps {
   authorsText: string;
   broadcastToBsky: boolean;
   resolvedBibliography: BibliographyEntry[];
+  projectBibEntries: BibliographyEntry[];
   sourceText: string;
   sourceFormat: SourceFormat;
   currentDid: string | null;
@@ -39,6 +49,7 @@ export function useWorkspacePublishing({
   authorsText,
   broadcastToBsky,
   resolvedBibliography,
+  projectBibEntries,
   sourceText,
   sourceFormat,
   currentDid,
@@ -58,6 +69,7 @@ export function useWorkspacePublishing({
   loadDiscussion,
   normalizeWorkspaceImageUrisForExport,
 }: UseWorkspacePublishingProps) {
+  const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
 
   const handlePublish = async () => {
     if (!activeFile || activeFile.kind !== "file") {
@@ -192,19 +204,60 @@ export function useWorkspacePublishing({
 
   const handleExport = (target: "md" | "tex") => {
     const normalizedSource = normalizeWorkspaceImageUrisForExport(sourceText);
-    const result = exportSource(normalizedSource, sourceFormat, target, resolvedBibliography);
+    const result = exportSource(
+      normalizedSource,
+      sourceFormat,
+      target,
+      resolvedBibliography,
+      projectBibEntries,
+    );
     const base = sanitizeFileStem(title || activeFile?.name || "untitled");
-    downloadTextAsFile(`${base}.${target}`, result.content);
+
+    setExportPreview({
+      content: result.content,
+      bibSource: result.bibSource,
+      target,
+      filename: `${base}.${target}`,
+      includeBib: false,
+    });
+  };
+
+  const confirmExport = () => {
+    if (!exportPreview) return;
+    const { content, bibSource, filename, includeBib } = exportPreview;
+    let finalContent = content;
+    if (includeBib && bibSource) {
+      if (exportPreview.target === "md") {
+        finalContent += `\n\n## Project BibTeX Source\n\n\`\`\`bibtex\n${bibSource}\n\`\`\``;
+      } else {
+        const bibBlock = `\\begin{filecontents}{project_references.bib}\n${bibSource}\n\\end{filecontents}\n\n`;
+        finalContent = bibBlock + finalContent;
+      }
+    }
+    downloadTextAsFile(filename, finalContent);
+    setExportPreview(null);
     if (missingCitationKeys.length > 0) {
       setStatusMessage(`Exported with ${missingCitationKeys.length} unresolved citation warning(s).`);
     } else {
-      setStatusMessage(`Exported ${base}.${target}`);
+      setStatusMessage(`Exported ${filename}`);
     }
+  };
+
+  const cancelExport = () => {
+    setExportPreview(null);
+  };
+
+  const toggleIncludeBibInExport = () => {
+    setExportPreview((prev) => (prev ? { ...prev, includeBib: !prev.includeBib } : null));
   };
 
   return {
     handlePublish,
     handleUnpublish,
     handleExport,
+    exportPreview,
+    confirmExport,
+    cancelExport,
+    toggleIncludeBibInExport,
   };
 }

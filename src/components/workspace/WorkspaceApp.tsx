@@ -295,6 +295,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setCitationMenu,
     citationMenuIndex,
     setCitationMenuIndex,
+    projectBibEntries,
     resolvedBibliography,
     missingCitationKeys,
     citationNumberByKey,
@@ -537,6 +538,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     handlePublish,
     handleUnpublish,
     handleExport,
+    exportPreview,
+    confirmExport,
+    cancelExport,
+    toggleIncludeBibInExport,
   } = useWorkspacePublishing({
     sessionDid,
     activeFile,
@@ -544,6 +549,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     authorsText,
     broadcastToBsky,
     resolvedBibliography,
+    projectBibEntries,
     sourceText,
     sourceFormat,
     currentDid,
@@ -760,6 +766,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           handlePublish={handlePublish}
           handleUnpublish={handleUnpublish}
           handleExport={handleExport}
+          exportPreview={exportPreview}
+          confirmExport={confirmExport}
+          cancelExport={cancelExport}
+          toggleIncludeBibInExport={toggleIncludeBibInExport}
           handleSourceFormatChange={handleSourceFormatChange}
           persistTitleAsFileName={persistTitleAsFileName}
           updateBlock={updateBlock}

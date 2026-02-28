@@ -9,6 +9,7 @@ import type { SourceFormat } from "@/lib/types";
 export interface ExportResult {
   content: string;
   warnings: string[];
+  bibSource?: string;
 }
 
 function parseFigureAttrs(attrs: string): { label?: string; width?: string } {
@@ -84,7 +85,7 @@ export function blockContentMarkdownToTex(text: string): string {
 }
 
 export function buildTexDocument(blocks: ArticleBlock[], bibliography: BibliographyEntry[]): ExportResult {
-  const parts = blocks.map((block) => {
+  const bodyParts = blocks.map((block) => {
     const level = block.level <= 1 ? 1 : block.level === 2 ? 2 : 3;
     const command = level === 1 ? "\\section" : level === 2 ? "\\subsection" : "\\subsubsection";
     const heading = `${command}{${block.heading}}`;
@@ -93,17 +94,28 @@ export function buildTexDocument(blocks: ArticleBlock[], bibliography: Bibliogra
     return `${heading}\n\n${blockContentMarkdownToTex(content)}`;
   });
 
+  const lines: string[] = [];
+
+  lines.push("\\documentclass{article}");
+  lines.push("\\usepackage[utf8]{inputenc}");
+  lines.push("\\usepackage{graphicx}");
+  lines.push("\\usepackage{amsmath}");
+  lines.push("");
+  lines.push("\\begin{document}");
+  lines.push("");
+  lines.push(bodyParts.join("\n\n"));
+  lines.push("");
+
   if (bibliography.length > 0) {
-    const refs = formatBibliographyIEEE(bibliography);
-    parts.push("\\begin{thebibliography}{99}");
-    bibliography.forEach((entry, idx) => {
-      parts.push(`\\bibitem{${entry.key}} ${refs[idx].replace(/^\[\d+\]\s*/, "")}`);
-    });
-    parts.push("\\end{thebibliography}");
+    lines.push("\\bibliographystyle{ieeetr}");
+    lines.push("\\bibliography{references}");
   }
 
+  lines.push("");
+  lines.push("\\end{document}");
+
   return {
-    content: parts.join("\n\n").trim(),
+    content: lines.join("\n").trim(),
     warnings: [],
   };
 }
@@ -135,9 +147,10 @@ export function buildMarkdownDocument(
     return { content: body, warnings: [] };
   }
 
+  const header = "---\nbibliography: references.bib\n---\n\n";
   const refs = formatBibliographyIEEE(bibliography);
   return {
-    content: `${body}\n\n## References\n\n${refs.join("\n")}`.trim(),
+    content: `${header}${body}\n\n## References\n\n${refs.join("\n")}`.trim(),
     warnings: [],
   };
 }
@@ -147,14 +160,23 @@ export function exportSource(
   sourceFormat: SourceFormat,
   target: "md" | "tex",
   bibliography: BibliographyEntry[],
+  allProjectBibEntries?: BibliographyEntry[],
 ): ExportResult {
   const blocks =
     sourceFormat === "tex"
       ? parseTexToBlocks(sourceText)
       : parseMarkdownToBlocks(sourceText);
 
+  let result: ExportResult;
   if (target === "md") {
-    return buildMarkdownDocument(blocks, bibliography);
+    result = buildMarkdownDocument(blocks, bibliography);
+  } else {
+    result = buildTexDocument(blocks, bibliography);
   }
-  return buildTexDocument(blocks, bibliography);
+
+  if (allProjectBibEntries && allProjectBibEntries.length > 0) {
+    result.bibSource = allProjectBibEntries.map((e) => e.rawBibtex).join("\n\n");
+  }
+
+  return result;
 }
