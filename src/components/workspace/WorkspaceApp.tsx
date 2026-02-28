@@ -8,13 +8,9 @@ import {
   useState,
 } from "react";
 
-import type { ArticleBlock } from "@/lib/articles/blocks";
-import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
 import { type BibliographyEntry } from "@/lib/articles/citations";
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
-  type ImageDropPosition,
-  type NewFileType,
   type RightTab,
   type TreeDropPosition,
   type WorkspaceFile,
@@ -54,10 +50,6 @@ import { useWorkspaceDocumentSync } from "./hooks/useWorkspaceDocumentSync";
 import { useWorkspaceCitations } from "./hooks/useWorkspaceCitations";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
-
-function parseSourceToBlocks(source: string, sourceFormat: SourceFormat): ArticleBlock[] {
-  return sourceFormat === "tex" ? parseTexToBlocks(source) : parseMarkdownToBlocks(source);
-}
 
 interface WorkspaceAppProps {
   initialArticles: ArticleSummary[];
@@ -135,9 +127,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setEditorBlocks,
     activeBlockId,
     setActiveBlockId,
-    selectedBlockIds,
-    setSelectedBlockIds,
-    setSelectionAnchorBlockId,
     setBlockMenuForId,
     textareaRefs,
     titleRef,
@@ -146,7 +135,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     updateSelectionRange,
     insertBlockAfter,
     removeBlock,
-    moveBlockByDelta,
     focusBlockByIndex,
     activateBlockEditor,
     moveBlockByDrop,
@@ -160,7 +148,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     activeFile?.kind === "file" && activeFile.name.toLowerCase().endsWith(".bib"),
   );
   const isExistingArticle = Boolean(currentDid && currentRkey);
-  const canEditArticle = Boolean(isLoggedIn && (!isExistingArticle || currentAuthorDid === sessionDid));
+  const canEditArticle = !isExistingArticle || (isLoggedIn && currentAuthorDid === sessionDid);
   const canEditCurrentFile = Boolean(canEditArticle && activeFile?.kind === "file");
   const canEditTextCurrentFile = canEditCurrentFile && !isImageWorkspaceFile;
   const canPublishCurrentFile = canEditCurrentFile && !isBibWorkspaceFile && !isImageWorkspaceFile;
@@ -300,7 +288,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     updateCitationMenu,
     filteredCitationEntries,
     applyCitationSuggestion,
-    normalizeBibtexBlock,
     formatBibtexBlockById,
   } = useWorkspaceCitations({
     files,
@@ -369,8 +356,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setStatusMessage,
   });
 
-  const readOnlyMessage = !isLoggedIn
-    ? "ログインしていないため閲覧専用です。"
+  const readOnlyMessage = isExistingArticle && !isLoggedIn
+    ? "この論文はサーバー上に存在するため、ログインしないと編集できません。"
     : isExistingArticle && currentAuthorDid !== sessionDid
       ? "この論文は閲覧専用です（編集は作成者のみ）。"
       : isExistingArticle && !canEditCurrentFile
@@ -394,7 +381,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     void loadFiles(sessionDid, setBusy, setStatusMessage).catch((err: unknown) => {
       setStatusMessage(err instanceof Error ? err.message : "Failed to load files");
     });
-  }, [loadFiles]);
+  }, [loadFiles, sessionDid]);
 
   useEffect(() => {
     void refreshArticles();
@@ -408,7 +395,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     for (const block of editorBlocks) {
       resizeTextarea(textareaRefs.current[block.id] ?? null);
     }
-  }, [editorBlocks]);
+  }, [editorBlocks, textareaRefs]);
 
   useEffect(() => {
     if (tab !== "discussion") return;
@@ -425,10 +412,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       content?: string;
     },
   ) => {
-    if (!sessionDid) {
-      throw new Error("Login required");
-    }
-
     let name =
       options?.name ?? window.prompt(kind === "folder" ? "Folder name" : "File name");
     if (!name) return;
@@ -481,7 +464,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   };
 
   const renameWorkspaceItem = async (file: WorkspaceFile) => {
-    if (!sessionDid) return;
     const requestedName = window.prompt(
       file.kind === "folder" ? "Rename folder" : "Rename file",
       file.name,
@@ -653,6 +635,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       apiMoveItem,
       setBusy,
       setStatusMessage,
+      setEditorBlocks,
     ],
   );
 
@@ -734,8 +717,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           setIsAuthorsFocused={setIsAuthorsFocused}
           editorBlocks={editorBlocks}
           activeBlockId={activeBlockId}
-          selectedBlockIds={selectedBlockIds}
           canEditCurrentFile={canEditCurrentFile}
+
           canEditTextCurrentFile={canEditTextCurrentFile}
           canPublishCurrentFile={canPublishCurrentFile}
           isImageWorkspaceFile={isImageWorkspaceFile}

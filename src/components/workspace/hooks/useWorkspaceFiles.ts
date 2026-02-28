@@ -12,11 +12,6 @@ export function useWorkspaceFiles() {
     setBusy: (b: boolean) => void,
     setStatusMessage: (m: string) => void
   ) => {
-    if (!sessionDid) {
-      setFiles([]);
-      return [] as WorkspaceFile[];
-    }
-
     try {
       setBusy(true);
       const response = await fetch("/api/workspace/files", { cache: "no-store" });
@@ -54,7 +49,6 @@ export function useWorkspaceFiles() {
       setBusy: (b: boolean) => void,
       setStatusMessage: (m: string) => void
     ) => {
-      if (!sessionDid) return null;
       try {
         setBusy(true);
         const response = await fetch("/api/workspace/files", {
@@ -83,7 +77,6 @@ export function useWorkspaceFiles() {
       setBusy: (b: boolean) => void,
       setStatusMessage: (m: string) => void
     ) => {
-      if (!sessionDid) return;
       try {
         setBusy(true);
         const response = await fetch(`/api/workspace/files/${encodeURIComponent(fileId)}`, {
@@ -110,7 +103,6 @@ export function useWorkspaceFiles() {
       setBusy: (b: boolean) => void,
       setStatusMessage: (m: string) => void
     ) => {
-      if (!sessionDid) return null;
       try {
         setBusy(true);
         const response = await fetch("/api/workspace/files/move", {
@@ -144,7 +136,6 @@ export function useWorkspaceFiles() {
       setBusy: (b: boolean) => void,
       setStatusMessage: (m: string) => void
     ) => {
-      if (!sessionDid) return false;
       try {
         setBusy(true);
         const response = await fetch(`/api/workspace/files/${encodeURIComponent(fileId)}`, {
