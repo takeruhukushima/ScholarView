@@ -1,0 +1,36 @@
+---
+title: ScholarView ドキュメント
+description: AT Protocol 上で構築される分散型学術出版プラットフォーム
+template: splash
+hero:
+  tagline: AT Protocol を活用した、新しい学術コミュニケーションの形を。
+  image:
+    file: ../../assets/houston.webp
+  actions:
+    - text: はじめる
+      link: /guides/example/
+      icon: right-arrow
+    - text: ScholarView を使ってみる
+      link: /
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## プロジェクトの概要
+
+<CardGrid stagger>
+	<Card title="AT Protocol 連携" icon="open-book">
+		分散型プロトコル上での論文公開と、ピアレビューの仕組みについて解説します。
+	</Card>
+	<Card title="Markdown による執筆" icon="pencil">
+		引用、LaTeX、リッチメディアをサポートした強力な執筆環境を提供します。
+	</Card>
+	<Card title="オープンアクセス" icon="add-document">
+		オープンな規格を採用し、研究成果が誰にでも届き、かつ永続的に保持されることを目指します。
+	</Card>
+	<Card title="ワークスペースのカスタマイズ" icon="setting">
+		ScholarView エディタや引用管理ツールなど、研究に集中できる環境を整えます。
+	</Card>
+</CardGrid>
