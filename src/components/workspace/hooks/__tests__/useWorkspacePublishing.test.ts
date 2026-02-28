@@ -53,7 +53,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
       await act(async () => {
         await result.current.handlePublish();
       });
-    } catch (_e) {
+    } catch {
       // Expected error
     }
 
@@ -74,5 +74,23 @@ describe('useWorkspacePublishing hook - Hardened', () => {
 
     expect(mockSetStatusMessage).toHaveBeenCalledWith(expect.stringContaining('BibTeX files'));
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('requires sessionDid to publish', async () => {
+    const unauthProps = { ...defaultProps, sessionDid: null };
+    const { result } = renderHook(() => useWorkspacePublishing(unauthProps));
+
+    // Mock window.alert
+    const alertMock = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+    await act(async () => {
+      await result.current.handlePublish();
+    });
+
+    expect(mockSetStatusMessage).toHaveBeenCalledWith('Login required to broadcast.');
+    expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('Please log in'));
+    expect(global.fetch).not.toHaveBeenCalled();
+
+    alertMock.mockRestore();
   });
 });

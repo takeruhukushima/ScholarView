@@ -75,6 +75,12 @@ export function useWorkspacePublishing({
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
 
   const handlePublish = async () => {
+    if (!sessionDid) {
+      setStatusMessage("Login required to broadcast.");
+      alert("Please log in from the sidebar to broadcast your article.");
+      return;
+    }
+
     if (!activeFile || activeFile.kind !== "file") {
       setStatusMessage("Select a file and ensure you have edit permission.");
       return;

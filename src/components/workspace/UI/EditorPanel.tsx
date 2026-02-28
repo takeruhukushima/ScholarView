@@ -47,9 +47,9 @@ interface EditorPanelProps {
   setIsAuthorsFocused: (val: boolean) => void;
   editorBlocks: EditorBlock[];
   activeBlockId: string | null;
-  selectedBlockIds: string[];
-  
+
   // Permissions & Flags
+
   canEditCurrentFile: boolean;
   canEditTextCurrentFile: boolean;
   canPublishCurrentFile: boolean;
@@ -135,7 +135,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   setIsAuthorsFocused,
   editorBlocks,
   activeBlockId,
-  selectedBlockIds,
   canEditCurrentFile,
   canEditTextCurrentFile,
   canPublishCurrentFile,

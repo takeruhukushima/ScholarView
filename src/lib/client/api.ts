@@ -491,6 +491,22 @@ async function requireDid(): Promise<string> {
   return did;
 }
 
+async function getDidOrLocal(): Promise<string> {
+  const did = await getActiveDid();
+  if (did) {
+    const handle = await getActiveHandle();
+    if (handle) {
+      await upsertAccount({
+        did,
+        handle,
+        active: 1,
+      });
+    }
+    return did;
+  }
+  return "local";
+}
+
 async function getAuthedLexClient(): Promise<{ did: string; lex: Client }> {
   const did = await requireDid();
   const lex = await getLexClientForCurrentSession();
@@ -1349,14 +1365,154 @@ async function syncLegacyArticles(): Promise<Response> {
   return json({ success: true, created, files });
 }
 
+async function seedWelcomeWorkspace(did: string): Promise<void> {
+  const tutorialFolder = await createWorkspaceFile({
+    ownerDid: did,
+    parentId: null,
+    name: "tutorial",
+    kind: "folder",
+  });
+
+  const imgFolder = await createWorkspaceFile({
+    ownerDid: did,
+    parentId: tutorialFolder.id,
+    name: "images",
+    kind: "folder",
+  });
+
+  const transparentPixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==";
+  await createWorkspaceFile({
+    ownerDid: did,
+    parentId: imgFolder.id,
+    name: "sample-image.png",
+    kind: "file",
+    sourceFormat: null, // Image should not have markdown format
+    content: transparentPixel,
+  });
+
+  const bibContent = `@article{scholarview2026,
+  author = {ScholarView Team},
+  title = {DeSci Review and Publishing on AT Protocol},
+  journal = {Journal of Open Science},
+  year = {2026},
+  volume = {1},
+  pages = {1-10}
+}`;
+
+  await createWorkspaceFile({
+    ownerDid: did,
+    parentId: tutorialFolder.id,
+    name: "references.bib",
+    kind: "file",
+    sourceFormat: "markdown",
+    content: bibContent,
+  });
+
+  await createWorkspaceFile({
+    ownerDid: did,
+    parentId: tutorialFolder.id,
+    name: "welcome.md",
+    kind: "file",
+    sourceFormat: "markdown",
+    content: `# ScholarView Comprehensive Guide
+
+Welcome to your DeSci workspace! This document covers everything you can do with ScholarView's Markdown editor.
+
+## 1. Document Structure
+
+# Level 1 Heading
+## Level 2 Heading
+### Level 3 Heading
+
+You can create lists:
+- Item A
+- Item B
+  - Sub-item B1
+1. Numbered List
+2. Another Item
+
+> This is a blockquote. Use it for emphasized text or external quotes.
+
+---
+
+## 2. Mathematical Notation (LaTeX)
+
+ScholarView uses KaTeX for fast and beautiful math rendering.
+
+**Inline Math**: Use single dollar signs: $E = mc^2$ or $\\lambda = \\frac{h}{p}$.
+
+**Display (Block) Math**: Use double dollar signs for multi-line or centered equations:
+
+$$
+I = \\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
+$$
+
+You can also use complex environments:
+
+$$
+\\begin{pmatrix}
+a & b \\\\
+c & d
+\\end{pmatrix}
+\\cdot
+\\begin{pmatrix}
+x \\\\
+y
+\\end{pmatrix}
+=
+\\begin{pmatrix}
+ax + by \\\\
+cx + dy
+\\end{pmatrix}
+$$
+
+## 3. Citations and References
+
+ScholarView handles academic citations automatically.
+1. Create a \`.bib\` file in your workspace (see \`references.bib\` in this folder).
+2. Use the \`[@citekey]\` syntax in your text.
+
+Example: ScholarView is built for decentralized science [@scholarview2026].
+
+*Tip: Click the citation icon in the block menu to browse and insert references from your bib files.*
+
+## 4. Media and Image Assets
+
+Embed images from your workspace using the \`workspace://\` protocol:
+
+![Sample Figure](workspace://sample-image.png)
+*Figure 1: A transparent placeholder image stored in the images/ folder.*
+
+## 5. Rich Renderer Features
+
+The panel on the right is a **Rich Renderer**. It doesn't just show a preview; it parses your document into semantic blocks.
+- **Click a block** in the renderer to jump to that line in the editor.
+- **Drag handle** (on the left of the editor) to reorder sections of your paper.
+
+## 6. Publishing (Broadcast)
+
+When your paper is ready:
+1. Click **Broadcast** at the top right.
+2. Sign in with your AT Protocol (Bluesky) account.
+3. Your article will be published as a record on your repository.
+4. A discussion thread will be automatically created on Bluesky!
+
+Happy writing and reviewing!`,
+  });
+}
+
 async function handleWorkspaceFilesPath(
   request: Request,
   pathParts: string[],
 ): Promise<Response | null> {
   if (pathParts.length === 3) {
-    const did = await requireDid();
+    const did = await getDidOrLocal();
     if (request.method === "GET") {
-      const files = await listWorkspaceFiles(did);
+      let files = await listWorkspaceFiles(did);
+      if (files.length === 0 && did === "local") {
+        await seedWelcomeWorkspace(did);
+        files = await listWorkspaceFiles(did);
+      }
       return json({ success: true, files });
     }
 
@@ -1399,7 +1555,7 @@ async function handleWorkspaceFilesPath(
   }
 
   if (pathParts.length >= 4) {
-    const did = await requireDid();
+    const did = await getDidOrLocal();
     const id = pathParts[3];
 
     if (pathParts.length === 4) {
@@ -1712,7 +1868,7 @@ async function publishWorkspaceFile(
 }
 
 async function handleWorkspaceImportResolve(request: Request): Promise<Response> {
-  const did = await requireDid();
+  const did = await getDidOrLocal();
   const body = (await request.json()) as {
     sourceFormat?: unknown;
     text?: unknown;

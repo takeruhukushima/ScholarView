@@ -156,7 +156,6 @@ export function useWorkspaceMedia({
     if (
       !canEditTextCurrentFile ||
       isBibWorkspaceFile ||
-      !sessionDid ||
       !activeFile ||
       activeFile.kind !== "file"
     ) {

@@ -80,77 +80,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
             Workspace
           </h2>
-          {isLoggedIn && (
-            <div className="flex gap-1">
-              <button
-                onClick={() => createWorkspaceItem("folder")}
-                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-                title="New Folder"
+          <div className="flex gap-1">
+            <button
+              onClick={() => createWorkspaceItem("folder")}
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+              title="New Folder"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-3.5 w-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-3.5 w-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                  <line x1="12" y1="11" x2="12" y2="17" />
-                  <line x1="9" y1="14" x2="15" y2="14" />
-                </svg>
-              </button>
-              <button
-                onClick={() => createWorkspaceItem("file")}
-                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-                title="New File"
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                <line x1="12" y1="11" x2="12" y2="17" />
+                <line x1="9" y1="14" x2="15" y2="14" />
+              </svg>
+            </button>
+            <button
+              onClick={() => createWorkspaceItem("file")}
+              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+              title="New File"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-3.5 w-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-3.5 w-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="12" y1="11" x2="12" y2="17" />
-                  <line x1="9" y1="14" x2="15" y2="14" />
-                </svg>
-              </button>
-            </div>
-          )}
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+                <line x1="12" y1="11" x2="12" y2="17" />
+                <line x1="9" y1="14" x2="15" y2="14" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200">
-          {isLoggedIn ? (
-            <FileTree
-              files={files}
-              activeFileId={activeFileId}
-              onSelect={openFile}
-              onToggleFolder={(file) => {
-                void fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
-                  method: "PATCH",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ expanded: file.expanded === 1 ? 0 : 1 }),
-                })
-                  .then(() => loadFiles(sessionDid, setBusy, setStatusMessage))
-                  .catch((err: unknown) => {
-                    setStatusMessage(err instanceof Error ? err.message : "Failed to toggle folder");
-                  });
-              }}
-              onRename={renameWorkspaceItem}
-              onDelete={deleteWorkspaceItem}
-              onDownload={downloadWorkspaceItem}
-              onMove={handleMoveWorkspaceItem}
-              draggable={isLoggedIn}
-            />
-          ) : (
-            <div className="p-1">
-              <p className="text-xs text-slate-500 mb-4 italic">Sign in to access local workspace.</p>
-              <LoginForm />
-            </div>
-          )}
+          <FileTree
+            files={files}
+            activeFileId={activeFileId}
+            onSelect={openFile}
+            onToggleFolder={(file) => {
+              void fetch(`/api/workspace/files/${encodeURIComponent(file.id)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ expanded: file.expanded === 1 ? 0 : 1 }),
+              })
+                .then(() => loadFiles(sessionDid, setBusy, setStatusMessage))
+                .catch((err: unknown) => {
+                  setStatusMessage(err instanceof Error ? err.message : "Failed to toggle folder");
+                });
+            }}
+            onRename={renameWorkspaceItem}
+            onDelete={deleteWorkspaceItem}
+            onDownload={downloadWorkspaceItem}
+            onMove={handleMoveWorkspaceItem}
+            draggable={true}
+          />
         </div>
       </div>
 
@@ -171,7 +162,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* User Session Footer */}
-      {isLoggedIn && (
+      {isLoggedIn ? (
         <div className="mt-auto flex items-center justify-between rounded-xl bg-slate-50/80 p-3 border border-slate-100">
           <div className="flex items-center gap-2 overflow-hidden">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold ring-2 ring-white">
@@ -185,6 +176,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
           <LogoutButton />
+        </div>
+      ) : (
+        <div className="mt-auto border-t border-slate-100 pt-6">
+          <LoginForm />
         </div>
       )}
     </div>
