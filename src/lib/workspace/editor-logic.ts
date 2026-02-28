@@ -83,23 +83,58 @@ export function normalizeEditedBlockInput(
 export function detectCitationTrigger(
   text: string,
   cursor: number,
-): { start: number; end: number; query: string } | null {
+): { start: number; end: number; query: string; format?: "bracket" | "latex" | "latex-inline" } | null {
   const before = text.slice(0, cursor);
-  const at = before.lastIndexOf("@");
-  if (at < 0) return null;
+  
+  const atPos = before.lastIndexOf("@");
+  const slashPos = before.lastIndexOf("\\");
+  const citePos = before.lastIndexOf("\\cite{");
 
-  const prefix = at === 0 ? "" : before[at - 1];
-  const hasBracketPrefix = prefix === "[";
-  if (!hasBracketPrefix && prefix && /[A-Za-z0-9:_-]/.test(prefix)) {
-    return null;
+  const maxPos = Math.max(atPos, slashPos, citePos);
+  if (maxPos < 0) return null;
+
+  if (citePos >= 0 && citePos === maxPos) {
+    const content = before.slice(citePos + 6);
+    if (content.includes("}")) return null;
+    
+    const lastComma = content.lastIndexOf(",");
+    if (lastComma >= 0) {
+      const start = citePos + 6 + lastComma + 1;
+      const query = before.slice(start).trimStart();
+      if (!/[^A-Za-z0-9:_-]/.test(query)) {
+        return { start, end: cursor, query, format: "latex-inline" };
+      }
+    } else {
+      const query = content;
+      if (!/[^A-Za-z0-9:_-]/.test(query)) {
+        return { start: citePos, end: cursor, query, format: "latex" };
+      }
+    }
+  }
+  
+  if (slashPos >= 0 && slashPos === maxPos) {
+    const query = before.slice(slashPos + 1);
+    if (!/[^A-Za-z0-9:_-]/.test(query)) {
+      return { start: slashPos, end: cursor, query, format: "latex" };
+    }
   }
 
-  const query = before.slice(at + 1);
-  if (/[^A-Za-z0-9:_-]/.test(query)) {
-    return null;
+  if (atPos >= 0 && atPos === maxPos) {
+    const prefix = atPos === 0 ? "" : before[atPos - 1];
+    const hasBracketPrefix = prefix === "[";
+    if (!hasBracketPrefix && prefix && /[A-Za-z0-9:_-]/.test(prefix)) {
+      return null;
+    }
+
+    const query = before.slice(atPos + 1);
+    if (/[^A-Za-z0-9:_-]/.test(query)) {
+      return null;
+    }
+
+    return { start: hasBracketPrefix ? atPos - 1 : atPos, end: cursor, query, format: "bracket" };
   }
 
-  return { start: hasBracketPrefix ? at - 1 : at, end: cursor, query };
+  return null;
 }
 
 export function sourceToEditorBlocks(source: string, sourceFormat: SourceFormat): EditorBlock[] {

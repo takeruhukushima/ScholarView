@@ -19,7 +19,6 @@ interface SidebarProps {
   downloadWorkspaceItem: (file: WorkspaceFile) => Promise<void>;
   handleMoveWorkspaceItem: (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => Promise<void>;
   createWorkspaceItem: (kind: "folder" | "file") => Promise<void>;
-  setShowNewFileForm: (show: boolean) => void;
   isLoggedIn: boolean;
   accountHandle?: string | null;
   loadFiles: (did: string | null, setBusy: (b: boolean) => void, setStatusMessage: (m: string) => void) => Promise<WorkspaceFile[]>;
@@ -41,7 +40,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   downloadWorkspaceItem,
   handleMoveWorkspaceItem,
   createWorkspaceItem,
-  setShowNewFileForm,
   isLoggedIn,
   accountHandle,
   loadFiles,
@@ -103,7 +101,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </svg>
               </button>
               <button
-                onClick={() => setShowNewFileForm(true)}
+                onClick={() => createWorkspaceItem("file")}
                 className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
                 title="New File"
               >

@@ -55,7 +55,7 @@ export function renderInlineText(
   const nodes: ReactNode[] = [];
   const containerClass = options?.isSelected ? "bg-[#B4D5FF] text-inherit" : "";
   const tokenRegex =
-    /(`[^`]+`|\$\$[\s\S]+?\$\$|\$(?:\\.|[^$\n])+\$|\[@[A-Za-z0-9:_-]+\]|\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s]+)/g;
+    /(`[^`]+`|\\cite\{[^}]+\}|\$\$[\s\S]+?\$\$|\$(?:\\.|[^$\n])+\$|\[@[A-Za-z0-9:_-]+\]|\*\*[^*]+\*\*|_[^_]+_|\[[^\]]+\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s]+)/g;
   let cursor = 0;
   let matchIndex = 0;
 
@@ -81,6 +81,44 @@ export function renderInlineText(
         <code key={key} className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.9em] text-slate-800">
           {token.slice(1, -1)}
         </code>,
+      );
+    } else if (token.startsWith("\\cite{") && token.endsWith("}")) {
+      const content = token.slice(6, -1);
+      const keys = content.split(",").map((k) => k.trim()).filter(Boolean);
+      
+      nodes.push(
+        <span key={key} className="inline-flex items-center text-[#0085FF] font-mono text-[0.85em]">
+          {"["}
+          {keys.map((keyValue, i) => {
+            const matched = options?.citationLookup?.get(keyValue);
+            const number = options?.citationNumberByKey?.get(keyValue);
+            const anchorPrefix = options?.referenceAnchorPrefix ?? "ref";
+            const href = `#${referenceAnchorId(anchorPrefix, keyValue)}`;
+            
+            return (
+              <Fragment key={`${key}-key-${i}`}>
+                {i > 0 ? ", " : ""}
+                {number ? (
+                  <a
+                    href={href}
+                    className="hover:underline"
+                    title={matched?.title ?? keyValue}
+                  >
+                    {number}
+                  </a>
+                ) : (
+                  <span
+                    className="bg-amber-100 text-amber-900 rounded px-0.5"
+                    title={matched?.title ?? `Missing citation: ${keyValue}`}
+                  >
+                    ?
+                  </span>
+                )}
+              </Fragment>
+            );
+          })}
+          {"]"}
+        </span>
       );
     } else if (token.startsWith("$$") && token.endsWith("$$")) {
       const expr = token.slice(2, -2).trim();
@@ -125,33 +163,43 @@ export function renderInlineText(
         );
       }
     } else if (token.startsWith("[@") && token.endsWith("]")) {
-      const keyValue = token.slice(2, -1);
-      const matched = options?.citationLookup?.get(keyValue);
-      const number = options?.citationNumberByKey?.get(keyValue);
-      if (number) {
-        const anchorPrefix = options?.referenceAnchorPrefix ?? "ref";
-        const href = `#${referenceAnchorId(anchorPrefix, keyValue)}`;
-        nodes.push(
-          <a
-            key={key}
-            href={href}
-            className="inline-flex rounded px-1 py-0.5 font-mono text-[0.85em] text-[#0085FF] hover:underline"
-            title={matched?.title ?? keyValue}
-          >
-            [{number}]
-          </a>,
-        );
-      } else {
-        nodes.push(
-          <span
-            key={key}
-            className="inline-flex rounded bg-amber-100 px-1.5 py-0.5 text-[0.85em] text-amber-900"
-            title={matched?.title ?? `Missing citation: ${keyValue}`}
-          >
-            [?]
-          </span>,
-        );
-      }
+      const content = token.slice(2, -1);
+      const keys = content.split(/[,;]/).map(k => k.trim().replace(/^@/, "")).filter(Boolean);
+      
+      nodes.push(
+        <span key={key} className="inline-flex items-center text-[#0085FF] font-mono text-[0.85em]">
+          {"["}
+          {keys.map((keyValue, i) => {
+            const matched = options?.citationLookup?.get(keyValue);
+            const number = options?.citationNumberByKey?.get(keyValue);
+            const anchorPrefix = options?.referenceAnchorPrefix ?? "ref";
+            const href = `#${referenceAnchorId(anchorPrefix, keyValue)}`;
+            
+            return (
+              <Fragment key={`${key}-key-${i}`}>
+                {i > 0 ? ", " : ""}
+                {number ? (
+                  <a
+                    href={href}
+                    className="hover:underline"
+                    title={matched?.title ?? keyValue}
+                  >
+                    {number}
+                  </a>
+                ) : (
+                  <span
+                    className="bg-amber-100 text-amber-900 rounded px-0.5"
+                    title={matched?.title ?? `Missing citation: ${keyValue}`}
+                  >
+                    ?
+                  </span>
+                )}
+              </Fragment>
+            );
+          })}
+          {"]"}
+        </span>
+      );
     } else if (token.startsWith("**") && token.endsWith("**")) {
       nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
     } else if (token.startsWith("_") && token.endsWith("_")) {

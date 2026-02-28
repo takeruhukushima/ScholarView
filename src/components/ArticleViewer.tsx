@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import katex from "katex";
 
@@ -59,9 +59,10 @@ function renderInlineMarkdown(
   text: string,
   keyPrefix: string,
   bibliographyByKey: Map<string, BibliographyEntry>,
+  keyToNumber: Map<string, number>,
 ) {
   const nodes: React.ReactNode[] = [];
-  const regex = /(`[^`]+`|\$(?:\\.|[^$\n])+\$|\[@[A-Za-z0-9:_-]+\]|\*\*(.+?)\*\*)/g;
+  const regex = /(`[^`]+`|\\cite\{[^}]+\}|\$(?:\\.|[^$\n])+\$|\[@?([^\]]+)\]|\*\*(.+?)\*\*)/g;
   let last = 0;
   let idx = 0;
 
@@ -87,6 +88,28 @@ function renderInlineMarkdown(
           {token.slice(1, -1)}
         </code>,
       );
+    } else if (token.startsWith("\\cite{") && token.endsWith("}") || token.startsWith("[") && token.endsWith("]")) {
+      const isBrackets = token.startsWith("[");
+      const content = isBrackets ? token.slice(1, -1).replace(/^@/, "") : token.slice(6, -1);
+      const keys = content.split(/[,;]/).map((k) => k.trim().replace(/^@/, "")).filter(Boolean);
+      
+      nodes.push(
+        <span key={`${keyPrefix}-q-${idx++}`} className="rounded bg-emerald-50 px-1 py-0.5 text-[0.85em] text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+          {"["}
+          {keys.map((k, i) => {
+            const entry = bibliographyByKey.get(k);
+            const num = keyToNumber.get(k);
+            const label = num ? num.toString() : (entry ? formatCitationChip(entry) : k);
+            return (
+              <Fragment key={`${keyPrefix}-cite-${idx}-${i}`}>
+                {i > 0 ? ", " : ""}
+                <span title={entry?.title ?? k}>{label}</span>
+              </Fragment>
+            );
+          })}
+          {"]"}
+        </span>
+      );
     } else if (token.startsWith("$") && token.endsWith("$")) {
       const expr = token.slice(1, -1).trim();
       const mathHtml = renderMathHtml(expr, false);
@@ -108,22 +131,6 @@ function renderInlineMarkdown(
           </span>,
         );
       }
-    } else if (token.startsWith("[@") && token.endsWith("]")) {
-      const key = token.slice(2, -1);
-      const entry = bibliographyByKey.get(key);
-      const label = entry ? formatCitationChip(entry) : key;
-      nodes.push(
-        <span
-          key={`${keyPrefix}-q-${idx++}`}
-          className={`rounded px-1 py-0.5 text-[0.85em] ${
-            entry
-              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-              : "bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
-          }`}
-        >
-          [{label}]
-        </span>,
-      );
     }
 
     last = match.index + match[0].length;
@@ -146,6 +153,7 @@ function renderMarkdownWithHighlight(
   quote: string | null,
   keyPrefix: string,
   bibliographyByKey: Map<string, BibliographyEntry>,
+  keyToNumber: Map<string, number>,
 ) {
   const lines = content.split("\n");
 
@@ -153,7 +161,7 @@ function renderMarkdownWithHighlight(
     if (!quote) {
       return (
         <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey)}
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber)}
           {lineIdx < lines.length - 1 ? <br /> : null}
         </span>
       );
@@ -163,7 +171,7 @@ function renderMarkdownWithHighlight(
     if (pos === -1) {
       return (
         <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey)}
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber)}
           {lineIdx < lines.length - 1 ? <br /> : null}
         </span>
       );
@@ -175,11 +183,11 @@ function renderMarkdownWithHighlight(
 
     return (
       <span key={`${keyPrefix}-line-${lineIdx}`}>
-        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey) : null}
+        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey, keyToNumber) : null}
         <mark className="rounded bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-700/40">
-          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey)}
+          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey, keyToNumber)}
         </mark>
-        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey) : null}
+        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey, keyToNumber) : null}
         {lineIdx < lines.length - 1 ? <br /> : null}
       </span>
     );
@@ -216,6 +224,12 @@ export function ArticleViewer({
   const bibliographyByKey = useMemo(() => {
     const map = new Map<string, BibliographyEntry>();
     for (const entry of bibliography) map.set(entry.key, entry);
+    return map;
+  }, [bibliography]);
+
+  const keyToNumber = useMemo(() => {
+    const map = new Map<string, number>();
+    bibliography.forEach((entry, i) => map.set(entry.key, i + 1));
     return map;
   }, [bibliography]);
 
@@ -357,6 +371,7 @@ export function ArticleViewer({
                   effectiveHighlight,
                   `block-${idx}`,
                   bibliographyByKey,
+                  keyToNumber,
                 )}
               </p>
             </section>

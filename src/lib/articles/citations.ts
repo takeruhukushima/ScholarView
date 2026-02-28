@@ -9,7 +9,7 @@ export interface BibliographyEntry {
 }
 
 const MAX_BIB_ENTRIES = 500;
-const CITATION_KEY_REGEX = /\[@([A-Za-z0-9:_-]+)\]/g;
+const CITATION_KEY_REGEX = /(?:\[@?([^\]]+)\]|\\cite\{([^}]+)\})/g;
 
 interface ParsedBibtexSpan {
   key: string;
@@ -120,10 +120,19 @@ export function extractCitationKeysFromText(text: string): string[] {
   for (;;) {
     const match = CITATION_KEY_REGEX.exec(text);
     if (!match) break;
-    const key = match[1];
-    if (!seen.has(key)) {
-      seen.add(key);
-      keys.push(key);
+    
+    const rawContent = match[1] || match[2];
+    if (rawContent) {
+      // Split by comma or semicolon to support various multi-cite styles
+      const parts = rawContent.split(/[,;]/);
+      for (const p of parts) {
+        // Remove leading @ if present (e.g. in [@key1; @key2])
+        const key = p.trim().replace(/^@/, "");
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          keys.push(key);
+        }
+      }
     }
   }
   return keys;
