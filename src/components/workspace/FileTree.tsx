@@ -10,6 +10,7 @@ interface FileTreeProps {
   onRename?: (file: WorkspaceFile) => void;
   onDelete: (file: WorkspaceFile) => void;
   onMove?: (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => void;
+  onDownload?: (file: WorkspaceFile) => void;
   draggable?: boolean;
 }
 
@@ -21,11 +22,13 @@ export function FileTree({
   onRename,
   onDelete,
   onMove,
+  onDownload,
   draggable,
 }: FileTreeProps) {
   const tree = useMemo(() => makeFileTree(files), [files]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const renderNode = (node: ReturnType<typeof makeFileTree>[number], depth: number) => {
     const isFolder = node.file.kind === "folder";
@@ -44,7 +47,7 @@ export function FileTree({
     return (
       <li key={node.file.id}>
         <div
-          className={`group flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
+          className={`group relative flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
             isActive ? "bg-[#E7F2FF]" : "hover:bg-slate-100"
           } ${
             dragOverKey === `${node.file.id}:before`
@@ -62,6 +65,7 @@ export function FileTree({
             setDraggingId(node.file.id);
             event.dataTransfer.setData("text/plain", node.file.id);
             event.dataTransfer.effectAllowed = "move";
+            setOpenMenuId(null);
           }}
           onDragEnd={() => {
             setDraggingId(null);
@@ -94,12 +98,12 @@ export function FileTree({
             <button
               type="button"
               onClick={() => onToggleFolder(node.file)}
-              className="w-4 text-xs text-slate-500"
+              className="w-4 shrink-0 text-xs text-slate-500"
             >
               {expanded ? "▾" : "▸"}
             </button>
           ) : (
-            <span className="w-4 text-xs text-slate-400">•</span>
+            <span className="w-4 shrink-0 text-xs text-slate-400">•</span>
           )}
 
           <button
@@ -112,36 +116,84 @@ export function FileTree({
           </button>
 
           {node.file.kind === "file" && node.file.linkedArticleUri ? (
-            <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">pub</span>
+            <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">pub</span>
           ) : null}
 
-          {onRename ? (
+          <div className="relative ml-auto flex items-center shrink-0">
             <button
+              id={`menu-trigger-${node.file.id}`}
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                onRename(node.file);
+                setOpenMenuId(openMenuId === node.file.id ? null : node.file.id);
               }}
-              className="rounded px-1 text-xs text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100"
-              title={`Rename ${node.file.kind}`}
-              aria-label={`Rename ${node.file.kind}`}
+              className={`rounded px-1.5 py-0.5 text-xs text-slate-400 transition hover:bg-slate-200 hover:text-slate-700 ${
+                openMenuId === node.file.id ? "opacity-100 bg-slate-200 text-slate-700" : "opacity-0 group-hover:opacity-100"
+              }`}
+              title="More actions"
+              aria-label="More actions"
             >
-              ✎
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
             </button>
-          ) : null}
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(node.file);
-            }}
-            className="rounded px-1 text-xs text-slate-400 opacity-0 transition hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
-            title={`Delete ${node.file.kind}`}
-            aria-label={`Delete ${node.file.kind}`}
-          >
-            ×
-          </button>
+            
+            {openMenuId === node.file.id && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenMenuId(null);
+                  }}
+                />
+                <div 
+                  className={`absolute right-0 z-50 w-32 rounded-lg border border-slate-200 bg-white py-1 shadow-lg ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-100 ${
+                    typeof window !== 'undefined' && 
+                    (document.getElementById(`menu-trigger-${node.file.id}`)?.getBoundingClientRect().bottom ?? 0) > window.innerHeight - 200 
+                      ? "bottom-full mb-1" 
+                      : "top-full mt-1"
+                  }`}
+                >
+                  {onDownload && node.file.kind === "file" && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(null);
+                        onDownload(node.file);
+                      }}
+                      className="flex w-full items-center px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors text-left"
+                    >
+                      Download
+                    </button>
+                  )}
+                  {onRename && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(null);
+                        onRename(node.file);
+                      }}
+                      className="flex w-full items-center px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50 transition-colors text-left"
+                    >
+                      Rename
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenMenuId(null);
+                      onDelete(node.file);
+                    }}
+                    className="flex w-full items-center px-3 py-1.5 text-xs text-red-600 font-medium hover:bg-red-50 transition-colors text-left"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {isFolder && expanded && node.children.length > 0 ? (
@@ -155,5 +207,9 @@ export function FileTree({
     return <p className="text-xs text-slate-500">No files yet.</p>;
   }
 
-  return <ul className="space-y-0.5">{tree.map((node) => renderNode(node, 0))}</ul>;
+  return (
+    <ul className="space-y-0.5 pb-32">
+      {tree.map((node) => renderNode(node, 0))}
+    </ul>
+  );
 }

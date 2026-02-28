@@ -70,6 +70,8 @@ interface EditorPanelProps {
   handlePublish: () => Promise<void>;
   handleUnpublish: () => Promise<void>;
   handleExport: (target: "md" | "tex") => void;
+  confirmExportToFolder: () => void;
+  handleExportImage: () => Promise<void>;
   exportPreview: ExportPreview | null;
   confirmExport: () => void;
   cancelExport: () => void;
@@ -152,6 +154,8 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   handlePublish,
   handleUnpublish,
   handleExport,
+  confirmExportToFolder,
+  handleExportImage,
   exportPreview,
   confirmExport,
   cancelExport,
@@ -254,6 +258,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         <ExportPreviewModal
           exportPreview={exportPreview}
           confirmExport={confirmExport}
+          confirmExportToFolder={confirmExportToFolder}
           cancelExport={cancelExport}
           toggleIncludeBibInExport={toggleIncludeBibInExport}
         />
@@ -386,7 +391,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                 </button>
               )}
 
-              {canEditTextCurrentFile && !isBibWorkspaceFile && (
+              {canEditCurrentFile && !isBibWorkspaceFile && (
                 <div className="relative">
                   <button
                     type="button"
@@ -401,17 +406,19 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                         <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Settings</p>
                       </div>
                       <div className="space-y-1">
-                        <div className="flex items-center justify-between px-2 py-1.5">
-                          <span className="text-xs text-slate-600 font-medium">Format</span>
-                          <select
-                            value={sourceFormat}
-                            onChange={(e) => handleSourceFormatChange(e.target.value as SourceFormat)}
-                            className="text-xs font-bold text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5 outline-none"
-                          >
-                            <option value="markdown">Markdown</option>
-                            <option value="tex">TeX</option>
-                          </select>
-                        </div>
+                        {!isImageWorkspaceFile && (
+                          <div className="flex items-center justify-between px-2 py-1.5">
+                            <span className="text-xs text-slate-600 font-medium">Format</span>
+                            <select
+                              value={sourceFormat}
+                              onChange={(e) => handleSourceFormatChange(e.target.value as SourceFormat)}
+                              className="text-xs font-bold text-indigo-600 bg-indigo-50 rounded px-1.5 py-0.5 outline-none"
+                            >
+                              <option value="markdown">Markdown</option>
+                              <option value="tex">TeX</option>
+                            </select>
+                          </div>
+                        )}
                         <label className="flex items-center justify-between px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
                           <span className="text-xs text-slate-600 font-medium">Bluesky Sync</span>
                           <input
@@ -423,12 +430,26 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                         </label>
                       </div>
                       <div className="mt-2 p-2 border-t border-slate-50 space-y-1">
-                        <button onClick={() => handleExport("md")} className="w-full text-left px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between">
-                          Export Markdown <span className="opacity-40">.md</span>
-                        </button>
-                        <button onClick={() => handleExport("tex")} className="w-full text-left px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between">
-                          Export LaTeX <span className="opacity-40">.tex</span>
-                        </button>
+                        {isImageWorkspaceFile ? (
+                          <button
+                            onClick={() => {
+                              setShowMoreMenu(false);
+                              void handleExportImage();
+                            }}
+                            className="w-full text-left px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between"
+                          >
+                            Export Image <span className="opacity-40">↓</span>
+                          </button>
+                        ) : (
+                          <>
+                            <button onClick={() => handleExport("md")} className="w-full text-left px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between">
+                              Export Markdown <span className="opacity-40">.md</span>
+                            </button>
+                            <button onClick={() => handleExport("tex")} className="w-full text-left px-2 py-1.5 text-xs text-slate-600 hover:bg-slate-50 rounded-lg transition-colors flex items-center justify-between">
+                              Export LaTeX <span className="opacity-40">.tex</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                       {currentDid && currentRkey && (
                         <div className="mt-1 p-1">

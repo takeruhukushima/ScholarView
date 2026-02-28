@@ -4,7 +4,8 @@ import { BibliographyEntry } from "@/lib/articles/citations";
 import { WorkspaceFile } from "@/lib/workspace/types";
 import { parseAuthors } from "@/lib/articles/authors";
 import { exportSource } from "@/lib/export/document";
-import { sanitizeFileStem } from "@/lib/workspace/image-logic";
+import { sanitizeFileStem, isWorkspaceImageFile } from "@/lib/workspace/image-logic";
+import { triggerFileDownload } from "@/lib/workspace/utils";
 
 export interface ExportPreview {
   content: string;
@@ -40,6 +41,7 @@ interface UseWorkspacePublishingProps {
   refreshArticles: () => Promise<void>;
   loadDiscussion: () => Promise<void>;
   normalizeWorkspaceImageUrisForExport: (input: string) => string;
+  files: WorkspaceFile[];
 }
 
 export function useWorkspacePublishing({
@@ -68,6 +70,7 @@ export function useWorkspacePublishing({
   refreshArticles,
   loadDiscussion,
   normalizeWorkspaceImageUrisForExport,
+  files,
 }: UseWorkspacePublishingProps) {
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
 
@@ -190,18 +193,6 @@ export function useWorkspacePublishing({
     }
   };
 
-  const downloadTextAsFile = (filename: string, text: string, mimeType = "text/plain;charset=utf-8") => {
-    const blob = new Blob([text], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  };
-
   const handleExport = (target: "md" | "tex") => {
     const normalizedSource = normalizeWorkspaceImageUrisForExport(sourceText);
     const result = exportSource(
@@ -222,6 +213,116 @@ export function useWorkspacePublishing({
     });
   };
 
+  const handleExportToFolder = async () => {
+    if (!exportPreview) return;
+    if (!("showDirectoryPicker" in window)) {
+      setStatusMessage("Your browser does not support folder export.");
+      return;
+    }
+    
+    try {
+      // @ts-expect-error - File System Access API is not yet in all TS environments
+      const dirHandle = await window.showDirectoryPicker();
+      setBusy(true);
+      
+      const target = exportPreview.target;
+      
+      // Normalize images to be flat in the same directory
+      const flattenImageUris = (input: string) =>
+        input.replace(/!\[([^\]]*)\]\(workspace:\/\/([^)]+)\)(\{[^}]*\})?/g, (_all, alt, id, attrs) => {
+          const file = files.find((item) => item.id === id);
+          if (!file || file.kind !== "file") return _all;
+          return `![${alt}](${file.name})${attrs ?? ""}`;
+        });
+      const normalizedSource = flattenImageUris(sourceText);
+
+      const result = exportSource(
+        normalizedSource,
+        sourceFormat,
+        target,
+        resolvedBibliography,
+        projectBibEntries,
+      );
+      
+      const docHandle = await dirHandle.getFileHandle(exportPreview.filename, { create: true });
+      const writable = await docHandle.createWritable();
+      await writable.write(result.content);
+      await writable.close();
+
+      if (result.bibSource) {
+        const bibHandle = await dirHandle.getFileHandle("references.bib", { create: true });
+        const bibWritable = await bibHandle.createWritable();
+        await bibWritable.write(result.bibSource);
+        await bibWritable.close();
+      }
+
+      if (activeFile && activeFile.parentId) {
+        const siblings = files.filter((f) => f.parentId === activeFile.parentId && isWorkspaceImageFile(f));
+        let imgCount = 0;
+        for (const img of siblings) {
+          let imgContent = img.content;
+          if (!imgContent) {
+            try {
+              const response = await fetch(`/api/workspace/files/${encodeURIComponent(img.id)}`);
+              const data = await response.json() as { success?: boolean; file?: WorkspaceFile };
+              if (data.success && data.file) {
+                imgContent = data.file.content;
+              }
+            } catch (e) {
+              console.error(`Failed to fetch image content for ${img.name}`, e);
+            }
+          }
+          if (imgContent) {
+            try {
+              const res = await fetch(imgContent);
+              const blob = await res.blob();
+              const imgHandle = await dirHandle.getFileHandle(img.name, { create: true });
+              const imgWritable = await imgHandle.createWritable();
+              await imgWritable.write(blob);
+              await imgWritable.close();
+              imgCount++;
+            } catch (e) {
+              console.error(`Failed to write image ${img.name}`, e);
+            }
+          }
+        }
+        setStatusMessage(`Exported project (${exportPreview.filename}, ${imgCount} image(s) and .bib) to folder.`);
+      } else {
+        setStatusMessage(`Exported project (${exportPreview.filename} and .bib) to folder.`);
+      }
+      setExportPreview(null);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name !== "AbortError") {
+        setStatusMessage(`Folder export failed: ${err.message}`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleExportImage = async () => {
+    if (!activeFile || !isWorkspaceImageFile(activeFile)) return;
+    try {
+      setBusy(true);
+      let content = activeFile.content;
+      if (!content) {
+        const response = await fetch(`/api/workspace/files/${encodeURIComponent(activeFile.id)}`);
+        const data = await response.json() as { success?: boolean; file?: WorkspaceFile };
+        if (data.success && data.file) {
+          content = data.file.content;
+        }
+      }
+      if (content) {
+        triggerFileDownload(activeFile.name, content);
+        setStatusMessage(`Exported ${activeFile.name}`);
+      }
+    } catch (err: unknown) {
+      setStatusMessage(err instanceof Error ? err.message : "Failed to export image");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const confirmExport = () => {
     if (!exportPreview) return;
     const { content, bibSource, filename, includeBib } = exportPreview;
@@ -234,7 +335,7 @@ export function useWorkspacePublishing({
         finalContent = bibBlock + finalContent;
       }
     }
-    downloadTextAsFile(filename, finalContent);
+    triggerFileDownload(filename, finalContent);
     setExportPreview(null);
     if (missingCitationKeys.length > 0) {
       setStatusMessage(`Exported with ${missingCitationKeys.length} unresolved citation warning(s).`);
@@ -255,6 +356,8 @@ export function useWorkspacePublishing({
     handlePublish,
     handleUnpublish,
     handleExport,
+    confirmExportToFolder: handleExportToFolder,
+    handleExportImage,
     exportPreview,
     confirmExport,
     cancelExport,
