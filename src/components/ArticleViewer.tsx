@@ -27,6 +27,9 @@ interface ArticleViewerProps {
   canEdit: boolean;
   editHref: string;
   initialHighlightQuote: string | null;
+  onQuoteSelect?: (quote: string) => void;
+  showComments?: boolean;
+  onRefresh?: () => Promise<void>;
 }
 
 function renderMathHtml(expression: string, displayMode: boolean): string | null {
@@ -213,15 +216,18 @@ export function ArticleViewer({
   canEdit,
   editHref,
   initialHighlightQuote,
+  onQuoteSelect,
+  showComments = true,
+  onRefresh,
 }: ArticleViewerProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [selectedQuote, setSelectedQuote] = useState<string | null>(null);
+  const [internalSelectedQuote, setInternalSelectedQuote] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const effectiveHighlight = selectedQuote ?? initialHighlightQuote;
+  const effectiveHighlight = internalSelectedQuote ?? initialHighlightQuote;
 
   const handleCopyUrl = async () => {
     try {
@@ -267,7 +273,11 @@ export function ArticleViewer({
       return;
     }
 
-    setSelectedQuote(text.slice(0, 280));
+    const quote = text.slice(0, 280);
+    setInternalSelectedQuote(quote);
+    if (onQuoteSelect) {
+      onQuoteSelect(quote);
+    }
   }
 
   async function handleDelete() {
@@ -312,6 +322,20 @@ export function ArticleViewer({
                 {title}
               </h1>
               <div className="flex items-center gap-2">
+                {onRefresh && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onRefresh().catch(() => {});
+                    }}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
+                    title="Refresh from AT Protocol"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleCopyUrl}
@@ -440,54 +464,57 @@ export function ArticleViewer({
         ) : null}
       </article>
 
-      {selectedQuote && canComment ? (
+      {showComments && internalSelectedQuote && canComment ? (
         <InlineCommentComposer
           did={did}
           rkey={rkey}
-          quote={selectedQuote}
+          quote={internalSelectedQuote}
           onSubmitted={() => {
-            setSelectedQuote(null);
+            setInternalSelectedQuote(null);
+            if (onQuoteSelect) onQuoteSelect("");
             router.refresh();
           }}
         />
       ) : null}
 
-      <section className="space-y-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-        <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          Inline Discussion
-        </h2>
+      {showComments && (
+        <section className="space-y-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Inline Discussion
+          </h2>
 
-        {dedupedComments.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            まだコメントはありません。
-          </p>
-        ) : (
-          <ul className="space-y-3">
-            {dedupedComments.map((comment) => (
-              <li
-                key={comment.uri}
-                className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3"
-              >
-                {comment.quote ? (
-                  <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                    {comment.quote}
+          {dedupedComments.length === 0 ? (
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              まだコメントはありません。
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {dedupedComments.map((comment) => (
+                <li
+                  key={comment.uri}
+                  className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3"
+                >
+                  {comment.quote ? (
+                    <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                      {comment.quote}
+                    </p>
+                  ) : (
+                    <p className="mb-2 inline-flex rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      Bsky返信（引用なし）
+                    </p>
+                  )}
+                  <p className="whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">
+                    {comment.text}
                   </p>
-                ) : (
-                  <p className="mb-2 inline-flex rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Bsky返信（引用なし）
+                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    @{comment.handle ?? comment.authorDid} · {timeAgo(comment.createdAt)}
                   </p>
-                )}
-                <p className="whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">
-                  {comment.text}
-                </p>
-                <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  @{comment.handle ?? comment.authorDid} · {timeAgo(comment.createdAt)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }
