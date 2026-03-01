@@ -27,6 +27,7 @@ interface SidebarProps {
   sessionDid: string | null;
   setBusy: (busy: boolean) => void;
   setStatusMessage: (msg: string) => void;
+  onRefreshArticle?: (article: ArticleSummary) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   sessionDid,
   setBusy,
   setStatusMessage,
+  onRefreshArticle,
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
@@ -203,6 +205,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             onAction={() => {
               void syncLegacyArticles({ force: true });
             }}
+            onRefreshArticle={onRefreshArticle}
           />
         </div>
       </div>

@@ -696,8 +696,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             activeArticleUri={activeArticleUri}
             openArticle={openArticle}
             syncLegacyArticles={syncLegacyArticles}
-            files={files}
-            activeFileId={activeFileId}
+            onRefreshArticle={(article) => {
+              void syncLegacyArticles({ force: true });
+            }}
+            files={files}            activeFileId={activeFileId}
             openFile={openFile}
             renameWorkspaceItem={renameWorkspaceItem}
             deleteWorkspaceItem={deleteWorkspaceItem}
@@ -761,6 +763,12 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             activateBlockEditor={activateBlockEditor}
             insertInlineMath={insertInlineMath}
             setStatusMessage={setStatusMessage}
+            onRefresh={async () => {
+              await syncLegacyArticles({ force: true });
+              if (activeFile && activeFile.kind === "file") {
+                await openFile(activeFile);
+              }
+            }}
             setTab={setTab}
             citationMenu={citationMenu}
             citationMenuIndex={citationMenuIndex}

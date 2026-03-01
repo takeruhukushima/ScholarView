@@ -7,6 +7,7 @@ interface ArticleListProps {
   onOpen: (article: ArticleSummary) => void;
   actionLabel?: string;
   onAction?: () => void;
+  onRefreshArticle?: (article: ArticleSummary) => void;
 }
 
 export function ArticleList({
@@ -16,6 +17,7 @@ export function ArticleList({
   onOpen,
   actionLabel,
   onAction,
+  onRefreshArticle,
 }: ArticleListProps) {
   return (
     <section className="mt-4">
@@ -25,8 +27,11 @@ export function ArticleList({
           <button
             type="button"
             onClick={onAction}
-            className="rounded border px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-50"
+            className="rounded border px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1"
           >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+              <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            </svg>
             {actionLabel}
           </button>
         ) : null}
@@ -36,11 +41,11 @@ export function ArticleList({
       ) : (
         <ul className="space-y-1">
           {articles.map((article) => (
-            <li key={article.uri}>
+            <li key={article.uri} className="group relative">
               <button
                 type="button"
                 onClick={() => onOpen(article)}
-                className={`w-full rounded-md px-2 py-1.5 text-left ${
+                className={`w-full rounded-md px-2 py-1.5 text-left pr-8 transition-colors ${
                   activeArticleUri === article.uri ? "bg-[#E7F2FF]" : "hover:bg-slate-100"
                 }`}
               >
@@ -54,6 +59,20 @@ export function ArticleList({
                   @{article.handle ?? article.authorDid}
                 </p>
               </button>
+              {onRefreshArticle && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRefreshArticle(article);
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-slate-300 opacity-0 hover:bg-white hover:text-indigo-600 group-hover:opacity-100 transition-all"
+                  title="Refresh from AT Protocol"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                  </svg>
+                </button>
+              )}
             </li>
           ))}
         </ul>
