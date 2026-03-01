@@ -1,0 +1,62 @@
+---
+import { getCollection } from 'astro:content';
+import '../../styles/global.css';
+import Header from '../../components/Header.svelte';
+import Footer from '../../components/Footer.svelte';
+
+const posts = (await getCollection('blog')).sort((a, b) => {
+	const dateA = a.data.date ? new Date(a.data.date).getTime() : 0;
+	const dateB = b.data.date ? new Date(b.data.date).getTime() : 0;
+	return dateB - dateA;
+});
+---
+
+<html lang="ja">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="generator" content={Astro.generator} />
+		<title>Blog - ScholarView</title>
+		<meta name="description" content="ScholarView の開発ブログ。AT Protocol や DeSci に関する最新情報を発信します。" />
+	</head>
+	<body class="selection:bg-indigo-100 selection:text-indigo-700 bg-slate-50/30">
+		<Header client:load />
+
+		<main class="mx-auto max-w-5xl px-4 py-20 sm:py-32">
+			<header class="mb-16">
+				<h1 class="text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">Blog</h1>
+				<p class="mt-4 text-lg text-slate-600">ScholarView の開発状況や、DeSci に関する考察を発信します。</p>
+			</header>
+
+			<div class="grid gap-8">
+				{posts.map((post) => (
+					<a href={`/blog/${post.id}/`} class="glass-card flex flex-col gap-4 group">
+						<div class="flex items-center gap-3 text-sm text-slate-500">
+							<time datetime={post.data.date?.toISOString()}>
+								{post.data.date?.toLocaleDateString('ja-JP', {
+									year: 'numeric',
+									month: 'long',
+									day: 'numeric',
+								})}
+							</time>
+							<span>•</span>
+							<span>{post.data.author}</span>
+						</div>
+						<h2 class="text-2xl font-bold text-slate-900 group-hover:text-indigo-600 transition-colors">
+							{post.data.title}
+						</h2>
+						<p class="text-slate-600 leading-relaxed">
+							{post.data.description}
+						</p>
+						<div class="mt-2 text-sm font-bold text-indigo-600">
+							記事を読む &rarr;
+						</div>
+					</a>
+				))}
+			</div>
+		</main>
+
+		<Footer />
+	</body>
+</html>
