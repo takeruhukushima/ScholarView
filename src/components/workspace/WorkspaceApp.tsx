@@ -39,6 +39,7 @@ import {
 import { Sidebar } from "./UI/Sidebar";
 import { EditorPanel } from "./UI/EditorPanel";
 import { RightPanel } from "./UI/RightPanel";
+import { MobileNavBar } from "./UI/MobileNavBar";
 import { OnboardingTour } from "./OnboardingTour";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
@@ -69,6 +70,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [currentAuthorDid, setCurrentAuthorDid] = useState<string | null>(null);
 
   const [tab, setTab] = useState<RightTab>("discussion");
+  const [mobileView, setMobileView] = useState<"files" | "editor" | "discussion">("editor");
   const [statusMessage, setStatusMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -674,129 +676,145 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const shouldShowStatus = Boolean(statusMessage);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6 pb-20 lg:pb-6">
       <OnboardingTour storageKey={TUTORIAL_STORAGE_KEY} />
 
-            {shouldShowStatus ? (
-              <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">{statusMessage}</p>
-            ) : null}
-      
-            <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-start">
-              <div className="sticky top-6 h-[calc(100vh-5rem)]">
-                <Sidebar
-                  articles={articles}
-                  activeArticleUri={activeArticleUri}
-                  openArticle={openArticle}
-                  syncLegacyArticles={syncLegacyArticles}
-                  files={files}
-                  activeFileId={activeFileId}
-                  openFile={openFile}
-                  renameWorkspaceItem={renameWorkspaceItem}
-                  deleteWorkspaceItem={deleteWorkspaceItem}
-                  downloadWorkspaceItem={(file) => downloadFileItem(file, setBusy, setStatusMessage)}
-                  handleMoveWorkspaceItem={handleMoveWorkspaceItem}
-                  createWorkspaceItem={createWorkspaceItem}
-                  isLoggedIn={isLoggedIn}
-                  accountHandle={accountHandle}
-                  loadFiles={loadFiles}
-                  sessionDid={sessionDid}
-                  setBusy={setBusy}
-                  setStatusMessage={setStatusMessage}
-                />
-              </div>
-      
-              <EditorPanel
-      
-          hasOpenDocument={hasOpenDocument}
-          activeFile={activeFile}
-          title={title}
-          setTitle={setTitle}
-          authorsText={authorsText}
-          setAuthorsText={setAuthorsText}
-          isAuthorsFocused={isAuthorsFocused}
-          setIsAuthorsFocused={setIsAuthorsFocused}
-          editorBlocks={editorBlocks}
-          activeBlockId={activeBlockId}
-          canEditCurrentFile={canEditCurrentFile}
+      {shouldShowStatus ? (
+        <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">
+          {statusMessage}
+        </p>
+      ) : null}
 
-          canEditTextCurrentFile={canEditTextCurrentFile}
-          canPublishCurrentFile={canPublishCurrentFile}
-          isImageWorkspaceFile={isImageWorkspaceFile}
-          isBibWorkspaceFile={isBibWorkspaceFile}
-          isDirtyFile={isDirtyFile}
-          isDirtyTitle={isDirtyTitle}
-          savingFile={savingFile}
-          busy={busy}
-          broadcastToBsky={broadcastToBsky}
-          setBroadcastToBsky={setBroadcastToBsky}
-          sourceFormat={sourceFormat}
-          currentDid={currentDid}
-          currentRkey={currentRkey}
-          readOnlyMessage={readOnlyMessage}
-          handlePublish={handlePublish}
-          handleUnpublish={handleUnpublish}
-          handleExport={handleExport}
-          confirmExportToFolder={confirmExportToFolder}
-          handleExportImage={handleExportImage}
-          exportPreview={exportPreview}
-          confirmExport={confirmExport}
-          cancelExport={cancelExport}
-          toggleIncludeBibInExport={toggleIncludeBibInExport}
-          handleSourceFormatChange={handleSourceFormatChange}
-          persistTitleAsFileName={persistTitleAsFileName}
-          updateBlock={updateBlock}
-          updateSelectionRange={updateSelectionRange}
-          insertBlockAfter={insertBlockAfter}
-          removeBlock={removeBlock}
-          focusBlockByIndex={focusBlockByIndex}
-          activateBlockEditor={activateBlockEditor}
-          insertInlineMath={insertInlineMath}
-          setStatusMessage={setStatusMessage}
-          setTab={setTab}
-          citationMenu={citationMenu}
-          citationMenuIndex={citationMenuIndex}
-          setCitationMenuIndex={setCitationMenuIndex}
-          filteredCitationEntries={filteredCitationEntries}
-          applyCitationSuggestion={applyCitationSuggestion}
-          renderCitationLookup={renderCitationLookup}
-          citationNumberByKey={citationNumberByKey}
-          resolvedBibliography={resolvedBibliography}
-          updateCitationMenu={updateCitationMenu}
-          selectedQuote={selectedQuote}
-          activeImagePreviewSrc={activeImagePreviewSrc}
-          resolveWorkspaceImageSrc={resolveWorkspaceImageSrc}
-          handleImageDrop={handleImageDrop}
-          imageDropTarget={imageDropTarget}
-          setImageDropTarget={setImageDropTarget}
-          draggingEditorBlockId={draggingEditorBlockId}
-          setDraggingEditorBlockId={setDraggingEditorBlockId}
-          blockMoveDropTarget={blockMoveDropTarget}
-          setBlockMoveDropTarget={setBlockMoveDropTarget}
-          moveBlockByDrop={moveBlockByDrop}
-          titleRef={titleRef}
-          authorsRef={authorsRef}
-          textareaRefs={textareaRefs}
-          bibHighlightScrollRefs={bibHighlightScrollRefs}
-          showMoreMenu={showMoreMenu}
-          setShowMoreMenu={setShowMoreMenu}
-          formatBibtexBlockById={formatBibtexBlockById}
-        />
+      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-start">
+        <div
+          className={`${
+            mobileView === "files" ? "block" : "hidden"
+          } lg:block lg:sticky lg:top-6 lg:h-[calc(100vh-5rem)]`}
+        >
+          <Sidebar
+            articles={articles}
+            activeArticleUri={activeArticleUri}
+            openArticle={openArticle}
+            syncLegacyArticles={syncLegacyArticles}
+            files={files}
+            activeFileId={activeFileId}
+            openFile={openFile}
+            renameWorkspaceItem={renameWorkspaceItem}
+            deleteWorkspaceItem={deleteWorkspaceItem}
+            downloadWorkspaceItem={(file) =>
+              downloadFileItem(file, setBusy, setStatusMessage)
+            }
+            handleMoveWorkspaceItem={handleMoveWorkspaceItem}
+            createWorkspaceItem={createWorkspaceItem}
+            isLoggedIn={isLoggedIn}
+            accountHandle={accountHandle}
+            loadFiles={loadFiles}
+            sessionDid={sessionDid}
+            setBusy={setBusy}
+            setStatusMessage={setStatusMessage}
+          />
+        </div>
 
-        <RightPanel
-          selectedQuote={selectedQuote}
-          quoteComment={quoteComment}
-          setQuoteComment={setQuoteComment}
-          submitInlineComment={submitInlineComment}
-          discussionRoot={discussionRoot}
-          discussionPosts={discussionPosts}
-          replyDrafts={replyDrafts}
-          setReplyDrafts={setReplyDrafts}
-          runEngagement={runEngagement}
-          sessionDid={sessionDid}
-          busy={busy}
-          setStatusMessage={setStatusMessage}
-        />
+        <div className={`${mobileView === "editor" ? "block" : "hidden"} lg:block`}>
+          <EditorPanel
+            hasOpenDocument={hasOpenDocument}
+            activeFile={activeFile}
+            title={title}
+            setTitle={setTitle}
+            authorsText={authorsText}
+            setAuthorsText={setAuthorsText}
+            isAuthorsFocused={isAuthorsFocused}
+            setIsAuthorsFocused={setIsAuthorsFocused}
+            editorBlocks={editorBlocks}
+            activeBlockId={activeBlockId}
+            canEditCurrentFile={canEditCurrentFile}
+            canEditTextCurrentFile={canEditTextCurrentFile}
+            canPublishCurrentFile={canPublishCurrentFile}
+            isImageWorkspaceFile={isImageWorkspaceFile}
+            isBibWorkspaceFile={isBibWorkspaceFile}
+            isDirtyFile={isDirtyFile}
+            isDirtyTitle={isDirtyTitle}
+            savingFile={savingFile}
+            busy={busy}
+            broadcastToBsky={broadcastToBsky}
+            setBroadcastToBsky={setBroadcastToBsky}
+            sourceFormat={sourceFormat}
+            currentDid={currentDid}
+            currentRkey={currentRkey}
+            readOnlyMessage={readOnlyMessage}
+            handlePublish={handlePublish}
+            handleUnpublish={handleUnpublish}
+            handleExport={handleExport}
+            confirmExportToFolder={confirmExportToFolder}
+            handleExportImage={handleExportImage}
+            exportPreview={exportPreview}
+            confirmExport={confirmExport}
+            cancelExport={cancelExport}
+            toggleIncludeBibInExport={toggleIncludeBibInExport}
+            handleSourceFormatChange={handleSourceFormatChange}
+            persistTitleAsFileName={persistTitleAsFileName}
+            updateBlock={updateBlock}
+            updateSelectionRange={updateSelectionRange}
+            insertBlockAfter={insertBlockAfter}
+            removeBlock={removeBlock}
+            focusBlockByIndex={focusBlockByIndex}
+            activateBlockEditor={activateBlockEditor}
+            insertInlineMath={insertInlineMath}
+            setStatusMessage={setStatusMessage}
+            setTab={setTab}
+            citationMenu={citationMenu}
+            citationMenuIndex={citationMenuIndex}
+            setCitationMenuIndex={setCitationMenuIndex}
+            filteredCitationEntries={filteredCitationEntries}
+            applyCitationSuggestion={applyCitationSuggestion}
+            renderCitationLookup={renderCitationLookup}
+            citationNumberByKey={citationNumberByKey}
+            resolvedBibliography={resolvedBibliography}
+            updateCitationMenu={updateCitationMenu}
+            selectedQuote={selectedQuote}
+            activeImagePreviewSrc={activeImagePreviewSrc}
+            resolveWorkspaceImageSrc={resolveWorkspaceImageSrc}
+            handleImageDrop={handleImageDrop}
+            imageDropTarget={imageDropTarget}
+            setImageDropTarget={setImageDropTarget}
+            draggingEditorBlockId={draggingEditorBlockId}
+            setDraggingEditorBlockId={setDraggingEditorBlockId}
+            blockMoveDropTarget={blockMoveDropTarget}
+            setBlockMoveDropTarget={setBlockMoveDropTarget}
+            moveBlockByDrop={moveBlockByDrop}
+            titleRef={titleRef}
+            authorsRef={authorsRef}
+            textareaRefs={textareaRefs}
+            bibHighlightScrollRefs={bibHighlightScrollRefs}
+            showMoreMenu={showMoreMenu}
+            setShowMoreMenu={setShowMoreMenu}
+            formatBibtexBlockById={formatBibtexBlockById}
+          />
+        </div>
+
+        <div
+          className={`${
+            mobileView === "discussion" ? "block" : "hidden"
+          } lg:block lg:sticky lg:top-6 lg:h-[calc(100vh-5rem)]`}
+        >
+          <RightPanel
+            selectedQuote={selectedQuote}
+            quoteComment={quoteComment}
+            setQuoteComment={setQuoteComment}
+            submitInlineComment={submitInlineComment}
+            discussionRoot={discussionRoot}
+            discussionPosts={discussionPosts}
+            replyDrafts={replyDrafts}
+            setReplyDrafts={setReplyDrafts}
+            runEngagement={runEngagement}
+            sessionDid={sessionDid}
+            busy={busy}
+            setStatusMessage={setStatusMessage}
+          />
+        </div>
       </div>
+
+      <MobileNavBar mobileView={mobileView} setMobileView={setMobileView} />
     </div>
   );
 }
