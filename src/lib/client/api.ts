@@ -15,11 +15,12 @@ import {
   compactBibliography,
   normalizeBibliography,
   serializeBibliography,
+  type BibliographyEntry,
 } from "@/lib/articles/citations";
 import {
   ARTICLE_COLLECTION,
   buildArticleUri,
-  buildAtprotoAtArticleUrl,
+  buildScholarViewArticleUrl,
   extractQuoteFromExternalUri,
 } from "@/lib/articles/uri";
 import {
@@ -58,6 +59,7 @@ import {
 } from "@/lib/client/store";
 import type {
   ArticleAuthor,
+  ArticleDetail,
   BskyInteractionAction,
   SourceFormat,
   WorkspaceFileNode,
@@ -595,7 +597,7 @@ async function createArticle(request: Request): Promise<Response> {
   let announcement: { uri: string; cid: string } | null = null;
   const articleAt = new AtUri(article.uri);
   if (body.broadcastToBsky === true) {
-    const atprotoAtUrl = buildAtprotoAtArticleUrl(did, articleAt.rkey);
+    const atprotoAtUrl = buildScholarViewArticleUrl(did, articleAt.rkey);
     const post = await lex.createRecord({
       $type: "app.bsky.feed.post",
       text: `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`,
@@ -709,7 +711,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
   let broadcasted: 0 | 1 = announcement ? 1 : 0;
 
   if (broadcastToBsky && !announcement) {
-    const atprotoAtUrl = buildAtprotoAtArticleUrl(did, rkey);
+    const atprotoAtUrl = buildScholarViewArticleUrl(did, rkey);
     const post = await lex.createRecord({
       $type: "app.bsky.feed.post",
       text: `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`,
@@ -765,6 +767,33 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
   });
 }
 
+function transformRecordToArticleDetail(
+  did: string,
+  rkey: string,
+  record: Record<string, unknown>,
+): ArticleDetail {
+  const uri = buildArticleUri(did, rkey);
+  const authors = Array.isArray(record.authors) ? record.authors : [];
+  const blocks = Array.isArray(record.blocks) ? record.blocks : [];
+
+  return {
+    uri,
+    did,
+    rkey,
+    authorDid: did,
+    handle: null, // Public API might not have handle easily without extra call
+    title: (record.title as string) || "Untitled",
+    authors: authors as ArticleAuthor[],
+    sourceFormat: (record.sourceFormat as SourceFormat) || "markdown",
+    broadcasted: 1,
+    createdAt: (record.createdAt as string) || new Date().toISOString(),
+    announcementUri: null,
+    announcementCid: null,
+    blocks: blocks as ArticleBlock[],
+    bibliography: (record.bibliography as BibliographyEntry[]) || [],
+  };
+}
+
 async function getArticle(did: string, rkey: string): Promise<Response> {
   let article = await getArticleByDidAndRkey(did, rkey);
   if (!article) {
@@ -778,6 +807,30 @@ async function getArticle(did: string, rkey: string): Promise<Response> {
       article = await getArticleByDidAndRkey(did, rkey);
     }
   }
+
+  // Fallback to public AT Protocol API if not found in local DB
+  if (!article) {
+    try {
+      const query = new URLSearchParams({
+        repo: did,
+        collection: ARTICLE_COLLECTION,
+        rkey,
+      });
+      const res = await fetch(
+        `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
+        { cache: "no-store" },
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as { value?: Record<string, unknown>; uri?: string };
+        if (payload.value) {
+          article = transformRecordToArticleDetail(did, rkey, payload.value);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch article from public API:", err);
+    }
+  }
+
   if (!article) throw new HttpError(404, "Article not found");
   return json({ success: true, article });
 }
@@ -836,7 +889,7 @@ async function createInlineComment(
 
   const normalizedQuote = quote.slice(0, MAX_QUOTE_LENGTH);
   const createdAt = new Date().toISOString();
-  const externalUri = buildAtprotoAtArticleUrl(did, rkey, normalizedQuote);
+  const externalUri = buildScholarViewArticleUrl(did, rkey, normalizedQuote);
 
   const created = await lex.createRecord({
     $type: "app.bsky.feed.post",
@@ -1742,7 +1795,7 @@ async function publishWorkspaceFile(
 
     const announcement = await getAnnouncementByArticleUri(articleUri);
     if (body.broadcastToBsky === true && !announcement) {
-      const atprotoAtUrl = buildAtprotoAtArticleUrl(targetDid, targetRkey);
+      const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
       const post = await lex.createRecord({
         $type: "app.bsky.feed.post",
         text: `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`,
@@ -1805,7 +1858,7 @@ async function publishWorkspaceFile(
 
     let announcement: { uri: string; cid: string } | null = null;
     if (body.broadcastToBsky === true) {
-      const atprotoAtUrl = buildAtprotoAtArticleUrl(targetDid, targetRkey);
+      const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
       const post = await lex.createRecord({
         $type: "app.bsky.feed.post",
         text: `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`,

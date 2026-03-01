@@ -27,6 +27,7 @@ import {
 import { 
   parseAuthors 
 } from "@/lib/articles/authors";
+import { buildScholarViewArticleUrl } from "@/lib/articles/uri";
 import { 
   renderRichParagraphs, 
   renderInlineText,
@@ -198,7 +199,20 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   setShowMoreMenu,
   formatBibtexBlockById,
 }) => {
-  
+  const [copied, setCopied] = React.useState(false);
+
+  const handleCopyUrl = async () => {
+    if (!currentDid || !currentRkey) return;
+    try {
+      const url = buildScholarViewArticleUrl(currentDid, currentRkey);
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy URL:", err);
+    }
+  };
+
   const hasDraggedImageData = (event: React.DragEvent<HTMLElement>): boolean =>
     Array.from(event.dataTransfer.items ?? []).some(
       (item) => item.kind === "file" && item.type.startsWith("image/"),
@@ -274,7 +288,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
       ) : (
         <div className="max-w-4xl mx-auto">
           <div className="mb-8 flex items-start justify-between gap-6" data-tour-id="publish-flow">
-            <div className="flex flex-1 flex-col gap-2">
+            <div className="flex flex-1 flex-col gap-2 min-w-0">
               <input
                 ref={titleRef}
                 value={title}
@@ -462,6 +476,14 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                             className="w-full text-left px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors font-bold"
                           >
                             Unpublish Article
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCopyUrl}
+                            className="w-full text-left px-2 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors font-bold flex items-center justify-between"
+                          >
+                            {copied ? "Copied!" : "Copy Article URL"}
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                           </button>
                         </div>
                       )}

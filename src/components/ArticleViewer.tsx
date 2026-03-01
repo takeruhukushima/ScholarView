@@ -219,8 +219,19 @@ export function ArticleViewer({
   const [selectedQuote, setSelectedQuote] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const effectiveHighlight = selectedQuote ?? initialHighlightQuote;
+
+  const handleCopyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy URL:", err);
+    }
+  };
   const bibliographyByKey = useMemo(() => {
     const map = new Map<string, BibliographyEntry>();
     for (const entry of bibliography) map.set(entry.key, entry);
@@ -300,24 +311,62 @@ export function ArticleViewer({
               <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
                 {title}
               </h1>
-              {canEdit ? (
-                <div className="flex items-center gap-2">
-                  <Link
-                    href={editHref}
-                    className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
-                  >
-                    Edit
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
-                  >
-                    {deleting ? "Deleting..." : "Delete"}
-                  </button>
-                </div>
-              ) : null}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyUrl}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                >
+                  {copied ? (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 text-emerald-600"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                      Copy URL
+                    </>
+                  )}
+                </button>
+                {canEdit ? (
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={editHref}
+                      className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
+                    >
+                      Edit
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={handleDelete}
+                      disabled={deleting}
+                      className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+                    >
+                      {deleting ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             </div>
 
             {authors.length > 0 && (

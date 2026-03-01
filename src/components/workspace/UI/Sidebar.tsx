@@ -1,6 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
+import { useRouter } from "next/navigation";
 import { WorkspaceFile, TreeDropPosition } from "@/lib/workspace/types";
 import { ArticleSummary } from "@/lib/types";
+import { buildArticlePath, extractDidAndRkey } from "@/lib/articles/uri";
 import { ArticleList } from "../ArticleList";
 import { FileTree } from "../FileTree";
 import { LoginForm } from "@/components/LoginForm";
@@ -47,6 +49,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setBusy,
   setStatusMessage,
 }) => {
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+
+    const directTarget = extractDidAndRkey(query);
+    if (directTarget) {
+      router.push(buildArticlePath(directTarget.did, directTarget.rkey));
+    } else {
+      router.push(`/articles?q=${encodeURIComponent(query)}`);
+    }
+    setSearchQuery("");
+  };
+
   return (
     <div className="flex flex-col gap-6 overflow-hidden rounded-xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur-md h-full">
       {/* Brand/Logo */}
@@ -66,13 +85,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
           </svg>
         </div>
-        <div>
+        <div className="text-left">
           <h1 className="text-lg font-bold tracking-tight text-slate-900">ScholarView</h1>
           <p className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
             DeSci Review Platform
           </p>
         </div>
       </div>
+
+      {/* Search Input */}
+      <form onSubmit={handleSearchSubmit} className="px-1">
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search or paste URL..."
+            className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-2 pl-8 pr-3 text-xs outline-none focus:border-indigo-500 focus:bg-white transition-all"
+          />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+        </div>
+      </form>
 
       {/* Workspace Section (Top) */}
       <div className="flex flex-1 min-h-0 flex-col overflow-hidden">

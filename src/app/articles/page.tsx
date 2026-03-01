@@ -3,17 +3,25 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { buildPaperPath } from "@/lib/articles/uri";
+import { buildArticlePath, extractDidAndRkey } from "@/lib/articles/uri";
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
 import type { ArticleSummary } from "@/lib/types";
+import { useRouter } from "next/navigation";
 
 function useArticleSearch(initialQuery = "") {
+  const router = useRouter();
   const [query, setQuery] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   async function search(nextQuery = query) {
+    const directTarget = extractDidAndRkey(nextQuery);
+    if (directTarget) {
+      router.push(buildArticlePath(directTarget.did, directTarget.rkey));
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -104,7 +112,7 @@ export default function ArticlesPage() {
             {articles.map((article) => (
               <li key={article.uri}>
                 <Link
-                  href={buildPaperPath(article.did, article.rkey)}
+                  href={buildArticlePath(article.did, article.rkey)}
                   className="block rounded-md border p-3 hover:bg-slate-50"
                 >
                   <p className="text-sm font-medium text-slate-900">{article.title}</p>

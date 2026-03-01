@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildArticleUri,
-  buildPaperPath,
-  buildAtprotoAtArticleUrl,
+  buildArticlePath,
+  buildScholarViewArticleUrl,
   parseArticleUri,
-  extractQuoteFromExternalUri
+  extractQuoteFromExternalUri,
+  extractDidAndRkey,
+  getPublicBaseUrl
 } from '../uri';
 
 describe('uri logic', () => {
@@ -17,26 +19,22 @@ describe('uri logic', () => {
     });
   });
 
-  describe('buildPaperPath', () => {
-    it('builds internal path with query params', () => {
-      const path = buildPaperPath(did, rkey);
-      expect(path).toContain('/paper');
-      expect(path).toContain('did=did%3Aplc%3A123');
-      expect(path).toContain('rkey=abc-123');
+  describe('buildArticlePath', () => {
+    it('builds internal path with dynamic segments', () => {
+      const path = buildArticlePath(did, rkey);
+      expect(path).toBe(`/article/${did}/${rkey}`);
     });
   });
 
-  describe('buildAtprotoAtArticleUrl', () => {
+  describe('buildScholarViewArticleUrl', () => {
     it('builds external viewer URL', () => {
-      const url = buildAtprotoAtArticleUrl(did, rkey);
-      expect(url).toContain('atproto.at/viewer');
-      // All colons in DID are encoded as %3A
-      const encodedDid = did.replaceAll(':', '%3A');
-      expect(url).toContain(`uri=${encodedDid}%2Fsci.peer.article%2F${rkey}`);
+      const url = buildScholarViewArticleUrl(did, rkey);
+      const baseUrl = getPublicBaseUrl();
+      expect(url).toBe(`${baseUrl}/article/${did}/${rkey}`);
     });
 
     it('includes quote if provided', () => {
-      const url = buildAtprotoAtArticleUrl(did, rkey, 'my-quote');
+      const url = buildScholarViewArticleUrl(did, rkey, 'my-quote');
       expect(url).toContain('quote=my-quote');
     });
   });
@@ -60,13 +58,29 @@ describe('uri logic', () => {
 
   describe('extractQuoteFromExternalUri', () => {
     it('extracts quote from search params', () => {
-      const uri = 'https://example.com/paper?quote=abc-123';
+      const uri = 'https://example.com/article/did/rkey?quote=abc-123';
       expect(extractQuoteFromExternalUri(uri)).toBe('abc-123');
     });
 
     it('returns null if no quote', () => {
-      const uri = 'https://example.com/paper';
+      const uri = 'https://example.com/article/did/rkey';
       expect(extractQuoteFromExternalUri(uri)).toBeNull();
+    });
+  });
+
+  describe('extractDidAndRkey', () => {
+    it('extracts from AT URI', () => {
+      const query = `at://${did}/sci.peer.article/${rkey}`;
+      expect(extractDidAndRkey(query)).toEqual({ did, rkey });
+    });
+
+    it('extracts from ScholarView URL', () => {
+      const query = `https://scholar-view.vercel.app/article/${did}/${rkey}`;
+      expect(extractDidAndRkey(query)).toEqual({ did, rkey });
+    });
+
+    it('returns null for random text', () => {
+      expect(extractDidAndRkey('hello world')).toBeNull();
     });
   });
 });

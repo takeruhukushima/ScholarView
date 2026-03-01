@@ -2,46 +2,53 @@ import { AtUri } from "@atproto/syntax";
 
 export const ARTICLE_COLLECTION = "sci.peer.article";
 
+/**
+ * Get the public base URL of the application.
+ * Prioritizes NEXT_PUBLIC_PUBLIC_URL environment variable, 
+ * then window.location.origin in the browser, 
+ * and finally fallbacks to the production URL.
+ */
+export function getPublicBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_PUBLIC_URL) {
+    return process.env.NEXT_PUBLIC_PUBLIC_URL.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+  return "https://scholar-view.vercel.app";
+}
+
 export function buildArticleUri(did: string, rkey: string): string {
   return `at://${did}/${ARTICLE_COLLECTION}/${rkey}`;
 }
 
-export function buildPaperPath(did: string, rkey: string): string {
-  const params = new URLSearchParams({
-    did,
-    rkey,
-  });
-  return `/paper?${params.toString()}`;
+export function buildArticlePath(did: string, rkey: string): string {
+  return `/article/${did}/${rkey}`;
 }
 
-export function buildPaperEditPath(did: string, rkey: string): string {
-  const params = new URLSearchParams({
-    did,
-    rkey,
-  });
-  return `/paper/edit?${params.toString()}`;
+export function buildArticleEditPath(did: string, rkey: string): string {
+  return `/article/${did}/${rkey}/edit`;
 }
 
-export function buildAtprotoAtArticleUrl(
+export function buildScholarViewArticleUrl(
   did: string,
   rkey: string,
   quote?: string,
 ): string {
-  const url = new URL("https://atproto.at/viewer");
-  url.searchParams.set("uri", `${did}/${ARTICLE_COLLECTION}/${rkey}`);
+  const url = new URL(buildArticlePath(did, rkey), getPublicBaseUrl());
   if (quote) {
     url.searchParams.set("quote", quote);
   }
   return url.toString();
 }
 
-export function buildPaperUrl(
+export function buildArticleUrl(
   publicUrl: string,
   did: string,
   rkey: string,
   quote?: string,
 ): string {
-  const base = new URL(buildPaperPath(did, rkey), publicUrl);
+  const base = new URL(buildArticlePath(did, rkey), publicUrl);
   if (quote) {
     base.searchParams.set("quote", quote);
   }
@@ -74,4 +81,25 @@ export function extractQuoteFromExternalUri(uri: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function extractDidAndRkey(query: string): { did: string; rkey: string } | null {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("at://")) {
+    return parseArticleUri(trimmed);
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    if (pathParts.length >= 3 && pathParts[0] === 'article') {
+      return { did: pathParts[1], rkey: pathParts[2] };
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
