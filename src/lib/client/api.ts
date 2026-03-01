@@ -1374,8 +1374,8 @@ function uniqueFileName(
   }
 }
 
-async function syncLegacyArticles(): Promise<Response> {
-  await syncOwnArticlesFromRepo({ force: true });
+async function syncLegacyArticles(force = false): Promise<Response> {
+  await syncOwnArticlesFromRepo({ force });
   const did = await requireDid();
   const [allArticles, existingFiles] = await Promise.all([
     getRecentArticles(500),
@@ -1387,7 +1387,23 @@ async function syncLegacyArticles(): Promise<Response> {
   let created = 0;
   for (const article of myArticles) {
     const existingLinked = await getWorkspaceFileByLinkedArticleUri(article.uri, did);
-    if (existingLinked) continue;
+    if (existingLinked) {
+      if (force) {
+        const detail = await getArticleByDidAndRkey(article.did, article.rkey);
+        if (detail) {
+          const sourceFormat = detail.sourceFormat === "tex" ? "tex" : "markdown";
+          const content = blocksToSource(detail.blocks, sourceFormat);
+          await updateWorkspaceFileById(existingLinked.id, did, {
+            content,
+            sourceFormat,
+            linkedArticleDid: article.did,
+            linkedArticleRkey: article.rkey,
+            linkedArticleUri: article.uri,
+          });
+        }
+      }
+      continue;
+    }
 
     const detail = await getArticleByDidAndRkey(article.did, article.rkey);
     if (!detail) continue;
@@ -2053,7 +2069,8 @@ async function routeApiRequest(
   }
   if (pathParts[1] === "workspace" && pathParts[2] === "sync-articles") {
     if (request.method !== "POST") return null;
-    return syncLegacyArticles();
+    const force = url.searchParams.get("force") === "true";
+    return syncLegacyArticles(force);
   }
   if (pathParts[1] === "workspace" && pathParts[2] === "files") {
     return handleWorkspaceFilesPath(request, pathParts);

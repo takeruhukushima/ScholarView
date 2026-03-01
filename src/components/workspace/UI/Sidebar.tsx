@@ -12,7 +12,7 @@ interface SidebarProps {
   articles: ArticleSummary[];
   activeArticleUri: string | null;
   openArticle: (article: ArticleSummary) => Promise<void>;
-  syncLegacyArticles: (options?: { force?: boolean }) => Promise<number>;
+  syncLegacyArticles: (options?: { force?: boolean }) => Promise<WorkspaceFile[]>;
   files: WorkspaceFile[];
   activeFileId: string | null;
   openFile: (file: WorkspaceFile) => Promise<void>;
@@ -28,6 +28,7 @@ interface SidebarProps {
   setBusy: (busy: boolean) => void;
   setStatusMessage: (msg: string) => void;
   onRefreshArticle?: (article: ArticleSummary) => void;
+  onAction?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -50,6 +51,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setBusy,
   setStatusMessage,
   onRefreshArticle,
+  onAction,
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
@@ -202,9 +204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             activeArticleUri={activeArticleUri}
             onOpen={openArticle}
             actionLabel={isLoggedIn ? "Sync" : undefined}
-            onAction={() => {
-              void syncLegacyArticles({ force: true });
-            }}
+            onAction={onAction}
             onRefreshArticle={onRefreshArticle}
           />
         </div>
