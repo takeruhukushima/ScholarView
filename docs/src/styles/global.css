@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sl-color-accent: #6366f1;
+  }
+  
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply antialiased text-slate-900 bg-white;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-full bg-indigo-600 px-8 py-3 text-sm font-semibold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-500 hover:shadow-indigo-300 transition-all duration-200 active:scale-95;
+  }
+  
+  .glass-card {
+    @apply rounded-3xl border border-slate-100 bg-white/50 p-8 shadow-sm backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-indigo-50/50 hover:-translate-y-1;
+  }
+}

@@ -1,0 +1,77 @@
+---
+import { getCollection, render } from 'astro:content';
+import '../../styles/global.css';
+import Header from '../../components/Header.svelte';
+import Footer from '../../components/Footer.svelte';
+
+export async function getStaticPaths() {
+	const posts = await getCollection('blog');
+	return posts.map((post) => ({
+		params: { slug: post.id },
+		props: { post },
+	}));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+---
+
+<html lang="ja">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta name="generator" content={Astro.generator} />
+		<title>{post.data.title} - ScholarView Blog</title>
+		<meta name="description" content={post.data.description} />
+	</head>
+	<body class="selection:bg-indigo-100 selection:text-indigo-700 bg-white">
+		<Header client:load />
+
+		<main class="mx-auto max-w-3xl px-4 py-20 sm:py-32">
+			<article>
+				<header class="mb-12">
+					<div class="flex items-center gap-3 text-sm text-slate-500 mb-4">
+						<time datetime={post.data.date?.toISOString()}>
+							{post.data.date?.toLocaleDateString('ja-JP', {
+								year: 'numeric',
+								month: 'long',
+								day: 'numeric',
+							})}
+						</time>
+						<span>•</span>
+						<span>{post.data.author}</span>
+					</div>
+					<h1 class="text-4xl font-black tracking-tight text-slate-900 sm:text-5xl lg:leading-tight">
+						{post.data.title}
+					</h1>
+				</header>
+
+				<!-- Manual styling instead of @tailwindcss/typography -->
+				<div class="text-slate-800 leading-relaxed space-y-6 
+					[&>h2]:text-2xl [&>h2]:font-bold [&>h2]:text-slate-900 [&>h2]:mt-10 [&>h2]:mb-4
+					[&>h3]:text-xl [&>h3]:font-bold [&>h3]:text-slate-900 [&>h3]:mt-8 [&>h3]:mb-3
+					[&>p]:text-lg [&>p]:leading-8
+					[&>ul]:list-disc [&>ul]:ml-6 [&>ul]:space-y-2
+					[&>ol]:list-decimal [&>ol]:ml-6 [&>ol]:space-y-2
+					[&>li]:pl-1
+					[&>blockquote]:border-l-4 [&>blockquote]:border-indigo-200 [&>blockquote]:pl-6 [&>blockquote]:italic [&>blockquote]:text-slate-700
+					[&>a]:text-indigo-600 [&>a]:underline [&>a]:font-medium hover:[&>a]:text-indigo-500
+					[&>hr]:my-12 [&>hr]:border-slate-100">
+					<Content />
+				</div>
+				
+				<div class="mt-24 pt-8 border-t border-slate-100">
+					<a href="/blog/" class="inline-flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-500 transition-colors">
+						<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+						</svg>
+						記事一覧に戻る
+					</a>
+				</div>
+			</article>
+		</main>
+
+		<Footer />
+	</body>
+</html>
