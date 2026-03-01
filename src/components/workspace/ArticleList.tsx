@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArticleSummary } from "@/lib/types";
 
 interface ArticleListProps {
@@ -45,7 +46,7 @@ export function ArticleList({
               <button
                 type="button"
                 onClick={() => onOpen(article)}
-                className={`w-full rounded-md px-2 py-1.5 text-left pr-8 transition-colors ${
+                className={`w-full rounded-md px-2 py-1.5 text-left pr-14 transition-colors ${
                   activeArticleUri === article.uri ? "bg-[#E7F2FF]" : "hover:bg-slate-100"
                 }`}
               >
@@ -59,20 +60,32 @@ export function ArticleList({
                   @{article.handle ?? article.authorDid}
                 </p>
               </button>
-              {onRefreshArticle && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRefreshArticle(article);
-                  }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-slate-300 opacity-0 hover:bg-white hover:text-indigo-600 group-hover:opacity-100 transition-all"
-                  title="Refresh from AT Protocol"
+              
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                <Link
+                  href={`/article/${encodeURIComponent(article.did)}/${encodeURIComponent(article.rkey)}`}
+                  target="_blank"
+                  className="rounded p-1 text-slate-300 hover:bg-white hover:text-indigo-600 transition-all"
+                  title="View Public Page"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-                  </svg>
-                </button>
-              )}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </Link>
+
+                {onRefreshArticle && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRefreshArticle(article);
+                    }}
+                    className="rounded p-1 text-slate-300 hover:bg-white hover:text-indigo-600 transition-all"
+                    title="Refresh from AT Protocol"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </li>
           ))}
         </ul>

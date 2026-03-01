@@ -306,7 +306,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const {
     openFile,
-    openArticle,
   } = useWorkspaceNavigation({
     files,
     sessionDid,
@@ -334,10 +333,13 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setBusy,
   });
 
+  const openArticleExternal = useCallback((article: ArticleSummary) => {
+    window.location.href = `/article/${encodeURIComponent(article.did)}/${encodeURIComponent(article.rkey)}`;
+  }, []);
+
   useEffect(() => {
     setArticles(initialArticles);
   }, [initialArticles]);
-
   useEffect(() => {
     draggingEditorBlockIdRef.current = draggingEditorBlockId;
   }, [draggingEditorBlockId]);
@@ -391,6 +393,20 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   useEffect(() => {
     void refreshArticles();
   }, [refreshArticles]);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const fileId = searchParams.get("fileId");
+    if (fileId && files.length > 0) {
+      const target = files.find((f) => f.id === fileId);
+      if (target) {
+        void openFile(target);
+        // Clear the query param without refreshing
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, "", newUrl);
+      }
+    }
+  }, [files, openFile]);
 
   useEffect(() => {
     void syncLegacyArticles({ silent: true });
@@ -697,8 +713,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           <Sidebar
             articles={articles}
             activeArticleUri={activeArticleUri}
-            openArticle={openArticle}
-            syncLegacyArticles={syncLegacyArticles}
+            openArticle={async (a) => openArticleExternal(a)}
             onRefreshArticle={async (article) => {
               if (activeFile && activeFile.kind === "file" && activeFile.linkedArticleUri === article.uri && (isDirtyFile || isDirtyTitle)) {
                 if (!confirm("ローカルの変更が消える可能性があります。本当にリフレッシュしますか？")) {

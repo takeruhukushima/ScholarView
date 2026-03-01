@@ -285,14 +285,18 @@ export function renderRichParagraphs(
         i += 1;
       }
       if (i < lines.length) i += 1;
-      nodes.push(
-        <pre
-          key={`${keyPrefix}-code-${i}`}
-          className="overflow-x-auto rounded-md bg-slate-900 px-3 py-2 font-mono text-xs text-slate-100"
-        >
-          {codeLines.join("\n")}
-        </pre>,
-      );
+      
+      const codeContent = codeLines.join("\n").trimEnd();
+      if (codeContent) {
+        nodes.push(
+          <div
+            key={`${keyPrefix}-code-${i}`}
+            className="overflow-x-auto rounded-lg bg-slate-900 px-4 py-3 font-mono text-[13px] leading-relaxed text-indigo-100/90 shadow-sm scrollbar-thin scrollbar-thumb-slate-700"
+          >
+            <pre className="whitespace-pre">{codeContent}</pre>
+          </div>,
+        );
+      }
       continue;
     }
 

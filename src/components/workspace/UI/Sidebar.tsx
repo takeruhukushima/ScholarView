@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { WorkspaceFile, TreeDropPosition } from "@/lib/workspace/types";
 import { ArticleSummary } from "@/lib/types";
 import { buildArticlePath, extractDidAndRkey } from "@/lib/articles/uri";
@@ -12,7 +13,6 @@ interface SidebarProps {
   articles: ArticleSummary[];
   activeArticleUri: string | null;
   openArticle: (article: ArticleSummary) => Promise<void>;
-  syncLegacyArticles: (options?: { force?: boolean }) => Promise<WorkspaceFile[]>;
   files: WorkspaceFile[];
   activeFileId: string | null;
   openFile: (file: WorkspaceFile) => Promise<void>;
@@ -35,7 +35,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   articles,
   activeArticleUri,
   openArticle,
-  syncLegacyArticles,
   files,
   activeFileId,
   openFile,
@@ -72,28 +71,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="flex flex-col gap-6 overflow-hidden rounded-xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur-md h-full">
-      {/* Brand/Logo */}
-      <div className="flex items-center gap-3 px-1">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="h-6 w-6"
-          >
-            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-          </svg>
-        </div>
-        <div className="text-left">
-          <h1 className="text-lg font-bold tracking-tight text-slate-900">ScholarView</h1>
-          <p className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-            DeSci Review Platform
-          </p>
+      {/* Brand/Logo & Navigation */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 px-1">
+          <Link href="/" className="flex items-center gap-3 group">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200 group-hover:scale-105 transition-transform">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-6 w-6"
+              >
+                <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+              </svg>
+            </div>
+            <div className="text-left">
+              <h1 className="text-lg font-bold tracking-tight text-slate-900 group-hover:text-indigo-600 transition-colors">ScholarView</h1>
+              <p className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
+                DeSci Review Platform
+              </p>
+            </div>
+          </Link>
         </div>
       </div>
 
