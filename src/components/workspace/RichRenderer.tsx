@@ -1,6 +1,34 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { BibliographyEntry } from "@/lib/articles/citations";
 import { linkHref, referenceAnchorId, renderMathHtml } from "@/lib/workspace/utils";
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute right-2 top-2 rounded bg-slate-800/50 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+      title="Copy to clipboard"
+    >
+      {copied ? (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      )}
+    </button>
+  );
+}
 
 export function renderBibtexHighlighted(text: string, keyPrefix: string): ReactNode[] {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
@@ -291,8 +319,9 @@ export function renderRichParagraphs(
         nodes.push(
           <div
             key={`${keyPrefix}-code-${i}`}
-            className="overflow-x-auto rounded-lg bg-slate-900 px-4 py-3 font-mono text-[13px] leading-relaxed text-indigo-100/90 shadow-sm scrollbar-thin scrollbar-thumb-slate-700"
+            className="group relative overflow-x-auto rounded-lg bg-slate-900 px-4 py-3 font-mono text-[13px] leading-relaxed text-indigo-100/90 shadow-sm scrollbar-thin scrollbar-thumb-slate-700"
           >
+            <CopyButton text={codeContent} />
             <pre className="whitespace-pre">{codeContent}</pre>
           </div>,
         );

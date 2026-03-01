@@ -236,6 +236,7 @@ export function ArticleViewer({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedMd, setCopiedMd] = useState(false);
 
   const effectiveHighlight = internalSelectedQuote ?? initialHighlightQuote;
 
@@ -246,6 +247,33 @@ export function ArticleViewer({
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy URL:", err);
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    try {
+      let md = `# ${title}\n\n`;
+      if (authors.length > 0) {
+        const authorsStr = authors
+          .map((a) => `${a.name}${a.affiliation ? ` (${a.affiliation})` : ""}`)
+          .join(", ");
+        md += `Authors: ${authorsStr}\n\n`;
+      }
+      blocks.forEach((block) => {
+        md += `${"#".repeat(block.level + 1)} ${block.heading}\n\n${block.content}\n\n`;
+      });
+      if (bibliography.length > 0) {
+        md += `\n# References\n\n\`\`\`bibtex\n`;
+        bibliography.forEach((entry) => {
+          md += `${entry.rawBibtex}\n\n`;
+        });
+        md += `\`\`\`\n`;
+      }
+      await navigator.clipboard.writeText(md.trim());
+      setCopiedMd(true);
+      setTimeout(() => setCopiedMd(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy Markdown:", err);
     }
   };
   const bibliographyByKey = useMemo(() => {
@@ -350,18 +378,31 @@ export function ArticleViewer({
                 <button
                   type="button"
                   onClick={handleCopyUrl}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all"
+                  title={copied ? "Copied URL!" : "Copy Article URL"}
                 >
                   {copied ? (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      Copied!
-                    </>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                   ) : (
-                    <>
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                      Copy URL
-                    </>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCopyMarkdown}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all"
+                  title={copiedMd ? "Copied Markdown!" : "Copy for LLM (Markdown)"}
+                >
+                  {copiedMd ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
                   )}
                 </button>
                 {canEdit ? (
