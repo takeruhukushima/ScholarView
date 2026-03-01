@@ -257,11 +257,12 @@ function ArticlePageClient() {
 
   const syncLegacyArticles = useCallback(
     async (options?: { force?: boolean }) => {
-      if (!sessionDid) return 0;
+      if (!sessionDid) return [];
+      const force = options?.force === true;
       setBusy(true);
       setStatusMessage("Syncing with AT Protocol...");
       try {
-        const response = await fetch("/api/workspace/sync-articles", {
+        const response = await fetch(`/api/workspace/sync-articles${force ? "?force=true" : ""}`, {
           method: "POST",
           cache: "no-store",
         });
@@ -274,22 +275,24 @@ function ArticlePageClient() {
           throw new Error(data.error ?? "Failed to sync articles");
         }
         const created = data.created ?? 0;
-        await loadFiles(sessionDid);
+        const latestFiles = await loadFiles(sessionDid);
         await refreshArticles();
         setStatusMessage(
           created > 0
             ? `Linked ${created} article(s) to the file tree`
+            : force 
+            ? "Refreshed content from AT Protocol"
             : "Articles synchronized",
         );
-        return created;
+        return latestFiles;
       } catch (err: unknown) {
         setStatusMessage(err instanceof Error ? err.message : "Failed to sync articles");
-        return 0;
+        return files;
       } finally {
         setBusy(false);
       }
     },
-    [loadFiles, refreshArticles, sessionDid],
+    [loadFiles, refreshArticles, sessionDid, files],
   );
 
   const openArticle = async (a: ArticleSummary) => {
@@ -342,6 +345,9 @@ function ArticlePageClient() {
             openArticle={openArticle}
             syncLegacyArticles={syncLegacyArticles}
             onRefreshArticle={(article) => {
+              void syncLegacyArticles({ force: true });
+            }}
+            onAction={() => {
               void syncLegacyArticles({ force: true });
             }}
             files={files}

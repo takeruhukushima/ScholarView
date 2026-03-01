@@ -16,7 +16,7 @@ interface UseWorkspaceNavigationProps {
   sessionDid: string | null;
   articleByUri: Map<string, ArticleSummary>;
   loadFiles: (did: string | null, setBusy: (b: boolean) => void, setStatusMessage: (m: string) => void) => Promise<WorkspaceFile[]>;
-  syncLegacyArticles: (options?: { force?: boolean; silent?: boolean }) => Promise<number>;
+  syncLegacyArticles: (options?: { force?: boolean; silent?: boolean }) => Promise<WorkspaceFile[]>;
   setActiveFileId: (id: string | null) => void;
   setActiveArticleUri: (uri: string | null) => void;
   setSourceFormat: (format: SourceFormat) => void;

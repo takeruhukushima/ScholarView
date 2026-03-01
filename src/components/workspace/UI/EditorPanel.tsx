@@ -87,7 +87,7 @@ interface EditorPanelProps {
   activateBlockEditor: (id: string, position?: "start" | "end") => void;
   insertInlineMath: (id: string) => void;
   setStatusMessage: (msg: string) => void;
-  onRefresh?: () => Promise<void>;
+  onAction?: () => Promise<void>;
   setTab: (tab: RightTab) => void;
   
   // Citations
@@ -171,7 +171,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   activateBlockEditor,
   insertInlineMath,
   setStatusMessage,
-  onRefresh,
+  onAction,
   setTab,
   citationMenu,
   citationMenuIndex,
@@ -393,14 +393,20 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
 
               {canPublishCurrentFile && (
                 <div className="flex items-center gap-2">
-                  {onRefresh && (
+                  {onAction && (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => {
-                        void onRefresh().catch((err: unknown) => {
-                          setStatusMessage(err instanceof Error ? err.message : "Failed to refresh");
-                        });
+                        const message = (isDirtyFile || isDirtyTitle)
+                          ? "ローカルの変更が消える可能性があります。本当にリフレッシュしますか？"
+                          : "AT Protocolから最新データを取得してリフレッシュしますか？";
+                        
+                        if (confirm(message)) {
+                          void onAction().catch((err: unknown) => {
+                            setStatusMessage(err instanceof Error ? err.message : "Failed to refresh");
+                          });
+                        }
                       }}
                       className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
                       title="Refresh from AT Protocol"

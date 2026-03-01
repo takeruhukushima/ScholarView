@@ -189,15 +189,15 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const syncLegacyArticles = useCallback(
     async (options?: { force?: boolean; silent?: boolean }) => {
-      if (!sessionDid) return 0;
+      if (!sessionDid) return files;
       const force = options?.force === true;
-      if (!force && legacySyncRequestedRef.current) return 0;
+      if (!force && legacySyncRequestedRef.current) return files;
       if (!force) {
         legacySyncRequestedRef.current = true;
       }
 
       try {
-        const response = await fetch("/api/workspace/sync-articles", {
+        const response = await fetch(`/api/workspace/sync-articles${force ? "?force=true" : ""}`, {
           method: "POST",
           cache: "no-store",
         });
@@ -210,23 +210,26 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           throw new Error(data.error ?? "Failed to sync legacy articles");
         }
         const created = data.created ?? 0;
-        if (created > 0) {
-          await loadFiles(sessionDid, setBusy, setStatusMessage);
+        let latestFiles = files;
+        if (created > 0 || force) {
+          latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
         }
         if (!options?.silent) {
           setStatusMessage(
             created > 0
               ? `Linked ${created} article(s) to the file tree`
+              : force 
+              ? "Refreshed content from AT Protocol"
               : "No unlinked articles found",
           );
         }
-        return created;
+        return latestFiles;
       } catch (err: unknown) {
         setStatusMessage(err instanceof Error ? err.message : "Failed to sync legacy articles");
-        return 0;
+        return files;
       }
     },
-    [loadFiles, sessionDid, setBusy, setStatusMessage],
+    [loadFiles, sessionDid, setBusy, setStatusMessage, files],
   );
 
   const blockSourceText = useMemo(
@@ -696,8 +699,31 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             activeArticleUri={activeArticleUri}
             openArticle={openArticle}
             syncLegacyArticles={syncLegacyArticles}
-            onRefreshArticle={(article) => {
-              void syncLegacyArticles({ force: true });
+            onRefreshArticle={async (article) => {
+              if (activeFile && activeFile.kind === "file" && activeFile.linkedArticleUri === article.uri && (isDirtyFile || isDirtyTitle)) {
+                if (!confirm("ローカルの変更が消える可能性があります。本当にリフレッシュしますか？")) {
+                  return;
+                }
+              }
+              const latestFiles = await syncLegacyArticles({ force: true });
+              if (activeFile && activeFile.kind === "file" && activeFile.linkedArticleUri === article.uri) {
+                const refreshedFile = latestFiles.find((f) => f.id === activeFile.id);
+                if (refreshedFile) {
+                  await openFile(refreshedFile);
+                }
+              }
+            }}
+            onAction={async () => {
+              if (activeFile && activeFile.kind === "file" && activeFile.linkedArticleUri && (isDirtyFile || isDirtyTitle)) {
+                if (!confirm("現在開いているファイルのローカルな変更が消える可能性があります。本当にリフレッシュしますか？")) {
+                  return;
+                }
+              }
+              const latestFiles = await syncLegacyArticles({ force: true });
+              const currentActive = latestFiles.find((f) => f.id === activeFileId);
+              if (currentActive && currentActive.kind === "file") {
+                await openFile(currentActive);
+              }
             }}
             files={files}            activeFileId={activeFileId}
             openFile={openFile}
@@ -763,10 +789,18 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             activateBlockEditor={activateBlockEditor}
             insertInlineMath={insertInlineMath}
             setStatusMessage={setStatusMessage}
-            onRefresh={async () => {
-              await syncLegacyArticles({ force: true });
+            onAction={async () => {
+              // 1. Force sync from AT Protocol
+              const latestFiles = await syncLegacyArticles({ force: true });
+              
+              // 2. Find the latest version of the currently active file
               if (activeFile && activeFile.kind === "file") {
-                await openFile(activeFile);
+                const refreshedFile = latestFiles.find((f) => f.id === activeFile.id);
+                if (refreshedFile) {
+                  // 3. Clear active block and re-open file to force editor re-render
+                  setActiveBlockId(null);
+                  await openFile(refreshedFile);
+                }
               }
             }}
             setTab={setTab}
