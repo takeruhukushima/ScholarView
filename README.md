@@ -2,6 +2,8 @@
 
 ScholarViewは、**研究執筆に特化したMarkdownエディタ**と、**AT Protocolでの公開・議論**をひとつにしたアプリです。
 
+[公式ドキュメントはこちら](https://scholar-view-docs.vercel.app/)
+
 ## コンセプト
 
 「ただ書く」だけではなく、次の3つを一気通貫で扱います。
