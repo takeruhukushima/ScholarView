@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 
 import { ArticleViewer } from "@/components/ArticleViewer";
 import {
-  buildAtprotoAtArticleUrl,
-  buildPaperEditPath,
+  buildScholarViewArticleUrl,
+  buildArticleEditPath,
 } from "@/lib/articles/uri";
 import { initializeAuth } from "@/lib/auth/browser";
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
@@ -26,11 +26,13 @@ interface DiscussionPayload {
   }>;
 }
 
-function PaperPageClient() {
-  const params = useSearchParams();
-  const did = params.get("did") ?? "";
-  const rkey = params.get("rkey") ?? "";
-  const initialQuote = params.get("quote");
+function ArticlePageClient() {
+  const params = useParams<{ did: string; rkey: string }>();
+  const searchParams = useSearchParams();
+  
+  const did = params.did ? decodeURIComponent(params.did) : "";
+  const rkey = params.rkey ? decodeURIComponent(params.rkey) : "";
+  const initialQuote = searchParams.get("quote");
 
   const [loading, setLoading] = useState(true);
   const [sessionDid, setSessionDid] = useState<string | null>(null);
@@ -144,7 +146,7 @@ function PaperPageClient() {
 
   const canEdit = sessionDid === article.authorDid;
   const canComment = Boolean(sessionDid && article.announcementUri);
-  const canonicalUrl = buildAtprotoAtArticleUrl(article.did, article.rkey);
+  const canonicalUrl = buildScholarViewArticleUrl(article.did, article.rkey);
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950">
@@ -179,7 +181,7 @@ function PaperPageClient() {
           comments={comments}
           canComment={canComment}
           canEdit={canEdit}
-          editHref={buildPaperEditPath(article.did, article.rkey)}
+          editHref={buildArticleEditPath(article.did, article.rkey)}
           initialHighlightQuote={initialQuote}
         />
       </main>
@@ -187,7 +189,7 @@ function PaperPageClient() {
   );
 }
 
-export default function PaperPage() {
+export default function ArticlePage() {
   return (
     <Suspense
       fallback={
@@ -196,7 +198,7 @@ export default function PaperPage() {
         </main>
       }
     >
-      <PaperPageClient />
+      <ArticlePageClient />
     </Suspense>
   );
 }

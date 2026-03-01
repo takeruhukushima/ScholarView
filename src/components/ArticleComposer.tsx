@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
-import { buildPaperPath } from "@/lib/articles/uri";
+import { buildArticlePath } from "@/lib/articles/uri";
 import { formatAuthors, parseAuthors } from "@/lib/articles/authors";
 import { getActiveDid } from "@/lib/auth/browser";
 import type { ArticleAuthor, SourceFormat } from "@/lib/types";
@@ -148,7 +148,7 @@ export function ArticleComposer({
       if (mode === "edit") {
         onSubmitted?.();
         if (did && rkey) {
-          router.push(buildPaperPath(did, rkey));
+          router.push(buildArticlePath(did, rkey));
         }
         router.refresh();
         return;
@@ -159,7 +159,7 @@ export function ArticleComposer({
       setBroadcastToBsky(false);
 
       if ("did" in data && "rkey" in data) {
-        router.push(buildPaperPath(data.did, data.rkey));
+        router.push(buildArticlePath(data.did, data.rkey));
       }
       router.refresh();
     } catch (err) {

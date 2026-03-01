@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 
 import { ArticleComposer } from "@/components/ArticleComposer";
 import type { ArticleBlock } from "@/lib/articles/blocks";
-import { buildPaperPath } from "@/lib/articles/uri";
+import { buildArticlePath } from "@/lib/articles/uri";
 import { initializeAuth } from "@/lib/auth/browser";
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
 import type { ArticleDetail } from "@/lib/types";
@@ -29,10 +29,10 @@ function blocksToContent(blocks: ArticleBlock[], sourceFormat: "markdown" | "tex
     .join("\n\n");
 }
 
-function EditPaperPageClient() {
-  const params = useSearchParams();
-  const did = params.get("did") ?? "";
-  const rkey = params.get("rkey") ?? "";
+function EditArticlePageClient() {
+  const params = useParams<{ did: string; rkey: string }>();
+  const did = params.did ? decodeURIComponent(params.did) : "";
+  const rkey = params.rkey ? decodeURIComponent(params.rkey) : "";
 
   const [loading, setLoading] = useState(true);
   const [sessionDid, setSessionDid] = useState<string | null>(null);
@@ -114,7 +114,7 @@ function EditPaperPageClient() {
         </div>
         <div className="mt-4">
           <Link
-            href={buildPaperPath(did, rkey)}
+            href={buildArticlePath(did, rkey)}
             className="text-sm text-blue-700 hover:underline"
           >
             ← Back to article
@@ -129,7 +129,7 @@ function EditPaperPageClient() {
       <main className="mx-auto w-full max-w-4xl px-4 py-8">
         <div className="mb-4">
           <Link
-            href={buildPaperPath(did, rkey)}
+            href={buildArticlePath(did, rkey)}
             className="text-sm text-blue-700 hover:underline dark:text-blue-400"
           >
             ← Back to article
@@ -156,7 +156,7 @@ function EditPaperPageClient() {
   );
 }
 
-export default function EditPaperPage() {
+export default function EditArticlePage() {
   return (
     <Suspense
       fallback={
@@ -165,7 +165,7 @@ export default function EditPaperPage() {
         </main>
       }
     >
-      <EditPaperPageClient />
+      <EditArticlePageClient />
     </Suspense>
   );
 }
