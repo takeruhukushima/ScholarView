@@ -37,7 +37,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
   setStatusMessage,
 }) => {
   return (
-    <aside data-tour-id="right-panel" className="sticky top-6 flex h-[calc(100vh-5rem)] flex-col min-w-0 rounded-xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur-md overflow-hidden">
+    <aside
+      data-tour-id="right-panel"
+      className="sticky top-6 flex h-[calc(100vh-12rem)] lg:h-[calc(100vh-5rem)] flex-col min-w-0 rounded-xl border border-slate-200/60 bg-white/80 p-4 shadow-sm backdrop-blur-md overflow-hidden"
+    >
       <div className="flex items-center justify-between mb-4 px-1 shrink-0 border-b border-slate-100 pb-3">
         <div className="flex items-center gap-2">
           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
