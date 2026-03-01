@@ -81,13 +81,13 @@ function renderInlineMarkdown(
     const token = match[0];
     if (token.startsWith("**") && token.endsWith("**")) {
       nodes.push(
-        <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold">
+        <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold text-slate-900">
           {token.slice(2, -2)}
         </strong>,
       );
     } else if (token.startsWith("`") && token.endsWith("`")) {
       nodes.push(
-        <code key={`${keyPrefix}-c-${idx++}`} className="rounded bg-zinc-100 px-1 py-0.5 text-[0.9em] dark:bg-zinc-800">
+        <code key={`${keyPrefix}-c-${idx++}`} className="rounded bg-slate-100 px-1 py-0.5 text-[0.9em] font-mono text-indigo-600">
           {token.slice(1, -1)}
         </code>,
       );
@@ -97,7 +97,7 @@ function renderInlineMarkdown(
       const keys = content.split(/[,;]/).map((k) => k.trim().replace(/^@/, "")).filter(Boolean);
       
       nodes.push(
-        <span key={`${keyPrefix}-q-${idx++}`} className="rounded bg-emerald-50 px-1 py-0.5 text-[0.85em] text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
+        <span key={`${keyPrefix}-q-${idx++}`} className="rounded bg-indigo-50 px-1 py-0.5 text-[0.85em] font-bold text-indigo-600 border border-indigo-100">
           {"["}
           {keys.map((k, i) => {
             const entry = bibliographyByKey.get(k);
@@ -128,7 +128,7 @@ function renderInlineMarkdown(
         nodes.push(
           <span
             key={`${keyPrefix}-m-${idx++}`}
-            className="rounded bg-blue-50 px-1 py-0.5 font-mono text-[0.9em] text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+            className="rounded bg-indigo-50 px-1 py-0.5 font-mono text-[0.9em] text-indigo-600 border border-indigo-100"
           >
             {expr}
           </span>,
@@ -187,7 +187,7 @@ function renderMarkdownWithHighlight(
     return (
       <span key={`${keyPrefix}-line-${lineIdx}`}>
         {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey, keyToNumber) : null}
-        <mark className="rounded bg-amber-200/70 px-0.5 text-inherit dark:bg-amber-700/40">
+        <mark className="rounded bg-amber-200/70 px-0.5 text-inherit">
           {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey, keyToNumber)}
         </mark>
         {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey, keyToNumber) : null}
@@ -309,29 +309,30 @@ export function ArticleViewer({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <article
         ref={containerRef}
         onMouseUp={handleMouseUp}
-        className="space-y-6 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
+        className="space-y-10"
       >
-        <header className="space-y-3 border-b border-zinc-200 dark:border-zinc-800 pb-4">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+        <header className="space-y-6" data-tour-id="publish-flow">
+          <div className="space-y-4">
+            <div className="flex flex-col gap-4">
+              <h1 className="text-4xl font-bold tracking-tight text-slate-900 leading-[1.15]">
                 {title}
               </h1>
-              <div className="flex items-center gap-2">
+              
+              <div className="flex items-center gap-3 shrink-0">
                 {onRefresh && (
                   <button
                     type="button"
                     onClick={() => {
                       void onRefresh().catch(() => {});
                     }}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-400 hover:text-indigo-600 transition-all"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all"
                     title="Refresh from AT Protocol"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4.5 w-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                       <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                     </svg>
                   </button>
@@ -339,35 +340,16 @@ export function ArticleViewer({
                 <button
                   type="button"
                   onClick={handleCopyUrl}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all"
                 >
                   {copied ? (
                     <>
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-4 w-4 text-emerald-600"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                       Copied!
                     </>
                   ) : (
                     <>
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className="h-4 w-4"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                      </svg>
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                       Copy URL
                     </>
                   )}
@@ -376,7 +358,7 @@ export function ArticleViewer({
                   <div className="flex items-center gap-2">
                     <Link
                       href={editHref}
-                      className="rounded-lg border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
+                      className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all"
                     >
                       Edit
                     </Link>
@@ -384,7 +366,7 @@ export function ArticleViewer({
                       type="button"
                       onClick={handleDelete}
                       disabled={deleting}
-                      className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 disabled:opacity-50"
+                      className="inline-flex h-8 items-center rounded-lg border border-red-100 bg-white px-3 text-[11px] font-black uppercase tracking-widest text-red-400 hover:bg-red-50 hover:text-red-600 transition-all disabled:opacity-50"
                     >
                       {deleting ? "Deleting..." : "Delete"}
                     </button>
@@ -394,21 +376,19 @@ export function ArticleViewer({
             </div>
 
             {authors.length > 0 && (
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-zinc-600 dark:text-zinc-400">
+              <div className="flex flex-wrap gap-1.5">
                 {authors.map((author, idx) => (
-                  <span key={`${author.name}-${idx}`} className="flex items-center gap-1">
-                    <span className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {author.name || (author.did ? author.did.slice(0, 15) + "..." : "Unknown Author")}
-                    </span>
+                  <span key={`${author.name}-${idx}`} className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-600 border border-slate-100">
+                    <span>{author.name || "Anonymous"}</span>
                     {author.affiliation && (
-                      <span className="text-xs text-zinc-500">({author.affiliation})</span>
+                      <span className="opacity-60 font-normal">({author.affiliation})</span>
                     )}
                     {author.did && (
                       <Link
                         href={`https://bsky.app/profile/${author.did}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline text-xs"
+                        className="text-indigo-600 hover:underline ml-0.5"
                       >
                         [Bsky]
                       </Link>
@@ -419,26 +399,25 @@ export function ArticleViewer({
             )}
           </div>
 
-          {canComment ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              本文テキストを選択すると、インラインコメントを投稿できます。
-            </p>
-          ) : (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              この論文は告知投稿がないため、Bluesky連携コメントは利用できません。
-            </p>
-          )}
+          <div className="flex items-center gap-2 rounded-lg border border-indigo-50 bg-indigo-50/30 px-3 py-2 text-[11px] font-medium text-indigo-900/60">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            {canComment ? (
+              <span>Select text to initiate contextual discussion or post inline comments.</span>
+            ) : (
+              <span>Bluesky discussion is not available for this article.</span>
+            )}
+          </div>
 
-          {deleteError ? <p className="text-sm text-red-600">{deleteError}</p> : null}
+          {deleteError ? <p className="text-xs font-bold text-red-500">{deleteError}</p> : null}
         </header>
 
-        <div className="space-y-5">
+        <div className="space-y-8">
           {blocks.map((block, idx) => (
-            <section key={`${block.heading}-${idx}`} className="space-y-2">
-              <h2 className={`${headingClass(block.level)} text-zinc-900 dark:text-zinc-100`}>
+            <section key={`${block.heading}-${idx}`} className="space-y-3">
+              <h2 className={`${headingClass(block.level)} text-slate-900 tracking-tight`}>
                 {block.heading}
               </h2>
-              <p className="whitespace-pre-wrap leading-7 text-zinc-700 dark:text-zinc-300">
+              <div className="text-[15px] leading-7 text-slate-700">
                 {renderMarkdownWithHighlight(
                   block.content,
                   effectiveHighlight,
@@ -446,18 +425,23 @@ export function ArticleViewer({
                   bibliographyByKey,
                   keyToNumber,
                 )}
-              </p>
+              </div>
             </section>
           ))}
         </div>
+        
         {bibliography.length > 0 ? (
-          <section className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              References
-            </h2>
-            <ol className="list-decimal space-y-1 pl-6 text-sm text-zinc-700 dark:text-zinc-300">
+          <section className="mt-12 pt-8 border-t border-slate-100">
+            <div className="flex items-center gap-2 mb-4 px-1">
+              <div className="h-1.5 w-1.5 rounded-full bg-slate-400"></div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Bibliographic References</p>
+            </div>
+            <ol className="space-y-3 px-1">
               {formatBibliographyIEEE(bibliography).map((ref, idx) => (
-                <li key={`${ref}-${idx}`}>{ref.replace(/^\[\d+\]\s*/, "")}</li>
+                <li key={`${ref}-${idx}`} className="text-[12px] leading-relaxed text-slate-500 list-none pl-6 -indent-6">
+                  <span className="inline-block w-6 text-slate-400 font-mono font-bold">[{idx + 1}]</span>
+                  {ref.replace(/^\[\d+\]\s*/, "")}
+                </li>
               ))}
             </ol>
           </section>
@@ -465,50 +449,56 @@ export function ArticleViewer({
       </article>
 
       {showComments && internalSelectedQuote && canComment ? (
-        <InlineCommentComposer
-          did={did}
-          rkey={rkey}
-          quote={internalSelectedQuote}
-          onSubmitted={() => {
-            setInternalSelectedQuote(null);
-            if (onQuoteSelect) onQuoteSelect("");
-            router.refresh();
-          }}
-        />
+        <div className="mt-8 rounded-2xl border border-indigo-100 bg-indigo-50/20 p-4 shadow-sm animate-in slide-in-from-bottom-4 duration-500">
+          <InlineCommentComposer
+            did={did}
+            rkey={rkey}
+            quote={internalSelectedQuote}
+            onSubmitted={() => {
+              setInternalSelectedQuote(null);
+              if (onQuoteSelect) onQuoteSelect("");
+              router.refresh();
+            }}
+          />
+        </div>
       ) : null}
 
       {showComments && (
-        <section className="space-y-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Inline Discussion
-          </h2>
+        <section className="mt-12 pt-8 border-t border-slate-100">
+          <div className="flex items-center gap-2 mb-6 px-1">
+            <div className="h-1.5 w-1.5 rounded-full bg-indigo-400"></div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-400">Inline Discussion</p>
+          </div>
 
           {dedupedComments.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              まだコメントはありません。
-            </p>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-100 bg-slate-50/30 py-10 text-slate-400">
+              <p className="text-[11px] font-medium uppercase tracking-wider">No comments yet</p>
+            </div>
           ) : (
-            <ul className="space-y-3">
+            <ul className="space-y-4">
               {dedupedComments.map((comment) => (
                 <li
                   key={comment.uri}
-                  className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-3"
+                  className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm"
                 >
                   {comment.quote ? (
-                    <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                      {comment.quote}
+                    <p className="mb-3 italic leading-relaxed text-slate-500 px-2 border-l-2 border-indigo-100 text-xs">
+                      &quot;{comment.quote}&quot;
                     </p>
                   ) : (
-                    <p className="mb-2 inline-flex rounded border border-zinc-300 dark:border-zinc-700 px-2 py-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                      Bsky返信（引用なし）
+                    <p className="mb-3 inline-flex items-center rounded bg-slate-50 px-2 py-0.5 text-[9px] font-bold uppercase tracking-tight text-slate-400 border border-slate-100">
+                      Bluesky Reply
                     </p>
                   )}
-                  <p className="whitespace-pre-wrap text-sm text-zinc-900 dark:text-zinc-100">
+                  <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-700">
                     {comment.text}
                   </p>
-                  <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    @{comment.handle ?? comment.authorDid} · {timeAgo(comment.createdAt)}
-                  </p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="h-4 w-4 rounded-full bg-slate-100"></div>
+                    <p className="text-[10px] font-bold text-slate-400">
+                      @{comment.handle ?? comment.authorDid} <span className="mx-1 opacity-40">·</span> {timeAgo(comment.createdAt)}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>

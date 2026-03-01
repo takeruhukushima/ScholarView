@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState, useCallback, useMemo } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 
 import { ArticleViewer } from "@/components/ArticleViewer";
@@ -9,20 +9,18 @@ import {
   buildScholarViewArticleUrl,
   buildArticleEditPath,
 } from "@/lib/articles/uri";
-import { initializeAuth, getActiveDid, getActiveHandle } from "@/lib/auth/browser";
+import { initializeAuth, getActiveHandle } from "@/lib/auth/browser";
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
 import type { 
   ArticleDetail, 
   ArticleSummary, 
-  InlineCommentView, 
   WorkspaceFileNode,
   BskyInteractionAction
 } from "@/lib/types";
 import { 
   DiscussionRoot, 
   DiscussionPost, 
-  WorkspaceFile,
-  TreeDropPosition
+  WorkspaceFile
 } from "@/lib/workspace/types";
 
 import { Sidebar } from "@/components/workspace/UI/Sidebar";
@@ -66,7 +64,7 @@ function ArticlePageClient() {
     installClientFetchBridge();
   }, []);
 
-  const loadFiles = useCallback(async (targetDid: string | null, _setBusy?: (b: boolean) => void, _setStatusMessage?: (m: string) => void) => {
+  const loadFiles = useCallback(async () => {
     try {
       const res = await fetch("/api/workspace/files", { cache: "no-store" });
       const data = (await res.json()) as { success?: boolean; files?: WorkspaceFileNode[] };
@@ -144,7 +142,7 @@ function ArticlePageClient() {
         setAccountHandle(await getActiveHandle());
 
         if (auth.did) {
-          void loadFiles(auth.did);
+          void loadFiles();
         }
 
         void refreshArticles();
@@ -275,7 +273,7 @@ function ArticlePageClient() {
           throw new Error(data.error ?? "Failed to sync articles");
         }
         const created = data.created ?? 0;
-        const latestFiles = await loadFiles(sessionDid);
+        const latestFiles = await loadFiles();
         await refreshArticles();
         setStatusMessage(
           created > 0
@@ -299,9 +297,13 @@ function ArticlePageClient() {
     router.push(`/article/${encodeURIComponent(a.did)}/${encodeURIComponent(a.rkey)}`);
   };
 
+  const openFile = async (f: WorkspaceFile) => {
+    router.push(`/?fileId=${encodeURIComponent(f.id)}`);
+  };
+
   if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+      <div className="flex h-screen w-full items-center justify-center bg-zinc-50">
         <div className="text-sm font-medium text-zinc-600 animate-pulse">Loading article...</div>
       </div>
     );
@@ -309,7 +311,7 @@ function ArticlePageClient() {
 
   if (!article || error) {
     return (
-      <div className="flex min-h-screen w-full flex-col items-center justify-center bg-zinc-50 dark:bg-zinc-950 p-4">
+      <div className="flex min-h-screen w-full flex-col items-center justify-center bg-zinc-50 p-4">
         <div className="w-full max-w-md rounded-2xl border border-red-200 bg-red-50 p-6 text-center shadow-sm">
           <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-600">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -343,8 +345,7 @@ function ArticlePageClient() {
             articles={articles}
             activeArticleUri={article.uri}
             openArticle={openArticle}
-            syncLegacyArticles={syncLegacyArticles}
-            onRefreshArticle={(article) => {
+            onRefreshArticle={() => {
               void syncLegacyArticles({ force: true });
             }}
             onAction={() => {
@@ -352,7 +353,7 @@ function ArticlePageClient() {
             }}
             files={files}
             activeFileId={null}
-            openFile={async () => {}}
+            openFile={openFile}
             renameWorkspaceItem={async () => {}}
             deleteWorkspaceItem={async () => {}}
             downloadWorkspaceItem={async () => {}}
@@ -371,18 +372,23 @@ function ArticlePageClient() {
         <div className={`${mobileView === "editor" ? "block" : "hidden"} lg:block`}>
           <div className="rounded-xl border border-slate-200/60 bg-white p-6 shadow-sm min-h-[calc(100vh-5rem)] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
             <div className="max-w-4xl mx-auto">
-              <div className="mb-6 rounded-lg border border-slate-100 bg-slate-50/50 p-4 text-[11px] font-medium text-slate-500">
-                <p>
-                  Canonical:{" "}
+              <div className="mb-8 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2 rounded-full bg-slate-50 border border-slate-100 px-3 py-1">
+                  <div className="h-1.5 w-1.5 rounded-full bg-emerald-500"></div>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Published Article</span>
+                </div>
+                
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300 shrink-0">Canonical</p>
                   <a
                     href={canonicalUrl}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="break-all font-bold text-indigo-600 hover:underline"
+                    className="rounded-md bg-slate-50 border border-slate-100 px-2 py-0.5 text-[10px] font-mono text-indigo-600 hover:bg-indigo-50 transition-colors truncate max-w-[150px] sm:max-w-[200px]"
                   >
                     {canonicalUrl}
                   </a>
-                </p>
+                </div>
               </div>
 
               <ArticleViewer
@@ -436,7 +442,7 @@ export default function ArticlePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex h-screen w-full items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="flex h-screen w-full items-center justify-center bg-zinc-50">
           <div className="text-sm font-medium text-zinc-600 animate-pulse">Loading article...</div>
         </div>
       }
