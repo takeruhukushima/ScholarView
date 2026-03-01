@@ -106,7 +106,17 @@ function renderInlineMarkdown(
             return (
               <Fragment key={`${keyPrefix}-cite-${idx}-${i}`}>
                 {i > 0 ? ", " : ""}
-                <span title={entry?.title ?? k}>{label}</span>
+                {num ? (
+                  <Link
+                    href={`#cite-${num}`}
+                    title={entry?.title ?? k}
+                    className="hover:underline cursor-pointer"
+                  >
+                    {label}
+                  </Link>
+                ) : (
+                  <span title={entry?.title ?? k}>{label}</span>
+                )}
               </Fragment>
             );
           })}
@@ -438,7 +448,11 @@ export function ArticleViewer({
             </div>
             <ol className="space-y-3 px-1">
               {formatBibliographyIEEE(bibliography).map((ref, idx) => (
-                <li key={`${ref}-${idx}`} className="text-[12px] leading-relaxed text-slate-500 list-none pl-6 -indent-6">
+                <li 
+                  id={`cite-${idx + 1}`}
+                  key={`${ref}-${idx}`} 
+                  className="text-[12px] leading-relaxed text-slate-500 list-none pl-6 -indent-6 scroll-mt-24"
+                >
                   <span className="inline-block w-6 text-slate-400 font-mono font-bold">[{idx + 1}]</span>
                   {ref.replace(/^\[\d+\]\s*/, "")}
                 </li>
