@@ -11,21 +11,10 @@ export default defineConfig({
 			title: 'ScholarView',
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/takeruhukushima/ScholarView' }],
 			sidebar: [
-				{
-					label: 'Guides',
-					items: [
-						// Each item here is one entry in the navigation menu.
-						{ label: 'Example Guide', slug: 'guides/example' },
-					],
-				},
-				{
-					label: 'Blog',
-					autogenerate: { directory: 'blog' },
-				},
-				{
-					label: 'Reference',
-					autogenerate: { directory: 'reference' },
-				},
+				{ label: 'Introduction', slug: 'introduction' },
+				{ label: 'Architecture', slug: 'architecture' },
+				{ label: 'Features', slug: 'features' },
+				{ label: 'Getting Started', slug: 'getting-started' },
 			],
 		}),
 		svelte(),

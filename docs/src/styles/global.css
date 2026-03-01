@@ -5,6 +5,24 @@
 @layer base {
   :root {
     --sl-color-accent: #6366f1;
+    --sl-color-text-accent: #6366f1;
+    --sl-color-bg-accent: #6366f1;
+  }
+
+  /* Dramatic improvement for link visibility in Starlight */
+  :global(.sl-markdown-content a:not([class])) {
+    color: #4f46e5 !important;
+    font-weight: 600 !important;
+    text-decoration: underline !important;
+    text-decoration-color: rgba(79, 70, 229, 0.4) !important;
+    background-color: rgba(99, 102, 241, 0.05) !important;
+    padding: 0 2px !important;
+    border-radius: 2px !important;
+  }
+
+  :global(.sl-markdown-content a:not([class]):hover) {
+    color: #4338ca !important;
+    background-color: rgba(99, 102, 241, 0.1) !important;
   }
   
   html {
@@ -15,6 +33,16 @@
   body {
     @apply antialiased text-slate-900 bg-white;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Force white text on active sidebar items in Starlight */
+  nav a[aria-current="page"] {
+    color: #ffffff !important;
+  }
+
+  /* Improve visibility of inline links in content */
+  .sl-markdown-content a:not(.btn-primary) {
+    @apply text-indigo-600 underline decoration-indigo-600/30 underline-offset-4 hover:text-indigo-500 hover:decoration-indigo-500 transition-all;
   }
 }
 

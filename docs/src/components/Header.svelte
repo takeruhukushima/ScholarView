@@ -35,9 +35,8 @@
 
 		<!-- Desktop Nav -->
 		<nav class="ml-10 hidden items-center gap-8 md:flex">
-			<a href="/guides/example/" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Guides</a>
+			<a href="/introduction/" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Manual</a>
 			<a href="/blog/" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Blog</a>
-			<a href="/reference/example/" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Reference</a>
 			<a
 				href="https://github.com/takeruhukushima/ScholarView"
 				target="_blank"
@@ -83,9 +82,8 @@
 	{#if menuOpen}
 		<nav class="border-t border-slate-100 bg-white/95 px-4 py-4 md:hidden backdrop-blur-md">
 			<div class="flex flex-col gap-2">
-				<a href="/guides/example/" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>Guides</a>
+				<a href="/introduction/" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>Manual</a>
 				<a href="/blog/" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>Blog</a>
-				<a href="/reference/example/" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>Reference</a>
 				<a href="https://github.com/takeruhukushima/ScholarView" target="_blank" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>GitHub</a>
 			</div>
 		</nav>
