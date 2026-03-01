@@ -202,6 +202,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   formatBibtexBlockById,
 }) => {
   const [copied, setCopied] = React.useState(false);
+  const [copiedMd, setCopiedMd] = React.useState(false);
 
   const handleCopyUrl = async () => {
     if (!currentDid || !currentRkey) return;
@@ -212,6 +213,42 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy URL:", err);
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    try {
+      let md = `# ${title}\n\n`;
+      if (authorsText.trim()) {
+        const authors = parseAuthors(authorsText);
+        const authorsStr = authors
+          .map((a) => `${a.name}${a.affiliation ? ` (${a.affiliation})` : ""}`)
+          .join(", ");
+        md += `Authors: ${authorsStr}\n\n`;
+      }
+      
+      const contentMd = editorBlocks
+        .map((block) => {
+          if (block.kind === "paragraph") return block.text;
+          const prefix = block.kind === "h1" ? "## " : block.kind === "h2" ? "### " : "#### ";
+          return `${prefix}${block.text}`;
+        })
+        .join("\n\n");
+      
+      md += contentMd + "\n\n";
+
+      if (resolvedBibliography.length > 0) {
+        md += `# References\n\n\`\`\`bibtex\n`;
+        resolvedBibliography.forEach((entry) => {
+          md += `${entry.rawBibtex}\n\n`;
+        });
+        md += `\`\`\`\n`;
+      }
+      await navigator.clipboard.writeText(md.trim());
+      setCopiedMd(true);
+      setTimeout(() => setCopiedMd(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy Markdown:", err);
     }
   };
 
@@ -419,6 +456,40 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                   <button
                     type="button"
                     disabled={busy}
+                    onClick={handleCopyMarkdown}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
+                    title={copiedMd ? "Copied!" : "Copy for LLM (Markdown)"}
+                  >
+                    {copiedMd ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </svg>
+                    )}
+                  </button>
+                  {currentDid && currentRkey && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={handleCopyUrl}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
+                      title={copied ? "Copied URL!" : "Copy Article URL"}
+                    >
+                      {copied ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
                     onClick={() => {
                       void handlePublish().catch((err: unknown) => {
                         setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
@@ -503,14 +574,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                             className="w-full text-left px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors font-bold"
                           >
                             Unpublish Article
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleCopyUrl}
-                            className="w-full text-left px-2 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors font-bold flex items-center justify-between"
-                          >
-                            {copied ? "Copied!" : "Copy Article URL"}
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                           </button>
                         </div>
                       )}
