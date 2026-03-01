@@ -161,6 +161,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
+      {/* Documentation Section */}
+      <div className="border-t border-slate-100 pt-4 px-1">
+        <a
+          href="https://scholar-view-docs.vercel.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-indigo-600 transition-colors"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-3.5 w-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+          >
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+          </svg>
+          Documentation
+        </a>
+      </div>
+
       {/* User Session Footer */}
       {isLoggedIn ? (
         <div className="mt-auto flex items-center justify-between rounded-xl bg-slate-50/80 p-3 border border-slate-100">
