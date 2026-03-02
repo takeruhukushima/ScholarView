@@ -47,6 +47,7 @@ import {
   listBskyInteractionsBySubjects,
   listDrafts,
   listWorkspaceFiles,
+  moveWorkspaceFile,
   saveDraft,
   updateArticleByUri,
   updateWorkspaceFileById,
@@ -1848,6 +1849,25 @@ async function handleWorkspaceFilesPath(
   if (pathParts.length >= 4) {
     const did = await getDidOrLocal();
     const id = pathParts[3];
+
+    if (id === "move") {
+      if (request.method !== "POST") return null;
+      const body = (await request.json()) as {
+        draggedId: string;
+        targetId: string;
+        position: "before" | "after" | "inside";
+      };
+      const result = await moveWorkspaceFile(
+        body.draggedId,
+        body.targetId,
+        body.position,
+        did,
+      );
+      if (!result.success) {
+        throw new HttpError(400, result.error ?? "Failed to move item");
+      }
+      return json({ success: true, updates: result.updates || [] });
+    }
 
     if (pathParts.length === 4) {
       if (request.method === "PATCH") {

@@ -613,6 +613,102 @@ export async function updateWorkspaceFileById(
   });
 }
 
+export async function moveWorkspaceFile(
+  draggedId: string,
+  targetId: string,
+  position: "before" | "after" | "inside",
+  ownerDid: string,
+): Promise<{ success: boolean; error?: string; updates?: Array<{ id: string; oldPath: string; newPath: string }> }> {
+  return transact([STORE_WORKSPACE_FILES], "readwrite", async (tx) => {
+    const store = tx.objectStore(STORE_WORKSPACE_FILES);
+    const all = (await requestToPromise(store.getAll())) as WorkspaceFileRecord[];
+
+    const dragged = all.find((f) => f.id === draggedId && f.ownerDid === ownerDid);
+    const target = all.find((f) => f.id === targetId && f.ownerDid === ownerDid);
+
+    if (!dragged || !target) {
+      return { success: false, error: "File not found" };
+    }
+
+    const byId = new Map(all.map(f => [f.id, f]));
+    function getPath(file: WorkspaceFileRecord): string {
+      const parts = [file.name];
+      let curr = file.parentId;
+      while (curr) {
+        const p = byId.get(curr);
+        if (!p) break;
+        parts.unshift(p.name);
+        curr = p.parentId;
+      }
+      return "/" + parts.join("/");
+    }
+
+    const oldPath = getPath(dragged);
+
+    // Check circular move
+    if (dragged.kind === "folder") {
+      let curr = target.parentId;
+      while (curr) {
+        if (curr === draggedId) {
+          return { success: false, error: "Cannot move a folder into its own subfolder" };
+        }
+        curr = all.find((f) => f.id === curr)?.parentId ?? null;
+      }
+    }
+
+    let nextParentId: string | null;
+    let nextSortOrder: number;
+
+    if (position === "inside") {
+      if (target.kind !== "folder") {
+        return { success: false, error: "Target must be a folder for 'inside' position" };
+      }
+      nextParentId = target.id;
+      // Put at the end of the folder
+      const children = all.filter((f) => f.parentId === target.id && f.ownerDid === ownerDid);
+      nextSortOrder = children.length > 0 ? Math.max(...children.map((f) => f.sortOrder)) + 1 : 0;
+    } else {
+      nextParentId = target.parentId;
+      const siblings = all
+        .filter((f) => f.parentId === nextParentId && f.ownerDid === ownerDid && f.id !== draggedId)
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+
+      const targetIdx = siblings.findIndex((f) => f.id === target.id);
+      nextSortOrder = position === "before" ? target.sortOrder : target.sortOrder + 1;
+
+      // Re-index siblings
+      for (let i = 0; i < siblings.length; i++) {
+        const sibling = siblings[i];
+        let newOrder = i;
+        if (position === "before" && i >= targetIdx) {
+          newOrder = i + 1;
+        } else if (position === "after" && i > targetIdx) {
+          newOrder = i + 1;
+        }
+        if (sibling.sortOrder !== newOrder) {
+          await requestToPromise(store.put({ ...sibling, sortOrder: newOrder }));
+        }
+      }
+    }
+
+    const updatedDragged = {
+      ...dragged,
+      parentId: nextParentId,
+      sortOrder: nextSortOrder,
+      updatedAt: new Date().toISOString(),
+    };
+    await requestToPromise(store.put(updatedDragged));
+
+    // After move, calculate new path
+    const newPath = getPath(updatedDragged);
+
+    return { 
+      success: true, 
+      updates: oldPath !== newPath ? [{ id: draggedId, oldPath, newPath }] : [] 
+    };
+  });
+}
+
 export async function deleteWorkspaceFileById(id: string, ownerDid: string): Promise<void> {
   await transact([STORE_WORKSPACE_FILES], "readwrite", async (tx) => {
     const store = tx.objectStore(STORE_WORKSPACE_FILES);
