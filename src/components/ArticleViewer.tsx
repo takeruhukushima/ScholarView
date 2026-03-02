@@ -13,6 +13,7 @@ import {
 } from "@/lib/articles/citations";
 import { referenceAnchorId } from "@/lib/workspace/utils";
 import type { ArticleAuthor, InlineCommentView, ArticleImageAsset } from "@/lib/types";
+import { buildBskyPostUrl } from "@/lib/articles/uri";
 
 import { InlineCommentComposer } from "./InlineCommentComposer";
 
@@ -32,6 +33,7 @@ interface ArticleViewerProps {
   onQuoteSelect?: (quote: string) => void;
   showComments?: boolean;
   onRefresh?: () => Promise<void>;
+  announcementUri?: string | null;
 }
 
 function renderMathHtml(expression: string, displayMode: boolean): string | null {
@@ -347,6 +349,7 @@ export function ArticleViewer({
   onQuoteSelect,
   showComments = true,
   onRefresh,
+  announcementUri,
 }: ArticleViewerProps) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -595,11 +598,30 @@ export function ArticleViewer({
 
           <div className="flex items-center gap-2 rounded-lg border border-indigo-50 bg-indigo-50/30 px-3 py-2 text-[11px] font-medium text-indigo-900/60">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-            {canComment ? (
-              <span>Select text to initiate contextual discussion or post inline comments.</span>
-            ) : (
-              <span>Bluesky discussion is not available for this article.</span>
-            )}
+            <div className="flex flex-wrap items-center gap-x-2">
+              {canComment ? (
+                <span>Select text to initiate contextual discussion or post inline comments.</span>
+              ) : announcementUri ? (
+                <span>Contextual discussion is available on Bluesky.</span>
+              ) : (
+                <span>Bluesky discussion is not available for this article.</span>
+              )}
+              {announcementUri && (
+                <a
+                  href={buildBskyPostUrl(announcementUri) || "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-bold text-indigo-600 hover:underline"
+                >
+                  View on Bluesky
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-2.5 w-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                    <path d="M18 13v6a2 2 0 0 1-2-2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                </a>
+              )}
+            </div>
           </div>
 
           {deleteError ? <p className="text-xs font-bold text-red-500">{deleteError}</p> : null}

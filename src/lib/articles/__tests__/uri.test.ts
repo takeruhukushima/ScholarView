@@ -3,6 +3,7 @@ import {
   buildArticleUri,
   buildArticlePath,
   buildScholarViewArticleUrl,
+  buildBskyPostUrl,
   parseArticleUri,
   extractQuoteFromExternalUri,
   extractDidAndRkey,
@@ -81,6 +82,22 @@ describe('uri logic', () => {
 
     it('returns null for random text', () => {
       expect(extractDidAndRkey('hello world')).toBeNull();
+    });
+  });
+
+  describe('buildBskyPostUrl', () => {
+    it('converts valid post AT URI to bsky.app URL', () => {
+      const uri = 'at://did:plc:123/app.bsky.feed.post/abc';
+      expect(buildBskyPostUrl(uri)).toBe('https://bsky.app/profile/did:plc:123/post/abc');
+    });
+
+    it('returns null for non-post collection', () => {
+      const uri = 'at://did:plc:123/sci.peer.article/abc';
+      expect(buildBskyPostUrl(uri)).toBeNull();
+    });
+
+    it('returns null for invalid URI', () => {
+      expect(buildBskyPostUrl('not-a-uri')).toBeNull();
     });
   });
 });

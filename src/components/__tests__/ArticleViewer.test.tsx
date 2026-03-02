@@ -88,4 +88,28 @@ describe("ArticleViewer", () => {
     expect(bibItem2).not.toBeNull();
     expect(bibItem2?.textContent).toContain("Author 2");
   });
+
+  it("renders Bluesky discussion link when announcementUri is provided", () => {
+    const announcementUri = "at://did:plc:user123/app.bsky.feed.post/post456";
+    render(
+      <ArticleViewer
+        did="did:plc:123"
+        rkey="abc"
+        title="Test Article"
+        authors={[]}
+        blocks={[]}
+        bibliography={[]}
+        comments={[]}
+        canComment={false}
+        canEdit={false}
+        editHref="/edit"
+        initialHighlightQuote={null}
+        announcementUri={announcementUri}
+      />
+    );
+
+    const bskyLink = screen.getByText("View on Bluesky");
+    expect(bskyLink.closest("a")?.getAttribute("href")).toBe("https://bsky.app/profile/did:plc:user123/post/post456");
+    expect(screen.getByText("Contextual discussion is available on Bluesky.")).toBeDefined();
+  });
 });
