@@ -912,12 +912,35 @@ async function discoverAnnouncement(
         const external = asObject(embed.external);
         const externalUri = asString(external?.uri);
         
-        // Match canonical URL (ignoring quote params if necessary, but broadcast uses exact match)
-        if (externalUri === articleUrl || (externalUri && externalUri.split("?")[0] === articleUrl.split("?")[0])) {
-          return {
-            uri: asString(post.uri),
-            cid: asString(post.cid),
-          };
+        if (externalUri) {
+          let isMatch = false;
+          try {
+            const candidateUrl = new URL(externalUri);
+            const pathParts = candidateUrl.pathname.split("/").filter(Boolean);
+            if (pathParts.length >= 3 && pathParts[0] === "article") {
+              const candidateDid = decodeURIComponent(pathParts[1]);
+              const candidateRkey = decodeURIComponent(pathParts[2]);
+              if (candidateDid === did && candidateRkey === rkey) {
+                isMatch = true;
+              }
+            }
+          } catch {
+            const encodedDid = encodeURIComponent(did);
+            isMatch =
+              externalUri.includes(`/article/${did}/${rkey}`) ||
+              externalUri.includes(`/article/${encodedDid}/${rkey}`);
+          }
+
+          if (
+            isMatch ||
+            externalUri === articleUrl ||
+            externalUri.split("?")[0] === articleUrl.split("?")[0]
+          ) {
+            return {
+              uri: asString(post.uri),
+              cid: asString(post.cid),
+            };
+          }
         }
       }
     }
@@ -1171,7 +1194,8 @@ function extractPostFromThreadNode(node: unknown): {
     text: asString(record?.text),
     quote,
     externalUri,
-    createdAt: asString(post.indexedAt) || new Date().toISOString(),
+    createdAt:
+      asString(record?.createdAt) || asString(post.indexedAt) || new Date().toISOString(),
     replies,
   };
 }
