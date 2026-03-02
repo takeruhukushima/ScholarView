@@ -60,14 +60,65 @@ function timeAgo(dateString: string): string {
   return `${days}d`;
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="absolute right-2 top-2 rounded bg-slate-800/50 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white transition-all opacity-0 group-hover:opacity-100"
+      title="Copy to clipboard"
+    >
+      {copied ? (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      )}
+    </button>
+  );
+}
+
 function renderInlineMarkdown(
   text: string,
   keyPrefix: string,
   bibliographyByKey: Map<string, BibliographyEntry>,
   keyToNumber: Map<string, number>,
   resolveImageUrl?: (src: string) => string | null,
+  highlightQuote?: string | null,
 ) {
   const nodes: React.ReactNode[] = [];
+  
+  // If there's a highlight quote, we first split by it
+  if (highlightQuote && text.includes(highlightQuote)) {
+    const pos = text.indexOf(highlightQuote);
+    const before = text.slice(0, pos);
+    const match = text.slice(pos, pos + highlightQuote.length);
+    const after = text.slice(pos + highlightQuote.length);
+
+    if (before) {
+      nodes.push(...renderInlineMarkdown(before, `${keyPrefix}-h-before`, bibliographyByKey, keyToNumber, resolveImageUrl, null));
+    }
+    nodes.push(
+      <mark key={`${keyPrefix}-h-mark`} className="rounded bg-amber-200/70 px-0.5 text-inherit">
+        {renderInlineMarkdown(match, `${keyPrefix}-h-match`, bibliographyByKey, keyToNumber, resolveImageUrl, null)}
+      </mark>
+    );
+    if (after) {
+      nodes.push(...renderInlineMarkdown(after, `${keyPrefix}-h-after`, bibliographyByKey, keyToNumber, resolveImageUrl, null));
+    }
+    return nodes;
+  }
+
   const regex = /(!\[[^\]]*\]\(([^)\s]+)\)(?:\{[^}]*\})?|`[^`]+`|\\cite\{[^}]+\}|\$(?:\\.|[^$\n])+\$|\[@?([^\]]+)\]|\*\*(.+?)\*\*)/g;
   let last = 0;
   let idx = 0;
@@ -181,52 +232,97 @@ function renderInlineMarkdown(
   return nodes;
 }
 
-function renderMarkdownWithHighlight(
-  content: string,
+function renderMarkdownBlocks(
+  text: string,
   quote: string | null,
   keyPrefix: string,
   bibliographyByKey: Map<string, BibliographyEntry>,
   keyToNumber: Map<string, number>,
   resolveImageUrl?: (src: string) => string | null,
 ) {
-  const lines = content.split("\n");
+  const nodes: React.ReactNode[] = [];
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  let i = 0;
 
-  return lines.map((line, lineIdx) => {
-    if (!quote) {
-      return (
-        <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber, resolveImageUrl)}
-          {lineIdx < lines.length - 1 ? <br /> : null}
-        </span>
-      );
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i += 1;
+      continue;
     }
 
-    const pos = line.indexOf(quote);
-    if (pos === -1) {
-      return (
-        <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber, resolveImageUrl)}
-          {lineIdx < lines.length - 1 ? <br /> : null}
-        </span>
-      );
+    // Code blocks
+    if (line.startsWith("```")) {
+      const codeLines: string[] = [];
+      i += 1;
+      while (i < lines.length && !lines[i].startsWith("```")) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      if (i < lines.length) i += 1;
+      
+      const codeContent = codeLines.join("\n").trimEnd();
+      if (codeContent) {
+        nodes.push(
+          <div
+            key={`${keyPrefix}-code-${i}`}
+            className="group relative my-6 overflow-x-auto rounded-lg bg-slate-900 px-4 py-3 font-mono text-[13px] leading-relaxed text-indigo-100/90 shadow-sm"
+          >
+            <CopyButton text={codeContent} />
+            <pre className="whitespace-pre">{codeContent}</pre>
+          </div>,
+        );
+      }
+      continue;
     }
 
-    const before = line.slice(0, pos);
-    const match = line.slice(pos, pos + quote.length);
-    const after = line.slice(pos + quote.length);
+    // Blockquotes
+    if (line.startsWith(">")) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && lines[i].startsWith(">")) {
+        quoteLines.push(lines[i].replace(/^>\s?/, ""));
+        i += 1;
+      }
 
-    return (
-      <span key={`${keyPrefix}-line-${lineIdx}`}>
-        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey, keyToNumber, resolveImageUrl) : null}
-        <mark className="rounded bg-amber-200/70 px-0.5 text-inherit">
-          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey, keyToNumber, resolveImageUrl)}
-        </mark>
-        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey, keyToNumber, resolveImageUrl) : null}
-        {lineIdx < lines.length - 1 ? <br /> : null}
-      </span>
-    );
-  });
+      nodes.push(
+        <blockquote
+          key={`${keyPrefix}-quote-${i}`}
+          className="my-6 border-l-4 border-slate-200 pl-4 italic text-slate-600"
+        >
+          {quoteLines.map((ql, qIdx) => (
+            <p key={`${keyPrefix}-quote-line-${qIdx}`}>
+              {renderInlineMarkdown(ql, `${keyPrefix}-quote-${i}-${qIdx}`, bibliographyByKey, keyToNumber, resolveImageUrl, quote)}
+            </p>
+          ))}
+        </blockquote>,
+      );
+      continue;
+    }
+
+    // Regular paragraphs (grouping consecutive non-special lines)
+    const paragraphLines: string[] = [];
+    while (i < lines.length && lines[i].trim() && !lines[i].startsWith("```") && !lines[i].startsWith(">")) {
+      paragraphLines.push(lines[i]);
+      i += 1;
+    }
+
+    if (paragraphLines.length > 0) {
+      nodes.push(
+        <p key={`${keyPrefix}-p-${i}`} className="mb-4 last:mb-0">
+          {paragraphLines.map((pl, pIdx) => (
+            <Fragment key={`${keyPrefix}-p-line-${pIdx}`}>
+              {renderInlineMarkdown(pl, `${keyPrefix}-p-${i}-${pIdx}`, bibliographyByKey, keyToNumber, resolveImageUrl, quote)}
+              {pIdx < paragraphLines.length - 1 ? <br /> : null}
+            </Fragment>
+          ))}
+        </p>
+      );
+    }
+  }
+
+  return nodes;
 }
+
 
 function headingClass(level: number): string {
   if (level === 1) return "text-2xl font-bold";
@@ -516,7 +612,7 @@ export function ArticleViewer({
                 {block.heading}
               </h2>
               <div className="text-[15px] leading-7 text-slate-700">
-                {renderMarkdownWithHighlight(
+                {renderMarkdownBlocks(
                   block.content,
                   effectiveHighlight,
                   `block-${idx}`,
