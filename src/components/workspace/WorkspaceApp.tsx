@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 
+import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
 import { type BibliographyEntry } from "@/lib/articles/citations";
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
@@ -335,6 +336,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const openArticleExternal = useCallback((article: ArticleSummary) => {
     window.location.href = `/article/${encodeURIComponent(article.did)}/${encodeURIComponent(article.rkey)}`;
+  }, []);
+
+  useEffect(() => {
+    installClientFetchBridge();
   }, []);
 
   useEffect(() => {

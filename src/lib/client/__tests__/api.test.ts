@@ -15,6 +15,7 @@ vi.mock('@/lib/client/store', () => ({
   listWorkspaceFiles: vi.fn().mockResolvedValue([]),
   listDrafts: vi.fn().mockResolvedValue([]),
   upsertArticle: vi.fn().mockResolvedValue(undefined),
+  moveWorkspaceFile: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 describe('client api router', () => {
@@ -64,6 +65,23 @@ describe('client api router', () => {
     expect(response?.status).toBe(400);
     const data = await response?.json();
     expect(data.error).toContain('Title must be <= 300 characters');
+  });
+
+  it('routes POST /api/workspace/files/move', async () => {
+    const { moveWorkspaceFile } = await import('@/lib/client/store');
+    (moveWorkspaceFile as ReturnType<typeof vi.fn>).mockResolvedValue({ success: true });
+
+    const request = new Request('http://localhost/api/workspace/files/move', {
+      method: 'POST',
+      body: JSON.stringify({ draggedId: 'f1', targetId: 'f2', position: 'after' })
+    });
+    const response = await handleClientApiRequest(request, undefined, fetch);
+
+    expect(response).not.toBeNull();
+    expect(response?.status).toBe(200);
+    const data = await response?.json();
+    expect(data.success).toBe(true);
+    expect(moveWorkspaceFile).toHaveBeenCalledWith('f1', 'f2', 'after', 'did:plc:user');
   });
 
   it('returns 404 for unknown paths', async () => {
