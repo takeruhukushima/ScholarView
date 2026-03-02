@@ -11,6 +11,17 @@ export interface ArticleAuthor {
   affiliation?: string;
 }
 
+export interface ArticleImageAsset {
+  path: string;
+  alt?: string;
+  blob: {
+    $type: "blob";
+    ref: { $link: string } | unknown;
+    mimeType: string;
+    size: number;
+  };
+}
+
 export interface ArticleSummary {
   uri: string;
   did: string;
@@ -28,6 +39,7 @@ export interface ArticleSummary {
 export interface ArticleDetail extends ArticleSummary {
   blocks: ArticleBlock[];
   bibliography: BibliographyEntry[];
+  images?: ArticleImageAsset[];
   announcementCid: string | null;
 }
 

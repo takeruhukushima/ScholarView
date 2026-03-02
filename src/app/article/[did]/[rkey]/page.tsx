@@ -401,6 +401,7 @@ function ArticlePageClient() {
                 authors={article.authors}
                 blocks={article.blocks}
                 bibliography={article.bibliography}
+                images={article.images}
                 comments={[]} // Handled by RightPanel
                 canComment={canComment}
                 canEdit={canEdit}

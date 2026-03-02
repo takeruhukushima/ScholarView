@@ -4,6 +4,7 @@ import { describe, it, expect, vi } from "vitest";
 import { ArticleViewer } from "../ArticleViewer";
 import type { ArticleBlock } from "@/lib/articles/blocks";
 import type { BibliographyEntry } from "@/lib/articles/citations";
+import { referenceAnchorId } from "@/lib/workspace/utils";
 
 // Mock useRouter
 vi.mock("next/navigation", () => ({
@@ -66,29 +67,25 @@ describe("ArticleViewer", () => {
       />
     );
 
-    // Citation 1 should be rendered as a link to #cite-1
+    // Citation 1 should be rendered as a link to #cite-key1
     const cite1Links = screen.getAllByText("1");
-    // The first one is in the text, the second is in the bibliography
-    // Wait, the bibliography item ALSO has text "1" in a span.
-    // So there should be 3 occurrences of "1" total?
-    // One in [1], one in [1, 2], and one in the bibliography [1].
     expect(cite1Links.length).toBeGreaterThanOrEqual(2);
-    expect(cite1Links[0].closest("a")?.getAttribute("href")).toBe("#cite-1");
-    expect(cite1Links[1].closest("a")?.getAttribute("href")).toBe("#cite-1");
+    expect(cite1Links[0].closest("a")?.getAttribute("href")).toBe(`#${referenceAnchorId("cite", "key1")}`);
+    expect(cite1Links[1].closest("a")?.getAttribute("href")).toBe(`#${referenceAnchorId("cite", "key1")}`);
 
-    // Citation 2 should be rendered as a link to #cite-2
+    // Citation 2 should be rendered as a link to #cite-key2
     const cite2Links = screen.getAllByText("2");
     expect(cite2Links.length).toBeGreaterThanOrEqual(2);
-    expect(cite2Links[0].closest("a")?.getAttribute("href")).toBe("#cite-2");
-    expect(cite2Links[1].closest("a")?.getAttribute("href")).toBe("#cite-2");
+    expect(cite2Links[0].closest("a")?.getAttribute("href")).toBe(`#${referenceAnchorId("cite", "key2")}`);
+    expect(cite2Links[1].closest("a")?.getAttribute("href")).toBe(`#${referenceAnchorId("cite", "key2")}`);
 
     // Bibliography items should have the corresponding IDs
-    const bibItem1 = document.getElementById("cite-1");
-    expect(bibItem1).toBeDefined();
+    const bibItem1 = document.getElementById(referenceAnchorId("cite", "key1"));
+    expect(bibItem1).not.toBeNull();
     expect(bibItem1?.textContent).toContain("Author 1");
 
-    const bibItem2 = document.getElementById("cite-2");
-    expect(bibItem2).toBeDefined();
+    const bibItem2 = document.getElementById(referenceAnchorId("cite", "key2"));
+    expect(bibItem2).not.toBeNull();
     expect(bibItem2?.textContent).toContain("Author 2");
   });
 });

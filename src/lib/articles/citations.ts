@@ -6,6 +6,7 @@ export interface BibliographyEntry {
   title?: string;
   author?: string;
   year?: string;
+  url?: string;
 }
 
 const MAX_BIB_ENTRIES = 500;
@@ -44,7 +45,10 @@ function parseRawBibtexEntry(rawBibtex: string, key: string): BibliographyEntry 
   const title = readField(rawBibtex, "title");
   const author = readField(rawBibtex, "author");
   const year = readField(rawBibtex, "year");
-  return { key, rawBibtex: rawBibtex.trim(), title, author, year };
+  const url =
+    readField(rawBibtex, "url") ||
+    readField(rawBibtex, "howpublished")?.match(/https?:\/\/[^\s}]+/)?.[0];
+  return { key, rawBibtex: rawBibtex.trim(), title, author, year, url };
 }
 
 function parseAuthorList(authorField: string | undefined): string[] {
@@ -55,7 +59,7 @@ function parseAuthorList(authorField: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function formatAuthorsForReference(authorField: string | undefined): string {
+export function formatAuthorsForReference(authorField: string | undefined): string {
   const authors = parseAuthorList(authorField);
   if (authors.length === 0) return "Unknown author";
   if (authors.length >= 3) return `${authors[0]} et al.`;
