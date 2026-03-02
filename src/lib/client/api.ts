@@ -881,7 +881,7 @@ async function discoverAnnouncement(
   try {
     const query = new URLSearchParams({
       actor: did,
-      limit: "30",
+      limit: "100", // Increase limit to find older announcements
     });
     // Search the author's feed for a post that embeds this article's URL
     const res = await originalFetch(
@@ -899,19 +899,21 @@ async function discoverAnnouncement(
       if (!post) continue;
 
       const record = asObject(post.record);
-      const embed = asObject(record?.embed);
+      // Try post.embed (view-side) first, then fallback to record.embed (model-side)
+      const embed = asObject(post.embed) || asObject(record?.embed);
 
-      // Check for external embed in the post record
+      // Check for external embed in the post record or view
       if (
         embed &&
         (embed["$type"] === "app.bsky.embed.external" ||
-          embed["$type"] === "app.bsky.embed.external#view")
+          embed["$type"] === "app.bsky.embed.external#view" ||
+          embed["$type"] === "app.bsky.embed.external#main")
       ) {
         const external = asObject(embed.external);
         const externalUri = asString(external?.uri);
         
         // Match canonical URL (ignoring quote params if necessary, but broadcast uses exact match)
-        if (externalUri === articleUrl || externalUri.split("?")[0] === articleUrl.split("?")[0]) {
+        if (externalUri === articleUrl || (externalUri && externalUri.split("?")[0] === articleUrl.split("?")[0])) {
           return {
             uri: asString(post.uri),
             cid: asString(post.cid),
