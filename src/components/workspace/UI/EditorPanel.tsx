@@ -21,7 +21,7 @@ import {
   normalizeEditedBlockInput 
 } from "@/lib/workspace/editor-logic";
 import { 
-  formatBibliographyIEEE,
+  formatAuthorsForReference,
   BibliographyEntry
 } from "@/lib/articles/citations";
 import { 
@@ -963,16 +963,33 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                 <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Bibliographic References</p>
               </div>
               <ul className="space-y-3 px-1">
-                {formatBibliographyIEEE(resolvedBibliography).map((line, index) => (
-                  <li
-                    key={`${line}-${index}`}
-                    id={referenceAnchorId("editor-ref", resolvedBibliography[index].key)}
-                    className="text-[12px] leading-relaxed text-slate-500 scroll-mt-24 list-none pl-6 -indent-6"
-                  >
-                    <span className="inline-block w-6 text-slate-400 font-mono font-bold">[{index + 1}]</span>
-                    {line.replace(/^\[\d+\]\s*/, "")}
-                  </li>
-                ))}
+                {resolvedBibliography.map((entry, index) => {
+                  const author = entry.author ? formatAuthorsForReference(entry.author) : "Unknown author";
+                  const title = entry.title ? `"${entry.title}"` : `"${entry.key}"`;
+                  const year = entry.year ?? "n.d.";
+                  return (
+                    <li
+                      key={`${entry.key}-${index}`}
+                      id={referenceAnchorId("editor-ref", entry.key)}
+                      className="text-[12px] leading-relaxed text-slate-500 scroll-mt-24 list-none pl-6 -indent-6"
+                    >
+                      <span className="inline-block w-6 text-slate-400 font-mono font-bold">[{index + 1}]</span>
+                      {author},{" "}
+                      {entry.url ? (
+                        <a 
+                          href={entry.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-indigo-600 hover:underline font-medium"
+                        >
+                          {title}
+                        </a>
+                      ) : (
+                        title
+                      )}, {year}.
+                    </li>
+                  );
+                })}
               </ul>
             </section>
           )}

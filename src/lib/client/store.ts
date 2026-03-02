@@ -47,6 +47,7 @@ interface ArticleRecord {
   authorsJson: string;
   blocksJson: string;
   bibliographyJson: string;
+  imagesJson?: string;
   sourceFormat: SourceFormat;
   broadcasted: 0 | 1;
   createdAt: string;
@@ -227,6 +228,7 @@ export async function updateArticleByUri(
     authorsJson: string;
     blocksJson: string;
     bibliographyJson: string;
+    imagesJson?: string;
     sourceFormat: SourceFormat;
     indexedAt: string;
     broadcasted?: 0 | 1;
@@ -243,6 +245,7 @@ export async function updateArticleByUri(
       authorsJson: input.authorsJson,
       blocksJson: input.blocksJson,
       bibliographyJson: input.bibliographyJson,
+      imagesJson: input.imagesJson ?? current.imagesJson,
       sourceFormat: input.sourceFormat,
       indexedAt: input.indexedAt,
       broadcasted: input.broadcasted ?? current.broadcasted,
@@ -437,6 +440,13 @@ export async function getArticleByDidAndRkey(
         authors = [];
       }
 
+      let images: ArticleDetail["images"] = [];
+      try {
+        images = article.imagesJson ? JSON.parse(article.imagesJson) : [];
+      } catch {
+        images = [];
+      }
+
       return {
         uri: article.uri,
         did,
@@ -447,6 +457,7 @@ export async function getArticleByDidAndRkey(
         authors,
         blocks: deserializeBlocks(article.blocksJson),
         bibliography: deserializeBibliography(article.bibliographyJson),
+        images,
         sourceFormat: normalizeSourceFormat(article.sourceFormat),
         broadcasted: article.broadcasted,
         createdAt: article.createdAt,
@@ -753,6 +764,7 @@ export async function seedArticleFromRecord(input: {
   sourceFormat: SourceFormat;
   blocks: ArticleBlock[];
   bibliography?: BibliographyEntry[];
+  images?: ArticleDetail["images"];
   createdAt: string;
   indexedAt?: string;
   broadcasted?: 0 | 1;
@@ -765,6 +777,7 @@ export async function seedArticleFromRecord(input: {
     sourceFormat: input.sourceFormat,
     blocksJson: serializeBlocks(input.blocks),
     bibliographyJson: serializeBibliography(input.bibliography ?? []),
+    imagesJson: JSON.stringify(input.images ?? []),
     createdAt: input.createdAt,
     indexedAt: input.indexedAt ?? input.createdAt,
     broadcasted: input.broadcasted ?? 0,

@@ -15,7 +15,6 @@ import {
   compactBibliography,
   normalizeBibliography,
   serializeBibliography,
-  type BibliographyEntry,
 } from "@/lib/articles/citations";
 import {
   ARTICLE_COLLECTION,
@@ -60,6 +59,7 @@ import {
 import type {
   ArticleAuthor,
   ArticleDetail,
+  ArticleImageAsset,
   BskyInteractionAction,
   SourceFormat,
   WorkspaceFileNode,
@@ -325,6 +325,7 @@ function parseArticleValue(value: unknown): {
   authors: ArticleAuthor[];
   blocks: ArticleBlock[];
   bibliography: ReturnType<typeof normalizeBibliography>;
+  images: ArticleImageAsset[];
   createdAt: string;
 } | null {
   try {
@@ -336,6 +337,7 @@ function parseArticleValue(value: unknown): {
       authors: (parsed.authors ?? []) as ArticleAuthor[],
       blocks,
       bibliography: normalizeBibliography((parsed as { bibliography?: unknown }).bibliography),
+      images: (parsed.images ?? []) as unknown as ArticleImageAsset[],
       createdAt: parsed.createdAt,
     };
   } catch {
@@ -356,12 +358,23 @@ function parseArticleValue(value: unknown): {
       };
     });
 
+    const imagesRaw = Array.isArray(obj.images) ? obj.images : [];
+    const images: ArticleImageAsset[] = imagesRaw.map((img) => {
+      const o = asObject(img) || {};
+      return {
+        path: asString(o.path),
+        alt: o.alt ? asString(o.alt) : undefined,
+        blob: o.blob as ArticleImageAsset["blob"],
+      };
+    });
+
     const createdAtRaw = asString(obj.createdAt);
     return {
       title,
       authors,
       blocks,
       bibliography: normalizeBibliography(obj.bibliography),
+      images,
       createdAt: createdAtRaw || new Date().toISOString(),
     };
   }
@@ -455,6 +468,7 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
           authorsJson: JSON.stringify(parsed.authors),
           blocksJson: serializeBlocks(parsed.blocks),
           bibliographyJson: serializeBibliography(parsed.bibliography),
+          imagesJson: JSON.stringify(parsed.images),
           sourceFormat: "markdown",
           broadcasted: 0,
           createdAt,
@@ -560,6 +574,7 @@ async function createArticle(request: Request): Promise<Response> {
     resolvedTex?: unknown;
     blocks?: unknown;
     bibliography?: unknown;
+    images?: unknown;
   };
   const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
 
@@ -587,12 +602,14 @@ async function createArticle(request: Request): Promise<Response> {
   }
 
   const bibliography = compactBibliography(normalizeBibliography(body.bibliography));
+  const images = Array.isArray(body.images) ? (body.images as ArticleImageAsset[]) : [];
   const createdAt = new Date().toISOString();
   const article = await lex.create(sci.peer.article.main, {
     title,
     authors,
     blocks,
     bibliography,
+    images: images as unknown as sci.peer.article.ImageAsset[],
     createdAt,
   });
 
@@ -636,6 +653,7 @@ async function createArticle(request: Request): Promise<Response> {
     authorsJson: JSON.stringify(authors),
     blocksJson: serializeBlocks(blocks),
     bibliographyJson: serializeBibliography(bibliography),
+    imagesJson: JSON.stringify(images),
     sourceFormat,
     broadcasted: announcement ? 1 : 0,
     createdAt,
@@ -680,6 +698,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
     broadcastToBsky?: unknown;
     broadcastText?: unknown;
     bibliography?: unknown;
+    images?: unknown;
   };
   const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
 
@@ -708,6 +727,11 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
       : compactBibliography(normalizeBibliography(body.bibliography));
   const compactedBibliography = compactBibliography(bibliography);
 
+  const images =
+    body.images === undefined
+      ? current.images ?? []
+      : (body.images as ArticleImageAsset[]);
+
   await lex.put(
     sci.peer.article.main,
     {
@@ -715,6 +739,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
       authors,
       blocks,
       bibliography: compactedBibliography,
+      images: images as unknown as sci.peer.article.ImageAsset[],
       createdAt: new Date(current.createdAt).toISOString(),
     },
     { rkey },
@@ -785,6 +810,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
     authorsJson: JSON.stringify(authors),
     blocksJson: serializeBlocks(blocks),
     bibliographyJson: serializeBibliography(compactedBibliography),
+    imagesJson: JSON.stringify(images),
     sourceFormat,
     indexedAt: now,
     broadcasted,
@@ -806,13 +832,15 @@ function transformRecordToArticleDetail(
   const uri = buildArticleUri(did, rkey);
   const authors = Array.isArray(record.authors) ? record.authors : [];
   const blocks = Array.isArray(record.blocks) ? record.blocks : [];
+  const bibliography = normalizeBibliography(record.bibliography);
+  const images = Array.isArray(record.images) ? (record.images as ArticleImageAsset[]) : [];
 
   return {
     uri,
     did,
     rkey,
     authorDid: did,
-    handle: null, // Public API might not have handle easily without extra call
+    handle: null,
     title: (record.title as string) || "Untitled",
     authors: authors as ArticleAuthor[],
     sourceFormat: (record.sourceFormat as SourceFormat) || "markdown",
@@ -820,8 +848,9 @@ function transformRecordToArticleDetail(
     createdAt: (record.createdAt as string) || new Date().toISOString(),
     announcementUri: null,
     announcementCid: null,
-    blocks: blocks as ArticleBlock[],
-    bibliography: (record.bibliography as BibliographyEntry[]) || [],
+    blocks: normalizeBlocks(blocks),
+    bibliography,
+    images,
   };
 }
 
@@ -1881,7 +1910,7 @@ async function publishWorkspaceFile(
         authors,
         blocks,
         bibliography,
-        images: imageAssets,
+        images: imageAssets as unknown as sci.peer.article.ImageAsset[],
         createdAt: new Date(existing.createdAt).toISOString(),
       },
       { rkey: targetRkey },
@@ -1945,6 +1974,7 @@ async function publishWorkspaceFile(
       authorsJson: JSON.stringify(authors),
       blocksJson: serializeBlocks(blocks),
       bibliographyJson: serializeBibliography(bibliography),
+      imagesJson: JSON.stringify(imageAssets),
       sourceFormat,
       indexedAt: now,
       broadcasted,
@@ -1957,9 +1987,10 @@ async function publishWorkspaceFile(
       authors,
       blocks,
       bibliography,
-      images: imageAssets,
+      images: imageAssets as unknown as sci.peer.article.ImageAsset[],
       createdAt: now,
     });
+
     const atUri = new AtUri(created.uri);
 
     targetDid = did;
@@ -2005,6 +2036,7 @@ async function publishWorkspaceFile(
       authorsJson: JSON.stringify(authors),
       blocksJson: serializeBlocks(blocks),
       bibliographyJson: serializeBibliography(bibliography),
+      imagesJson: JSON.stringify(imageAssets),
       sourceFormat,
       broadcasted: announcement ? 1 : 0,
       createdAt: now,

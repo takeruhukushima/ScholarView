@@ -7,11 +7,12 @@ import katex from "katex";
 
 import type { ArticleBlock } from "@/lib/articles/blocks";
 import {
-  formatBibliographyIEEE,
   formatCitationChip,
+  formatAuthorsForReference,
   type BibliographyEntry,
 } from "@/lib/articles/citations";
-import type { ArticleAuthor, InlineCommentView } from "@/lib/types";
+import { referenceAnchorId } from "@/lib/workspace/utils";
+import type { ArticleAuthor, InlineCommentView, ArticleImageAsset } from "@/lib/types";
 
 import { InlineCommentComposer } from "./InlineCommentComposer";
 
@@ -22,6 +23,7 @@ interface ArticleViewerProps {
   authors: ArticleAuthor[];
   blocks: ArticleBlock[];
   bibliography: BibliographyEntry[];
+  images?: ArticleImageAsset[];
   comments: InlineCommentView[];
   canComment: boolean;
   canEdit: boolean;
@@ -63,9 +65,10 @@ function renderInlineMarkdown(
   keyPrefix: string,
   bibliographyByKey: Map<string, BibliographyEntry>,
   keyToNumber: Map<string, number>,
+  resolveImageUrl?: (src: string) => string | null,
 ) {
   const nodes: React.ReactNode[] = [];
-  const regex = /(`[^`]+`|\\cite\{[^}]+\}|\$(?:\\.|[^$\n])+\$|\[@?([^\]]+)\]|\*\*(.+?)\*\*)/g;
+  const regex = /(!\[[^\]]*\]\(([^)\s]+)\)(?:\{[^}]*\})?|`[^`]+`|\\cite\{[^}]+\}|\$(?:\\.|[^$\n])+\$|\[@?([^\]]+)\]|\*\*(.+?)\*\*)/g;
   let last = 0;
   let idx = 0;
 
@@ -79,7 +82,24 @@ function renderInlineMarkdown(
     }
 
     const token = match[0];
-    if (token.startsWith("**") && token.endsWith("**")) {
+    if (token.startsWith("![") && token.includes("](")) {
+      const imgMatch = token.match(/!\[([^\]]*)\]\(([^)\s]+)\)(?:\{([^}]*)\})?/);
+      if (imgMatch) {
+        const alt = imgMatch[1];
+        const src = imgMatch[2];
+        const resolved = resolveImageUrl ? resolveImageUrl(src) : src;
+        nodes.push(
+          <span key={`${keyPrefix}-img-${idx++}`} className="block my-6 text-center">
+            <img
+              src={resolved || ""}
+              alt={alt}
+              className="mx-auto rounded-lg border border-slate-200 shadow-sm max-w-full"
+            />
+            {alt && <span className="block mt-2 text-xs text-slate-500 italic">{alt}</span>}
+          </span>
+        );
+      }
+    } else if (token.startsWith("**") && token.endsWith("**")) {
       nodes.push(
         <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold text-slate-900">
           {token.slice(2, -2)}
@@ -108,7 +128,7 @@ function renderInlineMarkdown(
                 {i > 0 ? ", " : ""}
                 {num ? (
                   <Link
-                    href={`#cite-${num}`}
+                    href={`#${referenceAnchorId("cite", k)}`}
                     title={entry?.title ?? k}
                     className="hover:underline cursor-pointer"
                   >
@@ -167,6 +187,7 @@ function renderMarkdownWithHighlight(
   keyPrefix: string,
   bibliographyByKey: Map<string, BibliographyEntry>,
   keyToNumber: Map<string, number>,
+  resolveImageUrl?: (src: string) => string | null,
 ) {
   const lines = content.split("\n");
 
@@ -174,7 +195,7 @@ function renderMarkdownWithHighlight(
     if (!quote) {
       return (
         <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber)}
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber, resolveImageUrl)}
           {lineIdx < lines.length - 1 ? <br /> : null}
         </span>
       );
@@ -184,7 +205,7 @@ function renderMarkdownWithHighlight(
     if (pos === -1) {
       return (
         <span key={`${keyPrefix}-line-${lineIdx}`}>
-          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber)}
+          {renderInlineMarkdown(line, `${keyPrefix}-line-${lineIdx}`, bibliographyByKey, keyToNumber, resolveImageUrl)}
           {lineIdx < lines.length - 1 ? <br /> : null}
         </span>
       );
@@ -196,11 +217,11 @@ function renderMarkdownWithHighlight(
 
     return (
       <span key={`${keyPrefix}-line-${lineIdx}`}>
-        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey, keyToNumber) : null}
+        {before ? renderInlineMarkdown(before, `${keyPrefix}-line-${lineIdx}-before`, bibliographyByKey, keyToNumber, resolveImageUrl) : null}
         <mark className="rounded bg-amber-200/70 px-0.5 text-inherit">
-          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey, keyToNumber)}
+          {renderInlineMarkdown(match, `${keyPrefix}-line-${lineIdx}-mark`, bibliographyByKey, keyToNumber, resolveImageUrl)}
         </mark>
-        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey, keyToNumber) : null}
+        {after ? renderInlineMarkdown(after, `${keyPrefix}-line-${lineIdx}-after`, bibliographyByKey, keyToNumber, resolveImageUrl) : null}
         {lineIdx < lines.length - 1 ? <br /> : null}
       </span>
     );
@@ -221,6 +242,7 @@ export function ArticleViewer({
   authors,
   blocks,
   bibliography,
+  images = [],
   comments,
   canComment,
   canEdit,
@@ -287,6 +309,31 @@ export function ArticleViewer({
     bibliography.forEach((entry, i) => map.set(entry.key, i + 1));
     return map;
   }, [bibliography]);
+
+  const resolveImageUrl = (src: string) => {
+    if (!src) return null;
+    if (src.startsWith("http") || src.startsWith("data:") || src.startsWith("blob:")) return src;
+    
+    // Resolve workspace:// or relative paths using the images array
+    const cleanSrc = src.replace(/^workspace:\/\//, "").replace(/^\//, "");
+    const imageAsset = images.find(img => {
+      const imgPath = img.path.replace(/^workspace:\/\//, "").replace(/^\//, "");
+      return imgPath === cleanSrc || img.path === src;
+    });
+
+    if (imageAsset?.blob?.ref) {
+      const ref = imageAsset.blob.ref as { $link?: string; toString: () => string };
+      const cid = typeof ref === "string" 
+        ? ref 
+        : ref.$link || ref.toString();
+        
+      if (cid) {
+        // Use public bsky.social RPC to get the blob for guest users
+        return `https://bsky.social/xrpc/com.atproto.sync.getBlob?did=${did}&cid=${cid}`;
+      }
+    }
+    return src;
+  };
 
   const dedupedComments = useMemo(() => {
     const seen = new Set<string>();
@@ -475,6 +522,7 @@ export function ArticleViewer({
                   `block-${idx}`,
                   bibliographyByKey,
                   keyToNumber,
+                  resolveImageUrl,
                 )}
               </div>
             </section>
@@ -488,16 +536,33 @@ export function ArticleViewer({
               <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Bibliographic References</p>
             </div>
             <ol className="space-y-3 px-1">
-              {formatBibliographyIEEE(bibliography).map((ref, idx) => (
-                <li 
-                  id={`cite-${idx + 1}`}
-                  key={`${ref}-${idx}`} 
-                  className="text-[12px] leading-relaxed text-slate-500 list-none pl-6 -indent-6 scroll-mt-24"
-                >
-                  <span className="inline-block w-6 text-slate-400 font-mono font-bold">[{idx + 1}]</span>
-                  {ref.replace(/^\[\d+\]\s*/, "")}
-                </li>
-              ))}
+              {bibliography.map((entry, idx) => {
+                const author = entry.author ? formatAuthorsForReference(entry.author) : "Unknown author";
+                const title = entry.title ? `"${entry.title}"` : `"${entry.key}"`;
+                const year = entry.year ?? "n.d.";
+                return (
+                  <li 
+                    id={referenceAnchorId("cite", entry.key)}
+                    key={`${entry.key}-${idx}`} 
+                    className="text-[12px] leading-relaxed text-slate-500 list-none pl-6 -indent-6 scroll-mt-24"
+                  >
+                    <span className="inline-block w-6 text-slate-400 font-mono font-bold">[{idx + 1}]</span>
+                    {author},{" "}
+                    {entry.url ? (
+                      <a 
+                        href={entry.url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="text-indigo-600 hover:underline font-medium"
+                      >
+                        {title}
+                      </a>
+                    ) : (
+                      title
+                    )}, {year}.
+                  </li>
+                );
+              })}
             </ol>
           </section>
         ) : null}
