@@ -71,7 +71,7 @@ interface EditorPanelProps {
   // Actions
   handlePublish: () => Promise<void>;
   broadcastPreviewText: string | null;
-  confirmPublish: (text: string) => void;
+  confirmPublish: (text: string, shouldNotify: boolean) => void;
   cancelPublish: () => void;
   handleUnpublish: () => Promise<void>;
   handleExport: (target: "md" | "tex") => void;
@@ -316,6 +316,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
       {broadcastPreviewText && (
         <BroadcastPreviewModal
           defaultText={broadcastPreviewText}
+          isUpdate={Boolean(currentDid && currentRkey)}
           onConfirm={confirmPublish}
           onCancel={cancelPublish}
         />
@@ -505,15 +506,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                     type="button"
                     disabled={busy}
                     onClick={() => {
-                      if (activeFile?.linkedArticleUri && !broadcastToBsky) {
-                        void handleUnpublish().catch((err: unknown) => {
-                          setStatusMessage(err instanceof Error ? err.message : "Failed to unpublish");
-                        });
-                      } else {
-                        void handlePublish().catch((err: unknown) => {
-                          setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
-                        });
-                      }
+                      void handlePublish().catch((err: unknown) => {
+                        setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
+                      });
                     }}
                     className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
                   >

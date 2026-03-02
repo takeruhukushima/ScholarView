@@ -749,12 +749,59 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
   const articleUri = buildArticleUri(did, rkey);
   const now = new Date().toISOString();
   const broadcastToBsky = body.broadcastToBsky === true;
-  const announcement = await getAnnouncementByArticleUri(articleUri);
+  let announcement = await getAnnouncementByArticleUri(articleUri);
+  if (!announcement) {
+    const discovered = await discoverAnnouncement(did, rkey, fetch);
+    if (discovered) {
+      await upsertArticleAnnouncement({
+        articleUri,
+        announcementUri: discovered.uri,
+        announcementCid: discovered.cid,
+        authorDid: did,
+        createdAt: now,
+      });
+      announcement = {
+        articleUri,
+        announcementUri: discovered.uri,
+        announcementCid: discovered.cid,
+        authorDid: did,
+        createdAt: now,
+      };
+    }
+  }
+  if (announcement) {
+    const normalizedRoot =
+      (await normalizeAnnouncementRootWithLex(announcement.announcementUri, lex)) ??
+      (await normalizeAnnouncementRootWithPublicApi(announcement.announcementUri, fetch));
+    if (normalizedRoot && normalizedRoot.uri !== announcement.announcementUri) {
+      await upsertArticleAnnouncement({
+        articleUri,
+        announcementUri: normalizedRoot.uri,
+        announcementCid: normalizedRoot.cid,
+        authorDid: did,
+        createdAt: now,
+      });
+      announcement = {
+        ...announcement,
+        announcementUri: normalizedRoot.uri,
+        announcementCid: normalizedRoot.cid,
+        createdAt: now,
+      };
+    }
+  }
   let announcementUri = announcement?.announcementUri ?? null;
   let broadcasted: 0 | 1 = announcement ? 1 : 0;
   const forceBroadcast = customBroadcastText !== null;
+  const shouldAlreadyHaveAnnouncement = current.broadcasted === 1;
 
   if (broadcastToBsky && (!announcement || forceBroadcast)) {
+    if (!announcement && shouldAlreadyHaveAnnouncement) {
+      throw new HttpError(
+        409,
+        "Existing discussion root was not found. Open the discussion once and retry.",
+      );
+    }
+
     const atprotoAtUrl = buildScholarViewArticleUrl(did, rkey);
     let postText = `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`;
     let embedUri = atprotoAtUrl;
@@ -769,10 +816,31 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
 
     console.log(`[Update] Broadcasting. Text: "${postText}", Embed: ${embedUri}`);
 
+    let reply:
+      | {
+          root: { uri: string; cid: string };
+          parent: { uri: string; cid: string };
+        }
+      | undefined;
+    if (announcement) {
+      const tail = await findThreadTail(announcement.announcementUri, did, lex);
+      reply = {
+        root: {
+          uri: announcement.announcementUri,
+          cid: announcement.announcementCid,
+        },
+        parent: {
+          uri: tail.uri,
+          cid: tail.cid,
+        },
+      };
+    }
+
     const post = await lex.createRecord({
       $type: "app.bsky.feed.post",
       text: postText,
       createdAt: now,
+      ...(reply ? { reply } : {}),
       embed: {
         $type: "app.bsky.embed.external",
         external: {
@@ -783,14 +851,18 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
       },
     });
 
-    await upsertArticleAnnouncement({
-      articleUri,
-      announcementUri: post.body.uri,
-      announcementCid: post.body.cid,
-      authorDid: did,
-      createdAt: now,
-    });
-    announcementUri = post.body.uri;
+    if (!announcement) {
+      await upsertArticleAnnouncement({
+        articleUri,
+        announcementUri: post.body.uri,
+        announcementCid: post.body.cid,
+        authorDid: did,
+        createdAt: now,
+      });
+      announcementUri = post.body.uri;
+    } else {
+      announcementUri = announcement.announcementUri;
+    }
     broadcasted = 1;
   }
 
@@ -873,6 +945,95 @@ async function resolvePdsEndpoint(did: string): Promise<string | null> {
   }
 }
 
+async function resolveCidViaPublicApi(
+  uri: string,
+  originalFetch: typeof fetch,
+): Promise<string> {
+  try {
+    const atUri = new AtUri(uri);
+    const query = new URLSearchParams({
+      repo: atUri.hostname,
+      collection: atUri.collection,
+      rkey: atUri.rkey,
+    });
+    const response = await originalFetch(
+      `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return "";
+    const payload = (await response.json()) as { cid?: unknown };
+    return asString(payload.cid);
+  } catch {
+    return "";
+  }
+}
+
+async function normalizeAnnouncementRootWithPublicApi(
+  announcementUri: string,
+  originalFetch: typeof fetch,
+): Promise<{ uri: string; cid: string } | null> {
+  try {
+    const atUri = new AtUri(announcementUri);
+    const query = new URLSearchParams({
+      repo: atUri.hostname,
+      collection: atUri.collection,
+      rkey: atUri.rkey,
+    });
+    const response = await originalFetch(
+      `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
+      { cache: "no-store" },
+    );
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as { value?: unknown };
+    const value = asObject(payload.value);
+    const reply = asObject(value?.reply);
+    const root = asObject(reply?.root);
+    const rootUri = asString(root?.uri);
+    if (!rootUri) return null;
+
+    let rootCid = asString(root?.cid);
+    if (!rootCid) {
+      rootCid = await resolveCidViaPublicApi(rootUri, originalFetch);
+    }
+    if (!rootCid) return null;
+    return { uri: rootUri, cid: rootCid };
+  } catch {
+    return null;
+  }
+}
+
+async function normalizeAnnouncementRootWithLex(
+  announcementUri: string,
+  lex: Client,
+): Promise<{ uri: string; cid: string } | null> {
+  try {
+    const atUri = new AtUri(announcementUri);
+    const query = new URLSearchParams({
+      repo: atUri.hostname,
+      collection: atUri.collection,
+      rkey: atUri.rkey,
+    });
+    const response = await lex.fetchHandler(
+      `/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
+      { method: "GET" },
+    );
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { value?: unknown };
+    const value = asObject(payload.value);
+    const reply = asObject(value?.reply);
+    const root = asObject(reply?.root);
+    const rootUri = asString(root?.uri);
+    if (!rootUri) return null;
+
+    const rootCid = asString(root?.cid) || (await resolveCid(rootUri));
+    if (!rootCid) return null;
+    return { uri: rootUri, cid: rootCid };
+  } catch {
+    return null;
+  }
+}
+
 async function discoverAnnouncement(
   did: string,
   rkey: string,
@@ -880,71 +1041,134 @@ async function discoverAnnouncement(
 ): Promise<{ uri: string; cid: string } | null> {
   const articleUrl = buildScholarViewArticleUrl(did, rkey);
   try {
-    const query = new URLSearchParams({
-      actor: did,
-      limit: "100", // Increase limit to find older announcements
-    });
-    // Search the author's feed for a post that embeds this article's URL
-    const res = await originalFetch(
-      `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?${query.toString()}`,
-      { cache: "no-store" },
-    );
-    if (!res.ok) return null;
+    const matches: Array<{
+      uri: string;
+      cid: string;
+      createdAt: string;
+      isReply: boolean;
+      rootUri: string | null;
+      rootCid: string | null;
+    }> = [];
+    const MAX_PAGES = 20;
+    let cursor = "";
 
-    const payload = (await res.json()) as { feed?: unknown[] };
-    const feed = Array.isArray(payload.feed) ? payload.feed : [];
+    // Pre-calculate encoded DID and path suffix for faster matching
+    const encodedDid = encodeURIComponent(did);
+    const pathSuffix = `/article/${did}/${rkey}`;
+    const encodedPathSuffix = `/article/${encodedDid}/${rkey}`;
 
-    for (const item of feed) {
-      const itemObj = asObject(item);
-      const post = asObject(itemObj?.post);
-      if (!post) continue;
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const query = new URLSearchParams({
+        actor: did,
+        limit: "100",
+      });
+      if (cursor) {
+        query.set("cursor", cursor);
+      }
 
-      const record = asObject(post.record);
-      // Try post.embed (view-side) first, then fallback to record.embed (model-side)
-      const embed = asObject(post.embed) || asObject(record?.embed);
+      const res = await originalFetch(
+        `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?${query.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!res.ok) return null;
 
-      // Check for external embed in the post record or view
-      if (
-        embed &&
-        (embed["$type"] === "app.bsky.embed.external" ||
-          embed["$type"] === "app.bsky.embed.external#view" ||
-          embed["$type"] === "app.bsky.embed.external#main")
-      ) {
+      const payload = (await res.json()) as { feed?: unknown[]; cursor?: unknown };
+      const feed = Array.isArray(payload.feed) ? payload.feed : [];
+
+      for (const item of feed) {
+        const itemObj = asObject(item);
+        const post = asObject(itemObj?.post);
+        if (!post) continue;
+
+        const record = asObject(post.record);
+        const embed = asObject(post.embed) || asObject(record?.embed);
+
+        if (
+          !embed ||
+          (embed["$type"] !== "app.bsky.embed.external" &&
+            embed["$type"] !== "app.bsky.embed.external#view" &&
+            embed["$type"] !== "app.bsky.embed.external#main")
+        ) {
+          continue;
+        }
+
         const external = asObject(embed.external);
         const externalUri = asString(external?.uri);
-        
-        if (externalUri) {
-          let isMatch = false;
+        if (!externalUri) continue;
+
+        let isMatch = false;
+        if (
+          externalUri === articleUrl ||
+          externalUri.split("?")[0] === articleUrl.split("?")[0] ||
+          externalUri.includes(pathSuffix) ||
+          externalUri.includes(encodedPathSuffix)
+        ) {
+          isMatch = true;
+        } else {
           try {
             const candidateUrl = new URL(externalUri);
             const pathParts = candidateUrl.pathname.split("/").filter(Boolean);
             if (pathParts.length >= 3 && pathParts[0] === "article") {
-              const candidateDid = decodeURIComponent(pathParts[1]);
+              const candidateId = decodeURIComponent(pathParts[1]);
               const candidateRkey = decodeURIComponent(pathParts[2]);
-              if (candidateDid === did && candidateRkey === rkey) {
-                isMatch = true;
+              if (candidateRkey === rkey) {
+                if (candidateId === did) {
+                  isMatch = true;
+                } else if (!candidateId.startsWith("did:")) {
+                  // If it's a handle, we should ideally resolve it, but for performance 
+                  // and since getAuthorFeed is already filtered by did, 
+                  // a rkey match on the same actor's feed is extremely likely to be it.
+                  isMatch = true;
+                }
               }
             }
           } catch {
-            const encodedDid = encodeURIComponent(did);
-            isMatch =
-              externalUri.includes(`/article/${did}/${rkey}`) ||
-              externalUri.includes(`/article/${encodedDid}/${rkey}`);
-          }
-
-          if (
-            isMatch ||
-            externalUri === articleUrl ||
-            externalUri.split("?")[0] === articleUrl.split("?")[0]
-          ) {
-            return {
-              uri: asString(post.uri),
-              cid: asString(post.cid),
-            };
+            // ignore
           }
         }
+
+        if (!isMatch) continue;
+
+        const reply = asObject(record?.reply);
+        const root = asObject(reply?.root);
+        const rootUri = asString(root?.uri);
+        const rootCid = asString(root?.cid);
+        matches.push({
+          uri: asString(post.uri),
+          cid: asString(post.cid),
+          createdAt:
+            asString(record?.createdAt) || asString(post.indexedAt) || new Date().toISOString(),
+          isReply: Boolean(reply),
+          rootUri: rootUri || null,
+          rootCid: rootCid || null,
+        });
       }
+
+      const nextCursor = asString(payload.cursor);
+      if (!nextCursor) break;
+      cursor = nextCursor;
     }
+
+    if (matches.length === 0) return null;
+
+    const roots = matches.filter((m) => !m.isReply);
+    const pool = roots.length > 0 ? roots : matches;
+
+    pool.sort((a, b) => {
+      const ams = safeTimestampMs(a.createdAt) ?? 0;
+      const bms = safeTimestampMs(b.createdAt) ?? 0;
+      return ams - bms;
+    });
+    const selected = pool[0];
+    const selectedUri = selected.isReply && selected.rootUri ? selected.rootUri : selected.uri;
+    let selectedCid = selected.isReply ? selected.rootCid ?? "" : selected.cid;
+
+    if (!selectedCid) {
+      selectedCid = await resolveCidViaPublicApi(selectedUri, originalFetch);
+    }
+    if (!selectedUri || !selectedCid) return null;
+
+    return { uri: selectedUri, cid: selectedCid };
   } catch (err) {
     console.error("Announcement discovery failed:", err);
   }
@@ -1298,6 +1522,26 @@ async function getDiscussion(
 
   if (!announcement) {
     return json({ success: true, root: null, thread: [] });
+  }
+
+  const normalizedRoot = await normalizeAnnouncementRootWithPublicApi(
+    announcement.announcementUri,
+    originalFetch,
+  );
+  if (normalizedRoot && normalizedRoot.uri !== announcement.announcementUri) {
+    await upsertArticleAnnouncement({
+      articleUri,
+      announcementUri: normalizedRoot.uri,
+      announcementCid: normalizedRoot.cid,
+      authorDid: did,
+      createdAt: new Date().toISOString(),
+    });
+    announcement = {
+      ...announcement,
+      announcementUri: normalizedRoot.uri,
+      announcementCid: normalizedRoot.cid,
+      createdAt: new Date().toISOString(),
+    };
   }
 
   let payload: unknown = null;
@@ -1971,6 +2215,64 @@ async function handleWorkspaceFilesPath(
   return null;
 }
 
+async function findThreadTail(
+  announcementUri: string,
+  authorDid: string,
+  lex: Client,
+): Promise<{ uri: string; cid: string }> {
+  try {
+    const query = new URLSearchParams({
+      uri: announcementUri,
+      depth: "100",
+      parentHeight: "0",
+    });
+    const response = await lex.fetchHandler(
+      `/xrpc/app.bsky.feed.getPostThread?${query.toString()}`,
+      { method: "GET" },
+    );
+    if (!response.ok) return { uri: announcementUri, cid: await resolveCid(announcementUri) };
+    const payload = (await response.json()) as { thread?: unknown };
+    const thread = asObject(payload.thread);
+    if (!thread) return { uri: announcementUri, cid: await resolveCid(announcementUri) };
+
+    const authorPosts: Array<{ uri: string; cid: string; createdAt: string }> = [];
+    const traverse = (node: unknown) => {
+      const post = asObject(asObject(node)?.post);
+      if (!post) return;
+      
+      const postAuthor = asObject(post.author);
+      const postAuthorDid = asString(postAuthor?.did);
+      
+      // Only collect posts made by the article author
+      if (postAuthorDid === authorDid) {
+        const uri = asString(post.uri);
+        const cid = asString(post.cid);
+        const record = asObject(post.record);
+        const createdAt = asString(record?.createdAt) || new Date().toISOString();
+        if (uri && cid) authorPosts.push({ uri, cid, createdAt });
+      }
+
+      const replies = Array.isArray(asObject(node)?.replies) ? asObject(node)?.replies : [];
+      for (const reply of (replies as unknown[])) traverse(reply);
+    };
+
+    traverse(thread);
+    
+    // Sort by createdAt ascending to find the very last post by the author
+    authorPosts.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    
+    if (authorPosts.length > 0) {
+      return {
+        uri: authorPosts[authorPosts.length - 1].uri,
+        cid: authorPosts[authorPosts.length - 1].cid,
+      };
+    }
+  } catch (e) {
+    console.error("Failed to find thread tail:", e);
+  }
+  return { uri: announcementUri, cid: await resolveCid(announcementUri) };
+}
+
 async function publishWorkspaceFile(
   request: Request,
   fileId: string,
@@ -1985,11 +2287,14 @@ async function publishWorkspaceFile(
     title?: unknown;
     authors?: unknown;
     broadcastToBsky?: unknown;
+    notifyUpdate?: unknown;
     broadcastText?: unknown;
     bibliography?: unknown;
   };
 
   const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
+  const shouldBroadcast = body.broadcastToBsky === true;
+  const shouldNotifyUpdate = body.notifyUpdate === true;
 
   const title =
     typeof body.title === "string" && body.title.trim()
@@ -2054,10 +2359,56 @@ async function publishWorkspaceFile(
       { rkey: targetRkey },
     );
 
-    const announcement = await getAnnouncementByArticleUri(articleUri);
-    const forceBroadcast = customBroadcastText !== null;
+    let announcement = await getAnnouncementByArticleUri(articleUri);
+    // Discovery: if announcement is missing from local DB, try to find it via author's feed
+    if (!announcement) {
+      const discovered = await discoverAnnouncement(did, targetRkey, fetch);
+      if (discovered) {
+        await upsertArticleAnnouncement({
+          articleUri,
+          announcementUri: discovered.uri,
+          announcementCid: discovered.cid,
+          authorDid: did,
+          createdAt: now,
+        });
+        announcement = {
+          articleUri,
+          announcementUri: discovered.uri,
+          announcementCid: discovered.cid,
+          authorDid: did,
+          createdAt: now,
+        };
+      }
+    }
+    if (announcement) {
+      const normalizedRoot =
+        (await normalizeAnnouncementRootWithLex(announcement.announcementUri, lex)) ??
+        (await normalizeAnnouncementRootWithPublicApi(announcement.announcementUri, fetch));
+      if (normalizedRoot && normalizedRoot.uri !== announcement.announcementUri) {
+        await upsertArticleAnnouncement({
+          articleUri,
+          announcementUri: normalizedRoot.uri,
+          announcementCid: normalizedRoot.cid,
+          authorDid: did,
+          createdAt: now,
+        });
+        announcement = {
+          ...announcement,
+          announcementUri: normalizedRoot.uri,
+          announcementCid: normalizedRoot.cid,
+          createdAt: now,
+        };
+      }
+    }
 
-    if (body.broadcastToBsky === true && (!announcement || forceBroadcast)) {
+    if (shouldBroadcast && shouldNotifyUpdate) {
+      if (!announcement && existing.broadcasted === 1) {
+        throw new HttpError(
+          409,
+          "Existing discussion root was not found. Open the discussion once and retry.",
+        );
+      }
+
       const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
       let postText = `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`;
       let embedUri = atprotoAtUrl;
@@ -2073,10 +2424,22 @@ async function publishWorkspaceFile(
 
       console.log(`[Publish] Broadcasting update. Text: "${postText}", Embed: ${embedUri}`);
 
+      // If we have an existing announcement, we want to reply to the tail of the thread
+      let reply: { root: { uri: string; cid: string }; parent: { uri: string; cid: string } } | undefined = undefined;
+      if (announcement) {
+        // Use author DID (did) to find the correct tail
+        const tail = await findThreadTail(announcement.announcementUri, did, lex);
+        reply = {
+          root: { uri: announcement.announcementUri, cid: announcement.announcementCid },
+          parent: { uri: tail.uri, cid: tail.cid },
+        };
+      }
+
       const post = await lex.createRecord({
         $type: "app.bsky.feed.post",
         text: postText,
         createdAt: now,
+        ...(reply ? { reply } : {}),
         embed: {
           $type: "app.bsky.embed.external",
           external: {
@@ -2086,23 +2449,17 @@ async function publishWorkspaceFile(
           },
         },
       });
-      await upsertArticleAnnouncement({
-        articleUri,
-        announcementUri: post.body.uri,
-        announcementCid: post.body.cid,
-        authorDid: did,
-        createdAt: now,
-      });
-      broadcasted = 1;
-    } else if (body.broadcastToBsky !== true && announcement) {
-      try {
-        const at = new AtUri(announcement.announcementUri);
-        await lex.deleteRecord("app.bsky.feed.post", at.rkey);
-      } catch {
-        // noop
+
+      if (!announcement) {
+        await upsertArticleAnnouncement({
+          articleUri,
+          announcementUri: post.body.uri,
+          announcementCid: post.body.cid,
+          authorDid: did,
+          createdAt: now,
+        });
       }
-      await deleteAnnouncementByUri(announcement.announcementUri);
-      broadcasted = 0;
+      broadcasted = 1;
     } else {
       broadcasted = announcement ? 1 : 0;
     }
@@ -2136,7 +2493,7 @@ async function publishWorkspaceFile(
     articleUri = created.uri;
 
     let announcement: { uri: string; cid: string } | null = null;
-    if (body.broadcastToBsky === true) {
+    if (shouldBroadcast) {
       const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
       let postText = `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
       let embedUri = atprotoAtUrl;
