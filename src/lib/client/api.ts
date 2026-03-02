@@ -553,6 +553,7 @@ async function createArticle(request: Request): Promise<Response> {
     authors?: unknown;
     sourceFormat?: unknown;
     broadcastToBsky?: unknown;
+    broadcastText?: unknown;
     markdown?: unknown;
     tex?: unknown;
     resolvedMarkdown?: unknown;
@@ -560,6 +561,7 @@ async function createArticle(request: Request): Promise<Response> {
     blocks?: unknown;
     bibliography?: unknown;
   };
+  const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
 
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) throw new HttpError(400, "Title is required");
@@ -598,14 +600,27 @@ async function createArticle(request: Request): Promise<Response> {
   const articleAt = new AtUri(article.uri);
   if (body.broadcastToBsky === true) {
     const atprotoAtUrl = buildScholarViewArticleUrl(did, articleAt.rkey);
+    let postText = `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
+    let embedUri = atprotoAtUrl;
+
+    if (customBroadcastText) {
+      postText = customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl);
+      const urlMatch = postText.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        embedUri = urlMatch[0];
+      }
+    }
+
+    console.log(`[Create] Broadcasting. Text: "${postText}", Embed: ${embedUri}`);
+
     const post = await lex.createRecord({
       $type: "app.bsky.feed.post",
-      text: `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`,
+      text: postText,
       createdAt,
       embed: {
         $type: "app.bsky.embed.external",
         external: {
-          uri: atprotoAtUrl,
+          uri: embedUri,
           title,
           description: "ScholarViewで論文を公開しました",
         },
@@ -663,8 +678,10 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
     tex?: unknown;
     blocks?: unknown;
     broadcastToBsky?: unknown;
+    broadcastText?: unknown;
     bibliography?: unknown;
   };
+  const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
 
   const title = typeof body.title === "string" ? body.title.trim() : "";
   if (!title) throw new HttpError(400, "Title is required");
@@ -709,17 +726,31 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
   const announcement = await getAnnouncementByArticleUri(articleUri);
   let announcementUri = announcement?.announcementUri ?? null;
   let broadcasted: 0 | 1 = announcement ? 1 : 0;
+  const forceBroadcast = customBroadcastText !== null;
 
-  if (broadcastToBsky && !announcement) {
+  if (broadcastToBsky && (!announcement || forceBroadcast)) {
     const atprotoAtUrl = buildScholarViewArticleUrl(did, rkey);
+    let postText = `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`;
+    let embedUri = atprotoAtUrl;
+
+    if (customBroadcastText) {
+      postText = customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl);
+      const urlMatch = postText.match(/https?:\/\/[^\s]+/);
+      if (urlMatch) {
+        embedUri = urlMatch[0];
+      }
+    }
+
+    console.log(`[Update] Broadcasting. Text: "${postText}", Embed: ${embedUri}`);
+
     const post = await lex.createRecord({
       $type: "app.bsky.feed.post",
-      text: `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`,
+      text: postText,
       createdAt: now,
       embed: {
         $type: "app.bsky.embed.external",
         external: {
-          uri: atprotoAtUrl,
+          uri: embedUri,
           title,
           description: "ScholarViewで論文を公開しました",
         },
@@ -730,7 +761,7 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
       articleUri,
       announcementUri: post.body.uri,
       announcementCid: post.body.cid,
-      authorDid: sessionDid,
+      authorDid: did,
       createdAt: now,
     });
     announcementUri = post.body.uri;
@@ -1743,8 +1774,11 @@ async function publishWorkspaceFile(
     title?: unknown;
     authors?: unknown;
     broadcastToBsky?: unknown;
+    broadcastText?: unknown;
     bibliography?: unknown;
   };
+
+  const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
 
   const title =
     typeof body.title === "string" && body.title.trim()
@@ -1810,16 +1844,32 @@ async function publishWorkspaceFile(
     );
 
     const announcement = await getAnnouncementByArticleUri(articleUri);
-    if (body.broadcastToBsky === true && !announcement) {
+    const forceBroadcast = customBroadcastText !== null;
+
+    if (body.broadcastToBsky === true && (!announcement || forceBroadcast)) {
       const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
+      let postText = `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`;
+      let embedUri = atprotoAtUrl;
+
+      if (customBroadcastText) {
+        postText = customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl);
+        // Try to extract the edited URL from the text to use for the link card
+        const urlMatch = postText.match(/https?:\/\/[^\s]+/);
+        if (urlMatch) {
+          embedUri = urlMatch[0];
+        }
+      }
+
+      console.log(`[Publish] Broadcasting update. Text: "${postText}", Embed: ${embedUri}`);
+
       const post = await lex.createRecord({
         $type: "app.bsky.feed.post",
-        text: `更新した論文を公開しました：『${title}』 ${atprotoAtUrl}`,
+        text: postText,
         createdAt: now,
         embed: {
           $type: "app.bsky.embed.external",
           external: {
-            uri: atprotoAtUrl,
+            uri: embedUri,
             title,
             description: "ScholarViewで論文を公開しました",
           },
@@ -1875,14 +1925,27 @@ async function publishWorkspaceFile(
     let announcement: { uri: string; cid: string } | null = null;
     if (body.broadcastToBsky === true) {
       const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
+      let postText = `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
+      let embedUri = atprotoAtUrl;
+
+      if (customBroadcastText) {
+        postText = customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl);
+        const urlMatch = postText.match(/https?:\/\/[^\s]+/);
+        if (urlMatch) {
+          embedUri = urlMatch[0];
+        }
+      }
+
+      console.log(`[Publish] Broadcasting new article. Text: "${postText}", Embed: ${embedUri}`);
+
       const post = await lex.createRecord({
         $type: "app.bsky.feed.post",
-        text: `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`,
+        text: postText,
         createdAt: now,
         embed: {
           $type: "app.bsky.embed.external",
           external: {
-            uri: atprotoAtUrl,
+            uri: embedUri,
             title,
             description: "ScholarViewで論文を公開しました",
           },

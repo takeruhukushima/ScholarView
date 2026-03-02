@@ -35,6 +35,7 @@ import {
 } from "../RichRenderer";
 import { ExportPreview } from "../hooks/useWorkspacePublishing";
 import { ExportPreviewModal } from "./ExportPreviewModal";
+import { BroadcastPreviewModal } from "./BroadcastPreviewModal";
 
 interface EditorPanelProps {
   // Document State
@@ -69,6 +70,9 @@ interface EditorPanelProps {
   
   // Actions
   handlePublish: () => Promise<void>;
+  broadcastPreviewText: string | null;
+  confirmPublish: (text: string) => void;
+  cancelPublish: () => void;
   handleUnpublish: () => Promise<void>;
   handleExport: (target: "md" | "tex") => void;
   confirmExportToFolder: () => void;
@@ -153,6 +157,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   currentRkey,
   readOnlyMessage,
   handlePublish,
+  broadcastPreviewText,
+  confirmPublish,
+  cancelPublish,
   handleUnpublish,
   handleExport,
   confirmExportToFolder,
@@ -306,6 +313,13 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         setBlockMoveDropTarget(null);
       }}
     >
+      {broadcastPreviewText && (
+        <BroadcastPreviewModal
+          defaultText={broadcastPreviewText}
+          onConfirm={confirmPublish}
+          onCancel={cancelPublish}
+        />
+      )}
       {exportPreview && (
         <ExportPreviewModal
           exportPreview={exportPreview}
@@ -491,15 +505,20 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                     type="button"
                     disabled={busy}
                     onClick={() => {
-                      void handlePublish().catch((err: unknown) => {
-                        setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
-                      });
+                      if (activeFile?.linkedArticleUri && !broadcastToBsky) {
+                        void handleUnpublish().catch((err: unknown) => {
+                          setStatusMessage(err instanceof Error ? err.message : "Failed to unpublish");
+                        });
+                      } else {
+                        void handlePublish().catch((err: unknown) => {
+                          setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
+                        });
+                      }
                     }}
                     className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
                   >
                     Broadcast
-                  </button>
-                </div>
+                  </button>                </div>
               )}
 
               {canEditCurrentFile && !isBibWorkspaceFile && (

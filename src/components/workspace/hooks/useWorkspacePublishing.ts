@@ -6,6 +6,7 @@ import { parseAuthors } from "@/lib/articles/authors";
 import { exportSource } from "@/lib/export/document";
 import { sanitizeFileStem, isWorkspaceImageFile } from "@/lib/workspace/image-logic";
 import { triggerFileDownload } from "@/lib/workspace/utils";
+import { buildScholarViewArticleUrl } from "@/lib/articles/uri";
 
 export interface ExportPreview {
   content: string;
@@ -73,32 +74,10 @@ export function useWorkspacePublishing({
   files,
 }: UseWorkspacePublishingProps) {
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
+  const [broadcastPreviewText, setBroadcastPreviewText] = useState<string | null>(null);
 
-  const handlePublish = async () => {
-    if (!sessionDid) {
-      setStatusMessage("Login required to broadcast.");
-      alert("Please log in from the sidebar to broadcast your article.");
-      return;
-    }
-
-    if (!activeFile || activeFile.kind !== "file") {
-      setStatusMessage("Select a file and ensure you have edit permission.");
-      return;
-    }
-    const isImage = activeFile.name.match(/\.(png|jpe?g|gif|webp|svg)$/i);
-    if (isImage) {
-      setStatusMessage("Image files cannot be published.");
-      return;
-    }
-    if (activeFile.name.toLowerCase().endsWith(".bib")) {
-      setStatusMessage("BibTeX files are citation data and cannot be published.");
-      return;
-    }
-
-    if (!title.trim()) {
-      setStatusMessage("Title is required.");
-      return;
-    }
+  const performPublish = async (broadcastText?: string) => {
+    if (!activeFile) return;
 
     setBusy(true);
     try {
@@ -112,7 +91,8 @@ export function useWorkspacePublishing({
           body: JSON.stringify({
             title,
             authors: parseAuthors(authorsText),
-            broadcastToBsky,
+            broadcastToBsky: !!broadcastText || broadcastToBsky,
+            broadcastText,
             bibliography: resolvedBibliography.map((entry) => ({
               key: entry.key,
               rawBibtex: entry.rawBibtex,
@@ -157,15 +137,67 @@ export function useWorkspacePublishing({
       } else {
         setStatusMessage("Published article.");
       }
+    } catch (err: unknown) {
+      setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
     } finally {
       setBusy(false);
     }
+  };
+
+  const handlePublish = async () => {
+    if (!sessionDid) {
+      setStatusMessage("Login required to broadcast.");
+      alert("Please log in from the sidebar to broadcast your article.");
+      return;
+    }
+
+    if (!activeFile || activeFile.kind !== "file") {
+      setStatusMessage("Select a file and ensure you have edit permission.");
+      return;
+    }
+    const isImage = activeFile.name.match(/\.(png|jpe?g|gif|webp|svg)$/i);
+    if (isImage) {
+      setStatusMessage("Image files cannot be published.");
+      return;
+    }
+    if (activeFile.name.toLowerCase().endsWith(".bib")) {
+      setStatusMessage("BibTeX files are citation data and cannot be published.");
+      return;
+    }
+
+    if (!title.trim()) {
+      setStatusMessage("Title is required.");
+      return;
+    }
+
+    let defaultText = "";
+    if (currentDid && currentRkey) {
+      const url = buildScholarViewArticleUrl(currentDid, currentRkey);
+      defaultText = `更新した論文を公開しました：『${title}』 ${url}`;
+    } else {
+      defaultText = `新しい論文/実験計画を公開しました：『${title}』 {{article_url}}`;
+    }
+    setBroadcastPreviewText(defaultText);
+  };
+
+  const confirmPublish = async (text: string) => {
+    setBroadcastPreviewText(null);
+    await performPublish(text);
+  };
+
+  const cancelPublish = () => {
+    setBroadcastPreviewText(null);
   };
 
   const handleUnpublish = async () => {
     if (!currentDid || !currentRkey) {
       return;
     }
+
+    const confirmed = window.confirm(
+      "Bluesky Syncをオフにすると、Bluesky上の投稿とこれまでの議論（返信）が削除されます。よろしいですか？"
+    );
+    if (!confirmed) return;
 
     setBusy(true);
     try {
@@ -360,6 +392,9 @@ export function useWorkspacePublishing({
 
   return {
     handlePublish,
+    broadcastPreviewText,
+    confirmPublish,
+    cancelPublish,
     handleUnpublish,
     handleExport,
     confirmExportToFolder: handleExportToFolder,
