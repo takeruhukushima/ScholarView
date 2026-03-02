@@ -10,7 +10,7 @@
   }
 
   /* Dramatic improvement for link visibility in Starlight */
-  :global(.sl-markdown-content a:not([class])) {
+  .sl-markdown-content a:not([class]) {
     color: #4f46e5 !important;
     font-weight: 600 !important;
     text-decoration: underline !important;
@@ -20,7 +20,7 @@
     border-radius: 2px !important;
   }
 
-  :global(.sl-markdown-content a:not([class]):hover) {
+  .sl-markdown-content a:not([class]):hover {
     color: #4338ca !important;
     background-color: rgba(99, 102, 241, 0.1) !important;
   }
