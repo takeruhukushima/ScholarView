@@ -523,6 +523,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const {
     handlePublish,
+    broadcastPreviewText,
+    confirmPublish,
+    cancelPublish,
     handleUnpublish,
     handleExport,
     confirmExportToFolder,
@@ -786,6 +789,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             currentRkey={currentRkey}
             readOnlyMessage={readOnlyMessage}
             handlePublish={handlePublish}
+            broadcastPreviewText={broadcastPreviewText}
+            confirmPublish={confirmPublish}
+            cancelPublish={cancelPublish}
             handleUnpublish={handleUnpublish}
             handleExport={handleExport}
             confirmExportToFolder={confirmExportToFolder}

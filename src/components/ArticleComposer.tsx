@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { parseMarkdownToBlocks, parseTexToBlocks } from "@/lib/articles/blocks";
-import { buildArticlePath } from "@/lib/articles/uri";
+import { buildArticlePath, buildScholarViewArticleUrl } from "@/lib/articles/uri";
 import { formatAuthors, parseAuthors } from "@/lib/articles/authors";
 import { getActiveDid } from "@/lib/auth/browser";
 import type { ArticleAuthor, SourceFormat } from "@/lib/types";
+import { BroadcastPreviewModal } from "./workspace/UI/BroadcastPreviewModal";
 
 const MAX_TITLE_LENGTH = 300;
 
@@ -63,6 +64,7 @@ export function ArticleComposer({
 
   const [loading, setLoading] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [broadcastPreviewText, setBroadcastPreviewText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const titleRef = useRef<HTMLInputElement>(null);
@@ -113,9 +115,23 @@ export function ArticleComposer({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setLoading(true);
     setError(null);
 
+    // If it's the edit mode, we might want to broadcast even if sync was off.
+    // If it's create mode, same.
+    
+    let defaultText = "";
+    if (mode === "edit" && did && rkey) {
+      const url = buildScholarViewArticleUrl(did, rkey);
+      defaultText = `更新した論文を公開しました：『${title}』 ${url}`;
+    } else {
+      defaultText = `新しい論文/実験計画を公開しました：『${title}』 {{article_url}}`;
+    }
+    setBroadcastPreviewText(defaultText);
+  }
+
+  async function performSubmit(broadcastText?: string) {
+    setLoading(true);
     try {
       const endpoint =
         mode === "edit" && did && rkey
@@ -127,7 +143,8 @@ export function ArticleComposer({
         title,
         authors: parseAuthors(authorsText),
         sourceFormat,
-        broadcastToBsky,
+        broadcastToBsky: !!broadcastText || broadcastToBsky,
+        broadcastText,
         ...(sourceFormat === "tex" ? { tex: content } : { markdown: content }),
       };
 
@@ -237,6 +254,16 @@ export function ArticleComposer({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {broadcastPreviewText && (
+        <BroadcastPreviewModal
+          defaultText={broadcastPreviewText}
+          onConfirm={async (text) => {
+            setBroadcastPreviewText(null);
+            await performSubmit(text);
+          }}
+          onCancel={() => setBroadcastPreviewText(null)}
+        />
+      )}
       {mode === "create" ? (
         <div className="space-y-2 rounded-lg border border-zinc-200 dark:border-zinc-800 p-3">
           <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

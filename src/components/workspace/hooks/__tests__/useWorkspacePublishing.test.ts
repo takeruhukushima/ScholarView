@@ -15,6 +15,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     authorsText: 'Alice',
     broadcastToBsky: true,
     resolvedBibliography: [],
+    projectBibEntries: [],
     sourceText: '# Hello',
     sourceFormat: 'markdown' as const,
     currentDid: null,
@@ -33,6 +34,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     refreshArticles: mockRefreshArticles,
     loadDiscussion: vi.fn(),
     normalizeWorkspaceImageUrisForExport: (s: string) => s,
+    files: [],
   };
 
   beforeEach(() => {
@@ -49,15 +51,22 @@ describe('useWorkspacePublishing hook - Hardened', () => {
 
     const { result } = renderHook(() => useWorkspacePublishing(defaultProps));
 
+    await act(async () => {
+      await result.current.handlePublish();
+    });
+
+    expect(result.current.broadcastPreviewText).not.toBeNull();
+
     try {
       await act(async () => {
-        await result.current.handlePublish();
+        await result.current.confirmPublish('Custom Text');
       });
     } catch {
       // Expected error
     }
 
     expect(mockSetBusy).toHaveBeenCalledWith(true);
+    expect(mockSetStatusMessage).toHaveBeenCalledWith(expect.stringContaining('Server Crash'));
     expect(mockSetBusy).toHaveBeenCalledWith(false); 
   });
 
