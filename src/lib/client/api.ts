@@ -872,7 +872,60 @@ async function resolvePdsEndpoint(did: string): Promise<string | null> {
   }
 }
 
-async function getArticle(did: string, rkey: string): Promise<Response> {
+async function discoverAnnouncement(
+  did: string,
+  rkey: string,
+  originalFetch: typeof fetch,
+): Promise<{ uri: string; cid: string } | null> {
+  const articleUrl = buildScholarViewArticleUrl(did, rkey);
+  try {
+    const query = new URLSearchParams({
+      actor: did,
+      limit: "30",
+    });
+    // Search the author's feed for a post that embeds this article's URL
+    const res = await originalFetch(
+      `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?${query.toString()}`,
+      { cache: "no-store" },
+    );
+    if (!res.ok) return null;
+
+    const payload = (await res.json()) as { feed?: unknown[] };
+    const feed = Array.isArray(payload.feed) ? payload.feed : [];
+
+    for (const item of feed) {
+      const itemObj = asObject(item);
+      const post = asObject(itemObj?.post);
+      if (!post) continue;
+
+      const record = asObject(post.record);
+      const embed = asObject(record?.embed);
+
+      // Check for external embed in the post record
+      if (
+        embed &&
+        (embed["$type"] === "app.bsky.embed.external" ||
+          embed["$type"] === "app.bsky.embed.external#view")
+      ) {
+        const external = asObject(embed.external);
+        const externalUri = asString(external?.uri);
+        
+        // Match canonical URL (ignoring quote params if necessary, but broadcast uses exact match)
+        if (externalUri === articleUrl || externalUri.split("?")[0] === articleUrl.split("?")[0]) {
+          return {
+            uri: asString(post.uri),
+            cid: asString(post.cid),
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Announcement discovery failed:", err);
+  }
+  return null;
+}
+
+async function getArticle(did: string, rkey: string, originalFetch: typeof fetch): Promise<Response> {
   let article = await getArticleByDidAndRkey(did, rkey);
   if (!article) {
     const currentDid = await getActiveDid();
@@ -936,6 +989,24 @@ async function getArticle(did: string, rkey: string): Promise<Response> {
   }
 
   if (!article) throw new HttpError(404, "Article not found");
+
+  // Discovery: Try to find announcement if it's missing (common for guest views)
+  if (!article.announcementUri) {
+    const discovered = await discoverAnnouncement(did, rkey, originalFetch);
+    if (discovered) {
+      article.announcementUri = discovered.uri;
+      article.announcementCid = discovered.cid;
+      // Persist locally for future fast lookups
+      await upsertArticleAnnouncement({
+        articleUri: article.uri,
+        announcementUri: discovered.uri,
+        announcementCid: discovered.cid,
+        authorDid: did,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
   return json({ success: true, article });
 }
 
@@ -1171,11 +1242,32 @@ async function getDiscussion(
   originalFetch: typeof fetch,
 ): Promise<Response> {
   const articleUri = buildArticleUri(did, rkey);
-  const announcement = await getAnnouncementByArticleUri(articleUri);
+  let announcement = await getAnnouncementByArticleUri(articleUri);
   const [sessionDid, localComments] = await Promise.all([
     getActiveDid(),
     getInlineCommentsByArticle(articleUri),
   ]);
+
+  // Discovery: if announcement is missing from local DB (common for guests), try to find it
+  if (!announcement) {
+    const discovered = await discoverAnnouncement(did, rkey, originalFetch);
+    if (discovered) {
+      await upsertArticleAnnouncement({
+        articleUri,
+        announcementUri: discovered.uri,
+        announcementCid: discovered.cid,
+        authorDid: did,
+        createdAt: new Date().toISOString(),
+      });
+      announcement = {
+        articleUri,
+        announcementUri: discovered.uri,
+        announcementCid: discovered.cid,
+        authorDid: did,
+        createdAt: new Date().toISOString(),
+      };
+    }
+  }
 
   if (!announcement) {
     return json({ success: true, root: null, thread: [] });
@@ -1331,7 +1423,7 @@ async function handleArticlesPath(
     const rkey = pathParts[3];
 
     if (pathParts.length === 4) {
-      if (request.method === "GET") return getArticle(did, rkey);
+      if (request.method === "GET") return getArticle(did, rkey, originalFetch);
       if (request.method === "PUT") return updateArticle(request, did, rkey);
       if (request.method === "DELETE") return deleteArticle(did, rkey);
       return null;
