@@ -102,4 +102,40 @@ describe('useWorkspacePublishing hook - Hardened', () => {
 
     alertMock.mockRestore();
   });
+
+  it('separates sync state from update notification flag', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        did: 'did:plc:user',
+        rkey: 'rkey1',
+        uri: 'at://did:plc:user/sci.peer.article/rkey1',
+        broadcasted: 1,
+      }),
+    });
+
+    const updateProps = {
+      ...defaultProps,
+      currentDid: 'did:plc:user',
+      currentRkey: 'rkey1',
+      broadcastToBsky: true,
+    };
+    const { result } = renderHook(() => useWorkspacePublishing(updateProps));
+
+    await act(async () => {
+      await result.current.handlePublish();
+    });
+
+    await act(async () => {
+      await result.current.confirmPublish('Update text', false);
+    });
+
+    expect(global.fetch).toHaveBeenCalled();
+    const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.broadcastToBsky).toBe(true);
+    expect(body.notifyUpdate).toBe(false);
+  });
 });

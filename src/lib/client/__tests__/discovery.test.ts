@@ -148,4 +148,181 @@ describe('Announcement Discovery', () => {
     expect(data.article.announcementUri).toBe(mockAnnouncementUri);
     expect(store.upsertArticleAnnouncement).toHaveBeenCalled();
   });
+
+  it('uses reply root as announcement when only replies are discoverable', async () => {
+    (auth.getActiveDid as Mock).mockResolvedValue(null);
+    (store.getAnnouncementByArticleUri as Mock).mockResolvedValue(null);
+
+    const replyUri = `at://${mockDid}/app.bsky.feed.post/reply789`;
+    const replyCid = 'bafyreireply...';
+
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('app.bsky.feed.getAuthorFeed')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          feed: [
+            {
+              post: {
+                uri: replyUri,
+                cid: replyCid,
+                record: {
+                  reply: {
+                    root: {
+                      uri: mockAnnouncementUri,
+                      cid: mockAnnouncementCid,
+                    },
+                  },
+                  embed: {
+                    $type: 'app.bsky.embed.external',
+                    external: {
+                      uri: `http://localhost/article/${mockDid}/${mockRkey}`,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        })));
+      }
+      if (url.includes('app.bsky.feed.getPostThread')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          thread: {
+            post: {
+              uri: mockAnnouncementUri,
+              cid: mockAnnouncementCid,
+              record: { text: 'Root post' },
+              author: { handle: 'author.bsky.social', did: mockDid }
+            },
+            replies: []
+          }
+        })));
+      }
+      return Promise.reject(new Error(`Unexpected fetch to ${url}`));
+    });
+
+    const request = new Request(`http://localhost/api/articles/${mockDid}/${mockRkey}/discussion`);
+    const response = await handleClientApiRequest(request, undefined, mockFetch);
+
+    expect(response?.status).toBe(200);
+    const data = await response?.json();
+    expect(data.root.uri).toBe(mockAnnouncementUri);
+    expect(store.upsertArticleAnnouncement).toHaveBeenCalledWith(expect.objectContaining({
+      articleUri: mockArticleUri,
+      announcementUri: mockAnnouncementUri,
+      announcementCid: mockAnnouncementCid,
+    }));
+  });
+
+  it('discovers announcement from paginated author feed', async () => {
+    (auth.getActiveDid as Mock).mockResolvedValue(null);
+    (store.getAnnouncementByArticleUri as Mock).mockResolvedValue(null);
+
+    let feedCallCount = 0;
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('app.bsky.feed.getAuthorFeed')) {
+        feedCallCount += 1;
+        if (feedCallCount === 1) {
+          return Promise.resolve(new Response(JSON.stringify({
+            feed: [],
+            cursor: 'next-page-token',
+          })));
+        }
+        return Promise.resolve(new Response(JSON.stringify({
+          feed: [
+            {
+              post: {
+                uri: mockAnnouncementUri,
+                cid: mockAnnouncementCid,
+                record: {
+                  embed: {
+                    $type: 'app.bsky.embed.external',
+                    external: {
+                      uri: `http://localhost/article/${mockDid}/${mockRkey}`,
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        })));
+      }
+      if (url.includes('app.bsky.feed.getPostThread')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          thread: {
+            post: {
+              uri: mockAnnouncementUri,
+              cid: mockAnnouncementCid,
+              record: { text: 'Announcement post' },
+              author: { handle: 'author.bsky.social', did: mockDid },
+            },
+            replies: [],
+          },
+        })));
+      }
+      return Promise.reject(new Error(`Unexpected fetch to ${url}`));
+    });
+
+    const request = new Request(`http://localhost/api/articles/${mockDid}/${mockRkey}/discussion`);
+    const response = await handleClientApiRequest(request, undefined, mockFetch);
+
+    expect(response?.status).toBe(200);
+    const data = await response?.json();
+    expect(data.root.uri).toBe(mockAnnouncementUri);
+    expect(feedCallCount).toBe(2);
+  });
+
+  it('normalizes stored reply announcement to root before loading discussion', async () => {
+    (auth.getActiveDid as Mock).mockResolvedValue(null);
+
+    const replyUri = `at://${mockDid}/app.bsky.feed.post/reply999`;
+    const replyCid = 'bafyreireply999...';
+    (store.getAnnouncementByArticleUri as Mock).mockResolvedValue({
+      articleUri: mockArticleUri,
+      announcementUri: replyUri,
+      announcementCid: replyCid,
+      authorDid: mockDid,
+      createdAt: new Date().toISOString(),
+    });
+
+    const mockFetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('com.atproto.repo.getRecord')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          value: {
+            reply: {
+              root: {
+                uri: mockAnnouncementUri,
+                cid: mockAnnouncementCid,
+              },
+            },
+          },
+        })));
+      }
+      if (url.includes('app.bsky.feed.getPostThread')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          thread: {
+            post: {
+              uri: mockAnnouncementUri,
+              cid: mockAnnouncementCid,
+              record: { text: 'Recovered root post' },
+              author: { handle: 'author.bsky.social', did: mockDid },
+            },
+            replies: [],
+          },
+        })));
+      }
+      return Promise.reject(new Error(`Unexpected fetch to ${url}`));
+    });
+
+    const request = new Request(`http://localhost/api/articles/${mockDid}/${mockRkey}/discussion`);
+    const response = await handleClientApiRequest(request, undefined, mockFetch);
+
+    expect(response?.status).toBe(200);
+    const data = await response?.json();
+    expect(data.root.uri).toBe(mockAnnouncementUri);
+    expect(data.root.text).toBe('Recovered root post');
+    expect(store.upsertArticleAnnouncement).toHaveBeenCalledWith(expect.objectContaining({
+      articleUri: mockArticleUri,
+      announcementUri: mockAnnouncementUri,
+      announcementCid: mockAnnouncementCid,
+    }));
+  });
 });
