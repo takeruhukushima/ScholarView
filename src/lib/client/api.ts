@@ -825,6 +825,24 @@ function transformRecordToArticleDetail(
   };
 }
 
+async function resolvePdsEndpoint(did: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://plc.directory/${encodeURIComponent(did)}`, {
+      cache: "force-cache",
+    });
+    if (!res.ok) return null;
+    const doc = (await res.json()) as {
+      service?: Array<{ id: string; type: string; serviceEndpoint: string }>;
+    };
+    const pds = doc.service?.find(
+      (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer",
+    );
+    return pds?.serviceEndpoint ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function getArticle(did: string, rkey: string): Promise<Response> {
   let article = await getArticleByDidAndRkey(did, rkey);
   if (!article) {
@@ -839,7 +857,7 @@ async function getArticle(did: string, rkey: string): Promise<Response> {
     }
   }
 
-  // Fallback to public AT Protocol API if not found in local DB
+  // Fallback 1: Public AT Protocol Relay
   if (!article) {
     try {
       const query = new URLSearchParams({
@@ -858,7 +876,33 @@ async function getArticle(did: string, rkey: string): Promise<Response> {
         }
       }
     } catch (err) {
-      console.error("Failed to fetch article from public API:", err);
+      console.error("Failed to fetch article from public relay:", err);
+    }
+  }
+
+  // Fallback 2: Direct PDS fetch (Useful when the relay hasn't indexed the collection yet)
+  if (!article) {
+    try {
+      const pdsEndpoint = await resolvePdsEndpoint(did);
+      if (pdsEndpoint) {
+        const query = new URLSearchParams({
+          repo: did,
+          collection: ARTICLE_COLLECTION,
+          rkey,
+        });
+        const res = await fetch(
+          `${pdsEndpoint.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
+          { cache: "no-store" },
+        );
+        if (res.ok) {
+          const payload = (await res.json()) as { value?: Record<string, unknown>; uri?: string };
+          if (payload.value) {
+            article = transformRecordToArticleDetail(did, rkey, payload.value);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch article directly from PDS:", err);
     }
   }
 

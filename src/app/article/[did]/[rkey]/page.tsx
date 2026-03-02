@@ -38,8 +38,11 @@ function ArticlePageClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
   
-  const did = params.did ? decodeURIComponent(params.did) : "";
-  const rkey = params.rkey ? decodeURIComponent(params.rkey) : "";
+  // Use double decode for cases where the DID might be encoded twice (common in some mobile share contexts)
+  const rawDid = params?.did ?? "";
+  const rawRkey = params?.rkey ?? "";
+  const did = rawDid ? decodeURIComponent(decodeURIComponent(rawDid)) : "";
+  const rkey = rawRkey ? decodeURIComponent(decodeURIComponent(rawRkey)) : "";
   const initialQuote = searchParams.get("quote");
 
   const [loading, setLoading] = useState(true);
