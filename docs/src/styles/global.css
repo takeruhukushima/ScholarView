@@ -9,8 +9,8 @@
     --sl-color-bg-accent: #6366f1;
   }
 
-  /* Dramatic improvement for link visibility in Starlight */
-  :global(.sl-markdown-content a:not([class])) {
+  /* Link visibility */
+  .sl-markdown-content a:not([class]) {
     color: #4f46e5 !important;
     font-weight: 600 !important;
     text-decoration: underline !important;
@@ -20,7 +20,7 @@
     border-radius: 2px !important;
   }
 
-  :global(.sl-markdown-content a:not([class]):hover) {
+  .sl-markdown-content a:not([class]):hover {
     color: #4338ca !important;
     background-color: rgba(99, 102, 241, 0.1) !important;
   }
@@ -31,16 +31,92 @@
   }
 
   body {
-    @apply antialiased text-slate-900 bg-white;
+    @apply antialiased text-slate-900 bg-white dark:text-slate-100 dark:bg-slate-950;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
-  /* Force white text on active sidebar items in Starlight */
-  nav a[aria-current="page"] {
-    color: #ffffff !important;
+  /* 1. Fix Starlight Theme Toggle Overlap (Verified Solution) */
+  starlight-theme-select {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+  }
+  
+  starlight-theme-select label {
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    color: var(--sl-color-gray-3) !important;
   }
 
-  /* Improve visibility of inline links in content */
+  starlight-theme-select select {
+    border: 1px solid var(--sl-color-gray-5) !important;
+    background: var(--sl-color-bg-nav) !important;
+    padding: 0.35rem 2rem 0.35rem 2.25rem !important;
+    border-radius: 0.5rem !important;
+    font-size: 0.8125rem !important;
+    cursor: pointer !important;
+    appearance: none !important;
+    min-width: 6rem !important;
+  }
+
+  starlight-theme-select .label-icon {
+    position: absolute !important;
+    left: 0.75rem !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    pointer-events: none !important;
+    z-index: 1 !important;
+  }
+
+  starlight-theme-select .caret {
+    position: absolute !important;
+    right: 0.75rem !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    pointer-events: none !important;
+  }
+
+  /* 2. Fix Sidebar Heading Readability (Verified Solution) */
+  .sidebar-content .top-level h2 {
+    @apply text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500 mt-6 mb-2 px-3 !important;
+  }
+  .sidebar-content summary {
+    @apply text-slate-700 dark:text-slate-300 font-semibold !important;
+  }
+  .sidebar-content a {
+    @apply text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900 rounded-md transition-colors !important;
+  }
+
+  /* 3. Responsive Header & Mobile Menu (Restoring Toggle) */
+  @media (max-width: 50rem) {
+    header.header {
+      @apply h-16 px-4 border-b border-slate-200/60 dark:border-slate-800/60 backdrop-blur-md !important;
+    }
+
+    /* Prevent "On this page" from overlapping the open menu */
+    nav.mobile-menu {
+      @apply bg-white dark:bg-slate-950 !important;
+      z-index: 100 !important; /* Ensure it covers TOC */
+    }
+
+    /* Ensure toggle is visible and styled properly */
+    .mobile-menu-button {
+      @apply bg-slate-100 dark:bg-slate-800 rounded-lg !important;
+      padding: 0.5rem !important;
+    }
+
+    /* Fix the TOC overlap issue by hiding it when menu is open */
+    body:has(button[aria-expanded="true"]) starlight-toc {
+      display: none !important;
+    }
+  }
+
+  /* Force white text on active sidebar items */
+  nav a[aria-current="page"] {
+    @apply text-white bg-indigo-600 !important;
+  }
+
   .sl-markdown-content a:not(.btn-primary) {
     @apply text-indigo-600 underline decoration-indigo-600/30 underline-offset-4 hover:text-indigo-500 hover:decoration-indigo-500 transition-all;
   }
