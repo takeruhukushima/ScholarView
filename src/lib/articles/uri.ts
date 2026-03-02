@@ -55,6 +55,16 @@ export function buildArticleUrl(
   return base.toString();
 }
 
+export function buildBskyPostUrl(uri: string): string | null {
+  try {
+    const atUri = new AtUri(uri);
+    if (atUri.collection !== "app.bsky.feed.post") return null;
+    return `https://bsky.app/profile/${atUri.hostname}/post/${atUri.rkey}`;
+  } catch {
+    return null;
+  }
+}
+
 export function decodeRouteParam(value: string): string {
   return decodeURIComponent(value);
 }

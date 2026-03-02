@@ -413,6 +413,7 @@ function ArticlePageClient() {
                   await syncLegacyArticles({ force: true });
                   router.refresh();
                 }}
+                announcementUri={article.announcementUri}
               />
             </div>
           </div>
