@@ -9,7 +9,7 @@ export default defineConfig({
 	integrations: [
 		starlight({
 			title: 'ScholarView',
-			customCss: ['./src/styles/global.css'],
+			customCss: ['./src/styles/starlight-custom.css'],
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/takeruhukushima/ScholarView' }],
 			sidebar: [
 				{ label: 'Introduction', slug: 'introduction' },

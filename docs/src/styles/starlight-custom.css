@@ -1,0 +1,69 @@
+/* Specific overrides for Starlight documentation pages */
+
+/* 1. Fix Theme Toggle Icon Overlap */
+starlight-theme-select {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+starlight-theme-select label {
+  position: relative !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+starlight-theme-select select {
+  padding-inline-start: 2.25rem !important;
+  padding-inline-end: 2rem !important;
+  border-radius: 0.5rem !important;
+  min-width: 7rem !important;
+}
+
+starlight-theme-select .label-icon {
+  position: absolute !important;
+  inset-inline-start: 0.75rem !important;
+  pointer-events: none !important;
+  z-index: 1 !important;
+}
+
+/* 2. Fix Sidebar Heading Readability */
+.sidebar-content .top-level h2 {
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--sl-color-gray-3) !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.5rem !important;
+  padding-inline: 1rem !important;
+}
+
+.sidebar-content summary {
+  font-weight: 600 !important;
+  color: var(--sl-color-gray-2) !important;
+}
+
+/* 3. Responsive Header & TOC Fixes */
+@media (max-width: 50rem) {
+  header.header {
+    height: 4rem !important;
+    padding-inline: 1rem !important;
+  }
+
+  /* Ensure the mobile menu is above everything else */
+  nav.mobile-menu {
+    z-index: 100 !important;
+  }
+
+  /* Fix TOC overlap by hiding it when menu is open */
+  body:has(button[aria-expanded="true"]) starlight-toc {
+    display: none !important;
+  }
+}
+
+/* Active sidebar item visibility */
+nav a[aria-current="page"] {
+  background-color: var(--sl-color-accent-low) !important;
+  color: var(--sl-color-white) !important;
+}
