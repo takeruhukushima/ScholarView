@@ -85,8 +85,10 @@ interface EditorPanelProps {
   persistTitleAsFileName: (options?: { silent?: boolean }) => Promise<WorkspaceFile | null>;
   updateBlock: (id: string, patch: Partial<EditorBlock>) => void;
   updateSelectionRange: (targetId: string, isShift: boolean) => void;
+  selectedBlockIds: string[];
   insertBlockAfter: (index: number, kind: "paragraph" | "h1" | "h2" | "h3") => void;
   removeBlock: (index: number) => void;
+  moveBlockByDelta: (index: number, delta: -1 | 1) => void;
   focusBlockByIndex: (index: number, options?: { position?: "start" | "end"; skipSelectionReset?: boolean }) => void;
   activateBlockEditor: (id: string, position?: "start" | "end") => void;
   insertInlineMath: (id: string) => void;
@@ -172,8 +174,10 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   persistTitleAsFileName,
   updateBlock,
   updateSelectionRange,
+  selectedBlockIds,
   insertBlockAfter,
   removeBlock,
+  moveBlockByDelta,
   focusBlockByIndex,
   activateBlockEditor,
   insertInlineMath,
@@ -710,58 +714,125 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
               </div>
             ) : (
               <div className="space-y-1">
-                {editorBlocks.map((block, index) => (
-                  <div
-                    key={block.id}
-                    data-editor-block-id={block.id}
-                    className="relative group transition-all"
-                    onDragOver={(event) => {
-                      if (!canEditTextCurrentFile || !hasDraggedEditorBlock(event)) return;
-                      event.preventDefault();
-                      const pos = determineBlockDropPosition(event);
-                      setBlockMoveDropTarget({ blockId: block.id, position: pos });
-                    }}
-                    onDrop={(event) => {
-                      if (!canEditTextCurrentFile) return;
-                      if (hasDraggedEditorBlock(event)) {
-                        event.preventDefault();
-                        const draggedId = event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingEditorBlockId;
-                        if (draggedId && draggedId !== block.id) {
-                          const pos = determineBlockDropPosition(event);
-                          moveBlockByDrop(draggedId, block.id, pos);
-                        }
-                        setDraggingEditorBlockId(null);
-                        setBlockMoveDropTarget(null);
-                      }
-                    }}
-                  >
-                    {blockMoveDropTarget?.blockId === block.id && blockMoveDropTarget.position === "before" && (
-                      <div className="h-1 bg-indigo-500 rounded-full my-1 shadow-[0_0_8px_rgba(79,70,229,0.4)] animate-in fade-in zoom-in-y duration-200" />
-                    )}
+                {editorBlocks.map((block, index) => {
+                  const isDraggingSelection = draggingEditorBlockId !== null && selectedBlockIds.includes(draggingEditorBlockId);
+                  const isBlockInActiveDrag = draggingEditorBlockId === block.id || (isDraggingSelection && selectedBlockIds.includes(block.id));
 
-                    <div className={`relative rounded-lg transition-all ${
-                      canEditTextCurrentFile ? "hover:bg-slate-50/50" : ""
-                    }`}>
-                      {/* Block Controls (Floating Left) */}
-                      {canEditTextCurrentFile && (
-                        <div className="absolute -left-7 top-1/2 -translate-y-1/2 flex flex-col items-center opacity-0 group-hover:opacity-100 transition-all focus-within:opacity-100">
-                          <button
-                            draggable
-                            onDragStart={(e) => {
-                              setDraggingEditorBlockId(block.id);
-                              e.dataTransfer.setData(BLOCK_DRAG_MIME, block.id);
-                              e.dataTransfer.effectAllowed = "move";
-                            }}
-                            onDragEnd={() => {
-                              setDraggingEditorBlockId(null);
-                              setBlockMoveDropTarget(null);
-                            }}
-                            className="p-1 text-slate-300 hover:text-indigo-400 cursor-grab active:cursor-grabbing transition-colors"
-                          >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
-                          </button>
-                        </div>
+                  return (
+                    <div
+                      key={block.id}
+                      data-editor-block-id={block.id}
+                      className="relative group transition-all"
+                      onDragOver={(event) => {
+                        if (!canEditTextCurrentFile || !hasDraggedEditorBlock(event)) return;
+                        event.preventDefault();
+                        const pos = determineBlockDropPosition(event);
+                        setBlockMoveDropTarget({ blockId: block.id, position: pos });
+                      }}
+                      onDrop={(event) => {
+                        if (!canEditTextCurrentFile) return;
+                        if (hasDraggedEditorBlock(event)) {
+                          event.preventDefault();
+                          const draggedId = event.dataTransfer.getData(BLOCK_DRAG_MIME) || draggingEditorBlockId;
+                          if (draggedId && draggedId !== block.id) {
+                            const pos = determineBlockDropPosition(event);
+                            moveBlockByDrop(draggedId, block.id, pos);
+                          }
+                          setDraggingEditorBlockId(null);
+                          setBlockMoveDropTarget(null);
+                        }
+                      }}
+                    >
+                      {blockMoveDropTarget?.blockId === block.id && blockMoveDropTarget.position === "before" && (
+                        <div className="h-1 bg-indigo-500 rounded-full my-1 shadow-[0_0_8px_rgba(79,70,229,0.4)] animate-in fade-in zoom-in-y duration-200" />
                       )}
+
+                      <div className={`relative rounded-lg transition-all ${
+                        canEditTextCurrentFile ? "hover:bg-slate-50/50" : ""
+                      } ${selectedBlockIds.length > 1 && selectedBlockIds.includes(block.id) ? "bg-indigo-50/80 ring-1 ring-indigo-200" : ""} ${
+                        isBlockInActiveDrag ? "opacity-40" : ""
+                      }`}>
+                        {/* Block Controls (Floating Left) */}
+                        {canEditTextCurrentFile && (
+                          <div className={`absolute -left-7 top-1/2 -translate-y-1/2 flex flex-col items-center transition-all focus-within:opacity-100 ${
+                            isBlockInActiveDrag ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                          }`}>
+                            <button
+                              draggable
+                              onDragStart={(e) => {
+                                const isPartOfSelection = selectedBlockIds.includes(block.id);
+                                const idsToMove = isPartOfSelection ? selectedBlockIds : [block.id];
+
+                                setDraggingEditorBlockId(block.id);
+                                e.dataTransfer.setData(BLOCK_DRAG_MIME, block.id);
+                                e.dataTransfer.effectAllowed = "move";
+
+                                const firstEl = document.querySelector(`[data-editor-block-id="${block.id}"]`);
+                                const width = firstEl ? firstEl.clientWidth : 400;
+
+                                // Create a ghost image for the drag operation
+                                const container = document.createElement("div");
+                                container.style.position = "absolute";
+                                container.style.top = "-9999px";
+                                container.style.left = "-9999px";
+                                container.style.width = `${width}px`;
+                                container.style.padding = "2px";
+                                container.style.pointerEvents = "none";
+                                container.style.zIndex = "-1";
+
+                                idsToMove.forEach((id) => {
+                                  const el = document.querySelector(`[data-editor-block-id="${id}"]`);
+                                  if (el) {
+                                    const content = el.querySelector(".relative.rounded-lg");
+                                    if (content) {
+                                      const clone = content.cloneNode(true) as HTMLElement;
+
+                                      // Sync textarea values (cloneNode doesn't copy them)
+                                      const originalTextareas = content.querySelectorAll("textarea");
+                                      const cloneTextareas = clone.querySelectorAll("textarea");
+                                      originalTextareas.forEach((tx, i) => {
+                                        if (cloneTextareas[i]) {
+                                          (cloneTextareas[i] as HTMLTextAreaElement).value = (tx as HTMLTextAreaElement).value;
+                                        }
+                                      });
+
+                                      // Clean up the clone for preview
+                                      const handle = clone.querySelector(".absolute.-left-7");
+                                      if (handle) handle.remove();
+
+                                      // Ensure it's opaque and has its styling
+                                      clone.classList.remove("opacity-40");
+                                      clone.style.opacity = "1";
+                                      clone.style.marginBottom = "4px";
+                                      clone.style.backgroundColor = "white";
+                                      clone.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.1)";
+                                      clone.style.border = "1px solid #e2e8f0";
+
+                                      container.appendChild(clone);
+                                    }
+                                  }
+                                });
+
+                                document.body.appendChild(container);
+                                // Cursor at the handle location roughly
+                                e.dataTransfer.setDragImage(container, 0, 10);
+
+                                setTimeout(() => {
+                                  if (container.parentNode) {
+                                    document.body.removeChild(container);
+                                  }
+                                }, 0);
+                              }}
+                              onDragEnd={() => {
+                                setDraggingEditorBlockId(null);
+                                setBlockMoveDropTarget(null);
+                              }}
+                              className="p-1 text-slate-300 hover:text-indigo-400 cursor-grab active:cursor-grabbing transition-colors"
+                            >
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/></svg>
+                            </button>
+                          </div>
+                        )}
 
                       <div className="px-1 py-1">
                         {canEditTextCurrentFile && activeBlockId === block.id ? (
@@ -807,6 +878,17 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                                   if (e.key === "Escape") {
                                     return;
                                   }
+                                }
+
+                                if (e.altKey && e.key === "ArrowUp") {
+                                  e.preventDefault();
+                                  moveBlockByDelta(index, -1);
+                                  return;
+                                }
+                                if (e.altKey && e.key === "ArrowDown") {
+                                  e.preventDefault();
+                                  moveBlockByDelta(index, 1);
+                                  return;
                                 }
 
                                 const isAtStart = e.currentTarget.selectionStart === 0 && e.currentTarget.selectionEnd === 0;
@@ -904,6 +986,12 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                             onClick={(event) => {
                               event.stopPropagation();
                               if (!canEditCurrentFile) return;
+
+                              if (event.shiftKey) {
+                                updateSelectionRange(block.id, true);
+                                return;
+                              }
+
                               const target = event.target;
                               if (target instanceof HTMLElement && target.closest("a")) return;
                               activateBlockEditor(block.id, "end");
@@ -945,8 +1033,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                       <div className="h-1 bg-indigo-500 rounded-full my-1 shadow-[0_0_8px_rgba(79,70,229,0.4)] animate-in fade-in zoom-in-y duration-200" />
                     )}
                   </div>
-                ))}
-              </div>
+                );
+              })}
+            </div>
             )}
           </div>
 

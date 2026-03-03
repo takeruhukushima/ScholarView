@@ -130,6 +130,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     setEditorBlocks,
     activeBlockId,
     setActiveBlockId,
+    selectedBlockIds,
     setBlockMenuForId,
     textareaRefs,
     titleRef,
@@ -138,6 +139,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     updateSelectionRange,
     insertBlockAfter,
     removeBlock,
+    moveBlockByDelta,
     focusBlockByIndex,
     activateBlockEditor,
     moveBlockByDrop,
@@ -809,8 +811,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             persistTitleAsFileName={persistTitleAsFileName}
             updateBlock={updateBlock}
             updateSelectionRange={updateSelectionRange}
+            selectedBlockIds={selectedBlockIds}
             insertBlockAfter={insertBlockAfter}
             removeBlock={removeBlock}
+            moveBlockByDelta={moveBlockByDelta}
             focusBlockByIndex={focusBlockByIndex}
             activateBlockEditor={activateBlockEditor}
             insertInlineMath={insertInlineMath}
