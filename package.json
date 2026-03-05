@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@atproto/common-web": "^0.4.16",
+    "@atproto/crypto": "^0.4.5",
     "@atproto/lex": "^0.0.16",
     "@atproto/oauth-client-browser": "^0.3.41",
     "@atproto/syntax": "^0.4.3",

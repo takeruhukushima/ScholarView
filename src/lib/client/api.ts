@@ -4,6 +4,7 @@ import { Client } from "@atproto/lex";
 import { AtUri } from "@atproto/syntax";
 
 import * as sci from "@/lexicons/sci";
+import { GUEST_DID_PREFIX } from "@/lib/guest-identity";
 import {
   normalizeBlocks,
   parseMarkdownToBlocks,
@@ -511,13 +512,15 @@ async function requireDid(): Promise<string> {
 async function getDidOrLocal(): Promise<string> {
   const did = await getActiveDid();
   if (did) {
-    const handle = await getActiveHandle();
-    if (handle) {
-      await upsertAccount({
-        did,
-        handle,
-        active: 1,
-      });
+    if (!did.startsWith(GUEST_DID_PREFIX)) {
+      const handle = await getActiveHandle();
+      if (handle) {
+        await upsertAccount({
+          did,
+          handle,
+          active: 1,
+        });
+      }
     }
     return did;
   }
@@ -1295,10 +1298,11 @@ async function createInlineComment(
   did: string,
   rkey: string,
 ): Promise<Response> {
-  const { did: sessionDid, lex } = await getAuthedLexClient();
+  const isGuest = did.startsWith(GUEST_DID_PREFIX);
+  const lex = !isGuest ? await getLexClientForCurrentSession() : null;
   const articleUri = buildArticleUri(did, rkey);
   const announcement = await getAnnouncementByArticleUri(articleUri);
-  if (!announcement) {
+  if (!isGuest && !announcement) {
     throw new HttpError(409, "Inline comments require an announcement post");
   }
 
@@ -1316,34 +1320,43 @@ async function createInlineComment(
   const createdAt = new Date().toISOString();
   const externalUri = buildScholarViewArticleUrl(did, rkey, normalizedQuote);
 
-  const created = await lex.createRecord({
-    $type: "app.bsky.feed.post",
-    text,
-    createdAt,
-    reply: {
-      root: {
-        uri: announcement.announcementUri,
-        cid: announcement.announcementCid,
+  let commentUri = "";
+
+  if (lex && !isGuest && announcement) {
+    const created = await lex.createRecord({
+      $type: "app.bsky.feed.post",
+      text,
+      createdAt,
+      reply: {
+        root: {
+          uri: announcement.announcementUri,
+          cid: announcement.announcementCid,
+        },
+        parent: {
+          uri: announcement.announcementUri,
+          cid: announcement.announcementCid,
+        },
       },
-      parent: {
-        uri: announcement.announcementUri,
-        cid: announcement.announcementCid,
+      embed: {
+        $type: "app.bsky.embed.external",
+        external: {
+          uri: externalUri,
+          title: "ScholarView inline comment",
+          description: normalizedQuote,
+        },
       },
-    },
-    embed: {
-      $type: "app.bsky.embed.external",
-      external: {
-        uri: externalUri,
-        title: "ScholarView inline comment",
-        description: normalizedQuote,
-      },
-    },
-  });
+    });
+    commentUri = created.body.uri;
+  } else {
+    // Guest local comment
+    const localRkey = Math.random().toString(36).substring(2, 12);
+    commentUri = `at://${did}/app.bsky.feed.post/${localRkey}`;
+  }
 
   await upsertInlineComment({
-    uri: created.body.uri,
+    uri: commentUri,
     articleUri,
-    authorDid: sessionDid,
+    authorDid: did,
     text,
     quote: normalizedQuote,
     externalUri,
@@ -1351,7 +1364,7 @@ async function createInlineComment(
     indexedAt: createdAt,
   });
 
-  return json({ success: true, commentUri: created.body.uri });
+  return json({ success: true, commentUri });
 }
 
 interface DiscussionItem {
@@ -2278,7 +2291,8 @@ async function publishWorkspaceFile(
   fileId: string,
   did: string,
 ): Promise<Response> {
-  const lex = await getLexClientForCurrentSession();
+  const isGuest = did.startsWith(GUEST_DID_PREFIX);
+  const lex = !isGuest ? await getLexClientForCurrentSession() : null;
   const file = await getWorkspaceFileById(fileId, did);
   if (!file) throw new HttpError(404, "File not found");
   if (file.kind !== "file") throw new HttpError(400, "Only files can be published");
@@ -2293,8 +2307,8 @@ async function publishWorkspaceFile(
   };
 
   const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
-  const shouldBroadcast = body.broadcastToBsky === true;
-  const shouldNotifyUpdate = body.notifyUpdate === true;
+  const shouldBroadcast = !isGuest && body.broadcastToBsky === true;
+  const shouldNotifyUpdate = !isGuest && body.notifyUpdate === true;
 
   const title =
     typeof body.title === "string" && body.title.trim()
@@ -2319,7 +2333,11 @@ async function publishWorkspaceFile(
       ? parseTexToBlocks(resolved.resolvedText)
       : parseMarkdownToBlocks(resolved.resolvedText);
   if (blocks.length === 0) throw new HttpError(400, "At least one section is required");
-  const imageAssets = await buildWorkspaceArticleImageAssets(lex, blocks, sourceFormat, did, file);
+
+  // Skip image asset upload for guests for now
+  const imageAssets = (lex && !isGuest) 
+    ? await buildWorkspaceArticleImageAssets(lex, blocks, sourceFormat, did, file)
+    : [];
 
   const bibliographyInput =
     body.bibliography === undefined ? null : normalizeBibliography(body.bibliography);
@@ -2346,22 +2364,24 @@ async function publishWorkspaceFile(
       bibliographyInput ?? existing.bibliography,
     );
 
-    await lex.put(
-      sci.peer.article.main,
-      {
-        title,
-        authors,
-        blocks,
-        bibliography,
-        images: imageAssets as unknown as sci.peer.article.ImageAsset[],
-        createdAt: new Date(existing.createdAt).toISOString(),
-      },
-      { rkey: targetRkey },
-    );
+    if (lex && !isGuest) {
+      await lex.put(
+        sci.peer.article.main,
+        {
+          title,
+          authors,
+          blocks,
+          bibliography,
+          images: imageAssets as unknown as sci.peer.article.ImageAsset[],
+          createdAt: new Date(existing.createdAt).toISOString(),
+        },
+        { rkey: targetRkey },
+      );
+    }
 
     let announcement = await getAnnouncementByArticleUri(articleUri);
     // Discovery: if announcement is missing from local DB, try to find it via author's feed
-    if (!announcement) {
+    if (!isGuest && !announcement) {
       const discovered = await discoverAnnouncement(did, targetRkey, fetch);
       if (discovered) {
         await upsertArticleAnnouncement({
@@ -2380,7 +2400,7 @@ async function publishWorkspaceFile(
         };
       }
     }
-    if (announcement) {
+    if (lex && !isGuest && announcement) {
       const normalizedRoot =
         (await normalizeAnnouncementRootWithLex(announcement.announcementUri, lex)) ??
         (await normalizeAnnouncementRootWithPublicApi(announcement.announcementUri, fetch));
@@ -2401,7 +2421,7 @@ async function publishWorkspaceFile(
       }
     }
 
-    if (shouldBroadcast && shouldNotifyUpdate) {
+    if (lex && shouldBroadcast && shouldNotifyUpdate) {
       if (!announcement && existing.broadcasted === 1) {
         throw new HttpError(
           409,
@@ -2477,78 +2497,129 @@ async function publishWorkspaceFile(
   } else {
     mode = "created";
     const bibliography = compactBibliography(bibliographyInput ?? []);
-    const created = await lex.create(sci.peer.article.main, {
-      title,
-      authors,
-      blocks,
-      bibliography,
-      images: imageAssets as unknown as sci.peer.article.ImageAsset[],
-      createdAt: now,
-    });
+    
+    if (lex) {
+      const created = await lex.create(sci.peer.article.main, {
+        title,
+        authors,
+        blocks,
+        bibliography,
+        images: imageAssets as unknown as sci.peer.article.ImageAsset[],
+        createdAt: now,
+      });
 
-    const atUri = new AtUri(created.uri);
+      const atUri = new AtUri(created.uri);
 
-    targetDid = did;
-    targetRkey = atUri.rkey;
-    articleUri = created.uri;
+      targetDid = did;
+      targetRkey = atUri.rkey;
+      articleUri = created.uri;
 
-    let announcement: { uri: string; cid: string } | null = null;
-    if (shouldBroadcast) {
-      const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
-      let postText = `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
-      let embedUri = atprotoAtUrl;
+      let announcement: { uri: string; cid: string } | null = null;
+      if (shouldBroadcast) {
+        const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
+        let postText = `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
+        let embedUri = atprotoAtUrl;
 
-      if (customBroadcastText) {
-        postText = customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl);
-        const urlMatch = postText.match(/https?:\/\/[^\s]+/);
-        if (urlMatch) {
-          embedUri = urlMatch[0];
+        if (customBroadcastText) {
+          postText = customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl);
+          const urlMatch = postText.match(/https?:\/\/[^\s]+/);
+          if (urlMatch) {
+            embedUri = urlMatch[0];
+          }
         }
+
+        console.log(`[Publish] Broadcasting new article. Text: "${postText}", Embed: ${embedUri}`);
+
+        const post = await lex.createRecord({
+          $type: "app.bsky.feed.post",
+          text: postText,
+          createdAt: now,
+          embed: {
+            $type: "app.bsky.embed.external",
+            external: {
+              uri: embedUri,
+              title,
+              description: "ScholarViewで論文を公開しました",
+            },
+          },
+        });
+        announcement = { uri: post.body.uri, cid: post.body.cid };
       }
 
-      console.log(`[Publish] Broadcasting new article. Text: "${postText}", Embed: ${embedUri}`);
-
-      const post = await lex.createRecord({
-        $type: "app.bsky.feed.post",
-        text: postText,
+      await upsertArticle({
+        uri: articleUri,
+        authorDid: did,
+        title,
+        authorsJson: JSON.stringify(authors),
+        blocksJson: serializeBlocks(blocks),
+        bibliographyJson: serializeBibliography(bibliography),
+        imagesJson: JSON.stringify(imageAssets),
+        sourceFormat,
+        broadcasted: announcement ? 1 : 0,
         createdAt: now,
-        embed: {
-          $type: "app.bsky.embed.external",
-          external: {
-            uri: embedUri,
-            title,
-            description: "ScholarViewで論文を公開しました",
-          },
-        },
+        indexedAt: now,
       });
-      announcement = { uri: post.body.uri, cid: post.body.cid };
-    }
 
-    await upsertArticle({
-      uri: articleUri,
-      authorDid: did,
-      title,
-      authorsJson: JSON.stringify(authors),
-      blocksJson: serializeBlocks(blocks),
-      bibliographyJson: serializeBibliography(bibliography),
-      imagesJson: JSON.stringify(imageAssets),
-      sourceFormat,
-      broadcasted: announcement ? 1 : 0,
-      createdAt: now,
-      indexedAt: now,
-    });
+      if (announcement) {
+        await upsertArticleAnnouncement({
+          articleUri,
+          announcementUri: announcement.uri,
+          announcementCid: announcement.cid,
+          authorDid: did,
+          createdAt: now,
+        });
+        broadcasted = 1;
+      } else {
+        broadcasted = 0;
+      }
+    } else {
+      // Guest local publish
+      targetDid = did;
+      targetRkey = Math.random().toString(36).substring(2, 12);
+      articleUri = `at://${targetDid}/${sci.peer.article.main}/${targetRkey}`;
+      
+      const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
+      let postText = customBroadcastText 
+        ? customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl)
+        : `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
 
-    if (announcement) {
+      await upsertArticle({
+        uri: articleUri,
+        authorDid: did,
+        title,
+        authorsJson: JSON.stringify(authors),
+        blocksJson: serializeBlocks(blocks),
+        bibliographyJson: serializeBibliography(bibliography),
+        imagesJson: JSON.stringify([]),
+        sourceFormat,
+        broadcasted: 1, // ゲストでも「公開済み」とする
+        createdAt: now,
+        indexedAt: now,
+      });
+
+      // ゲスト用のローカル告知レコードを作成
+      const announcementUri = `at://${did}/app.bsky.feed.post/${targetRkey}`;
+      const announcementCid = "local-guest-cid";
+      
       await upsertArticleAnnouncement({
         articleUri,
-        announcementUri: announcement.uri,
-        announcementCid: announcement.cid,
+        announcementUri,
+        announcementCid,
         authorDid: did,
         createdAt: now,
       });
+
+      // 最初の投稿として自分自身のDBにも入れる
+      await upsertBskyInteraction({
+        uri: announcementUri,
+        subjectUri: articleUri,
+        subjectCid: announcementCid,
+        authorDid: did,
+        action: "reply", // 便宜上replyとして扱うか、独自のフラグを立てる
+        createdAt: now,
+      });
+      
       broadcasted = 1;
-    } else {
-      broadcasted = 0;
     }
   }
 

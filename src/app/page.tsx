@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { WorkspaceApp } from "@/components/workspace/WorkspaceApp";
 import { initializeAuth } from "@/lib/auth/browser";
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
+import { GUEST_DID_PREFIX } from "@/lib/guest-identity";
 import type { ArticleSummary } from "@/lib/types";
 
 export default function HomePage() {
@@ -12,6 +13,7 @@ export default function HomePage() {
   const [articles, setArticles] = useState<ArticleSummary[]>([]);
   const [sessionDid, setSessionDid] = useState<string | null>(null);
   const [accountHandle, setAccountHandle] = useState<string | null>(null);
+  const [isGuest, setIsGuest] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -29,6 +31,7 @@ export default function HomePage() {
         if (cancelled) return;
         setSessionDid(auth.did);
         setAccountHandle(auth.handle);
+        setIsGuest(Boolean(auth.did?.startsWith(GUEST_DID_PREFIX)));
 
         const response = await fetch("/api/articles", { cache: "no-store" });
         const data = (await response.json()) as {
@@ -82,6 +85,7 @@ export default function HomePage() {
       initialArticles={articles}
       sessionDid={sessionDid}
       accountHandle={accountHandle}
+      isGuest={isGuest}
     />
   );
 }
