@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { signInWithHandle } from "@/lib/auth/browser";
 
-export function LoginForm() {
+interface LoginFormProps {
+  onGuestClick?: () => void;
+}
+
+export function LoginForm({ onGuestClick }: LoginFormProps) {
   const [handle, setHandle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +66,23 @@ export function LoginForm() {
       <p className="text-[10px] text-slate-400 text-center leading-relaxed">
         Logging in will migrate your guest data to your official account.
       </p>
+
+      {onGuestClick && (
+        <div className="relative flex py-2 items-center">
+          <div className="flex-grow border-t border-slate-100"></div>
+          <span className="flex-shrink mx-4 text-[10px] font-bold text-slate-300 uppercase tracking-widest">or</span>
+          <div className="flex-grow border-t border-slate-100"></div>
+        </div>
+      )}
+
+      {onGuestClick && (
+        <button
+          onClick={onGuestClick}
+          className="w-full py-2 px-4 bg-white border border-slate-200 text-slate-600 text-sm font-bold rounded-lg hover:bg-slate-50 transition-all shadow-sm"
+        >
+          Continue as Guest
+        </button>
+      )}
     </div>
   );
 }
