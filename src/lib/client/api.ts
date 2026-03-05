@@ -385,6 +385,14 @@ function parseArticleValue(value: unknown): {
   }
 }
 
+async function triggerRelayCrawl() {
+  try {
+    await fetch("/api/atproto/sync/request-crawl", { method: "POST" });
+  } catch (e) {
+    console.error("Failed to trigger relay crawl:", e);
+  }
+}
+
 async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<void> {
   const did = await getActiveDid();
   if (!did) return;
@@ -1414,6 +1422,7 @@ async function createInlineComment(
     };
     
     await writeGuestRecord(did, "app.bsky.feed.post", localRkey, commentValue, createdAt).catch(e => console.error("Failed to write guest comment to Firestore:", e));
+    void triggerRelayCrawl();
   } else {
     throw new HttpError(400, "Cannot post comment without announcement or valid session");
   }
@@ -2779,6 +2788,7 @@ async function publishWorkspaceFile(
 
       // Write announcement to Firestore
       await writeGuestRecord(did, "app.bsky.feed.post", announcementRkey, announcementValue, now).catch(e => console.error("Failed to write guest announcement to Firestore:", e));
+      void triggerRelayCrawl();
 
       // 最初の投稿として自分自身のDBにも入れる
       await upsertBskyInteraction({
