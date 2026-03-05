@@ -43,6 +43,7 @@ interface UseWorkspacePublishingProps {
   loadDiscussion: () => Promise<void>;
   normalizeWorkspaceImageUrisForExport: (input: string) => string;
   files: WorkspaceFile[];
+  triggerAuthModal: (title: string, description: string) => void;
 }
 
 export function useWorkspacePublishing({
@@ -72,6 +73,7 @@ export function useWorkspacePublishing({
   loadDiscussion,
   normalizeWorkspaceImageUrisForExport,
   files,
+  triggerAuthModal,
 }: UseWorkspacePublishingProps) {
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const [broadcastPreviewText, setBroadcastPreviewText] = useState<string | null>(null);
@@ -147,8 +149,10 @@ export function useWorkspacePublishing({
 
   const handlePublish = async () => {
     if (!sessionDid) {
-      setStatusMessage("Login required to broadcast.");
-      alert("Please log in from the sidebar to broadcast your article.");
+      triggerAuthModal(
+        "Broadcast Identity",
+        "Select how you want to be identified when publishing this article."
+      );
       return;
     }
 
@@ -171,12 +175,17 @@ export function useWorkspacePublishing({
       return;
     }
 
+    // すでに公開済みのDID/Rkeyがあるか、なければプレビュー用のURLを構築
+    const activeDid = currentDid || sessionDid;
+    // 完全に新規の場合は一時的なランダムRkeyでプレビューURLを作る（実際には保存時に確定する）
+    const activeRkey = currentRkey || "preview"; 
+    const url = buildScholarViewArticleUrl(activeDid || "", activeRkey);
+
     let defaultText = "";
     if (currentDid && currentRkey) {
-      const url = buildScholarViewArticleUrl(currentDid, currentRkey);
       defaultText = `更新した論文を公開しました：『${title}』 ${url}`;
     } else {
-      defaultText = `新しい論文/実験計画を公開しました：『${title}』 {{article_url}}`;
+      defaultText = `新しい論文/実験計画を公開しました：『${title}』 ${url}`;
     }
     setBroadcastPreviewText(defaultText);
   };
