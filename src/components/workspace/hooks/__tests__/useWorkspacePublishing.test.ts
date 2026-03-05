@@ -35,6 +35,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     loadDiscussion: vi.fn(),
     normalizeWorkspaceImageUrisForExport: (s: string) => s,
     files: [],
+    triggerAuthModal: vi.fn(),
   };
 
   beforeEach(() => {
@@ -86,21 +87,19 @@ describe('useWorkspacePublishing hook - Hardened', () => {
   });
 
   it('requires sessionDid to publish', async () => {
-    const unauthProps = { ...defaultProps, sessionDid: null };
+    const mockTriggerAuthModal = vi.fn();
+    const unauthProps = { ...defaultProps, sessionDid: null, triggerAuthModal: mockTriggerAuthModal };
     const { result } = renderHook(() => useWorkspacePublishing(unauthProps));
-
-    // Mock window.alert
-    const alertMock = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     await act(async () => {
       await result.current.handlePublish();
     });
 
-    expect(mockSetStatusMessage).toHaveBeenCalledWith('Login required to broadcast.');
-    expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('Please log in'));
+    expect(mockTriggerAuthModal).toHaveBeenCalledWith(
+      "Broadcast Identity",
+      expect.any(String)
+    );
     expect(global.fetch).not.toHaveBeenCalled();
-
-    alertMock.mockRestore();
   });
 
   it('separates sync state from update notification flag', async () => {

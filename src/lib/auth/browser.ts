@@ -3,7 +3,7 @@
 import { Client } from "@atproto/lex";
 import { BrowserOAuthClient, buildLoopbackClientId } from "@atproto/oauth-client-browser";
 import { GUEST_DID_PREFIX, getOrCreateGuestIdentity, clearGuestIdentity } from "@/lib/guest-identity";
-import { migrateGuestData, upsertAccount } from "@/lib/client/store";
+import { migrateGuestData } from "@/lib/client/store";
 
 const ACTIVE_DID_KEY = "scholarview:auth:active-did";
 const HANDLE_KEY_PREFIX = "scholarview:auth:handle:";

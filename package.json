@@ -17,6 +17,7 @@
     "@atproto/lex": "^0.0.16",
     "@atproto/oauth-client-browser": "^0.3.41",
     "@atproto/syntax": "^0.4.3",
+    "firebase": "^12.10.0",
     "katex": "^0.16.28",
     "next": "16.1.6",
     "react": "19.2.3",

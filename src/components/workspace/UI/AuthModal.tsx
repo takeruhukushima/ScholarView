@@ -43,7 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             onClick={onCancel}
             className="text-xs font-bold text-slate-400 hover:text-slate-600 transition-colors"
           >
-            I'll do this later
+            I&apos;ll do this later
           </button>
         </div>
       </div>

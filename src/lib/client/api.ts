@@ -22,6 +22,7 @@ import {
   buildArticleUri,
   buildScholarViewArticleUrl,
   extractQuoteFromExternalUri,
+  getPublicBaseUrl,
 } from "@/lib/articles/uri";
 import {
   getActiveDid,
@@ -62,11 +63,13 @@ import type {
   ArticleAuthor,
   ArticleDetail,
   ArticleImageAsset,
+  ArticleSummary,
   BskyInteractionAction,
   SourceFormat,
   WorkspaceFileNode,
 } from "@/lib/types";
 import { resolveWorkspaceImports } from "@/lib/workspace/imports";
+import { writeGuestRecord, getGuestCommentsForArticle, getRecentGuestArticles } from "@/lib/firebase-client";
 
 const MAX_TITLE_LENGTH = 300;
 const MAX_COMMENT_LENGTH = 2_000;
@@ -931,6 +934,9 @@ function transformRecordToArticleDetail(
 }
 
 async function resolvePdsEndpoint(did: string): Promise<string | null> {
+  if (did.startsWith(GUEST_DID_PREFIX)) {
+    return typeof window !== "undefined" ? window.location.origin : getPublicBaseUrl();
+  }
   try {
     const res = await fetch(`https://plc.directory/${encodeURIComponent(did)}`, {
       cache: "force-cache",
@@ -1042,6 +1048,9 @@ async function discoverAnnouncement(
   rkey: string,
   originalFetch: typeof fetch,
 ): Promise<{ uri: string; cid: string } | null> {
+  // Guest DIDs are not indexed by the public Bluesky relay/AppView
+  if (did.startsWith(GUEST_DID_PREFIX)) return null;
+
   const articleUrl = buildScholarViewArticleUrl(did, rkey);
   try {
     const matches: Array<{
@@ -1192,26 +1201,45 @@ async function getArticle(did: string, rkey: string, originalFetch: typeof fetch
     }
   }
 
-  // Fallback 1: Public AT Protocol Relay
+  // Fallback 1: Public AT Protocol Relay or Local Guest XRPC
   if (!article) {
-    try {
-      const query = new URLSearchParams({
-        repo: did,
-        collection: ARTICLE_COLLECTION,
-        rkey,
-      });
-      const res = await fetch(
-        `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
-        { cache: "no-store" },
-      );
-      if (res.ok) {
-        const payload = (await res.json()) as { value?: Record<string, unknown>; uri?: string };
-        if (payload.value) {
-          article = transformRecordToArticleDetail(did, rkey, payload.value);
+    if (did.startsWith(GUEST_DID_PREFIX)) {
+      try {
+        const query = new URLSearchParams({
+          repo: did,
+          collection: ARTICLE_COLLECTION,
+          rkey,
+        });
+        const res = await originalFetch(`/xrpc/com.atproto.repo.getRecord?${query.toString()}`, { cache: "no-store" });
+        if (res.ok) {
+          const payload = (await res.json()) as { value?: Record<string, unknown>; uri?: string };
+          if (payload.value) {
+            article = transformRecordToArticleDetail(did, rkey, payload.value);
+          }
         }
+      } catch (err) {
+        console.error("Failed to fetch guest article from local XRPC:", err);
       }
-    } catch (err) {
-      console.error("Failed to fetch article from public relay:", err);
+    } else {
+      try {
+        const query = new URLSearchParams({
+          repo: did,
+          collection: ARTICLE_COLLECTION,
+          rkey,
+        });
+        const res = await fetch(
+          `https://public.api.bsky.app/xrpc/com.atproto.repo.getRecord?${query.toString()}`,
+          { cache: "no-store" },
+        );
+        if (res.ok) {
+          const payload = (await res.json()) as { value?: Record<string, unknown>; uri?: string };
+          if (payload.value) {
+            article = transformRecordToArticleDetail(did, rkey, payload.value);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch article from public relay:", err);
+      }
     }
   }
 
@@ -1245,18 +1273,27 @@ async function getArticle(did: string, rkey: string, originalFetch: typeof fetch
 
   // Discovery: Try to find announcement if it's missing (common for guest views)
   if (!article.announcementUri) {
-    const discovered = await discoverAnnouncement(did, rkey, originalFetch);
-    if (discovered) {
-      article.announcementUri = discovered.uri;
-      article.announcementCid = discovered.cid;
-      // Persist locally for future fast lookups
-      await upsertArticleAnnouncement({
-        articleUri: article.uri,
-        announcementUri: discovered.uri,
-        announcementCid: discovered.cid,
-        authorDid: did,
-        createdAt: new Date().toISOString(),
-      });
+    if (did.startsWith(GUEST_DID_PREFIX)) {
+      // For guests, we can check if there's a local announcement record
+      const localAnnouncement = await getAnnouncementByArticleUri(article.uri);
+      if (localAnnouncement) {
+        article.announcementUri = localAnnouncement.announcementUri;
+        article.announcementCid = localAnnouncement.announcementCid;
+      }
+    } else {
+      const discovered = await discoverAnnouncement(did, rkey, originalFetch);
+      if (discovered) {
+        article.announcementUri = discovered.uri;
+        article.announcementCid = discovered.cid;
+        // Persist locally for future fast lookups
+        await upsertArticleAnnouncement({
+          articleUri: article.uri,
+          announcementUri: discovered.uri,
+          announcementCid: discovered.cid,
+          authorDid: did,
+          createdAt: new Date().toISOString(),
+        });
+      }
     }
   }
 
@@ -1347,10 +1384,38 @@ async function createInlineComment(
       },
     });
     commentUri = created.body.uri;
-  } else {
-    // Guest local comment
+  } else if (isGuest && announcement) {
+    // Guest local comment - also push to Firestore
     const localRkey = Math.random().toString(36).substring(2, 12);
     commentUri = `at://${did}/app.bsky.feed.post/${localRkey}`;
+    
+    const commentValue = {
+      $type: "app.bsky.feed.post",
+      text,
+      createdAt,
+      reply: {
+        root: {
+          uri: announcement.announcementUri,
+          cid: announcement.announcementCid || "local-guest-cid",
+        },
+        parent: {
+          uri: announcement.announcementUri,
+          cid: announcement.announcementCid || "local-guest-cid",
+        },
+      },
+      embed: {
+        $type: "app.bsky.embed.external",
+        external: {
+          uri: externalUri,
+          title: "ScholarView inline comment",
+          description: normalizedQuote,
+        },
+      },
+    };
+    
+    await writeGuestRecord(did, "app.bsky.feed.post", localRkey, commentValue, createdAt).catch(e => console.error("Failed to write guest comment to Firestore:", e));
+  } else {
+    throw new HttpError(400, "Cannot post comment without announcement or valid session");
   }
 
   await upsertInlineComment({
@@ -1537,35 +1602,40 @@ async function getDiscussion(
     return json({ success: true, root: null, thread: [] });
   }
 
-  const normalizedRoot = await normalizeAnnouncementRootWithPublicApi(
-    announcement.announcementUri,
-    originalFetch,
-  );
-  if (normalizedRoot && normalizedRoot.uri !== announcement.announcementUri) {
-    await upsertArticleAnnouncement({
-      articleUri,
-      announcementUri: normalizedRoot.uri,
-      announcementCid: normalizedRoot.cid,
-      authorDid: did,
-      createdAt: new Date().toISOString(),
-    });
-    announcement = {
-      ...announcement,
-      announcementUri: normalizedRoot.uri,
-      announcementCid: normalizedRoot.cid,
-      createdAt: new Date().toISOString(),
-    };
+  // Guest DIDs are not indexed by public relays, skip normalization and external thread fetch
+  const isGuestArticle = did.startsWith(GUEST_DID_PREFIX);
+
+  if (!isGuestArticle) {
+    const normalizedRoot = await normalizeAnnouncementRootWithPublicApi(
+      announcement.announcementUri,
+      originalFetch,
+    );
+    if (normalizedRoot && normalizedRoot.uri !== announcement.announcementUri) {
+      await upsertArticleAnnouncement({
+        articleUri,
+        announcementUri: normalizedRoot.uri,
+        announcementCid: normalizedRoot.cid,
+        authorDid: did,
+        createdAt: new Date().toISOString(),
+      });
+      announcement = {
+        ...announcement,
+        announcementUri: normalizedRoot.uri,
+        announcementCid: normalizedRoot.cid,
+        createdAt: new Date().toISOString(),
+      };
+    }
   }
 
   let payload: unknown = null;
-  if (sessionDid) {
+  if (sessionDid && !isGuestArticle) {
     try {
       payload = await fetchThreadViaOAuth(announcement.announcementUri);
     } catch {
       payload = null;
     }
   }
-  if (!payload) {
+  if (!payload && !isGuestArticle) {
     try {
       payload = await fetchThreadViaPublicApi(announcement.announcementUri, originalFetch);
     } catch {
@@ -1587,12 +1657,42 @@ async function getDiscussion(
     merged.set(item.uri, item);
   }
 
-  for (const comment of localComments) {
+  // Fetch guest comments from Firestore
+  let globalGuestComments: Array<{
+    uri: string;
+    authorDid: string;
+    text: string;
+    quote: string;
+    externalUri: string;
+    createdAt: string;
+  }> = [];
+  try {
+    const fsComments = await getGuestCommentsForArticle(announcement.announcementUri);
+    globalGuestComments = fsComments.map(doc => {
+      const v = doc.value as Record<string, unknown>;
+      const embed = (v.embed as Record<string, unknown> | undefined)?.external as Record<string, unknown> | undefined;
+      return {
+        uri: doc.uri,
+        authorDid: doc.repo,
+        text: (v.text as string) || "",
+        quote: (embed?.description as string) || "",
+        externalUri: (embed?.uri as string) || "",
+        createdAt: doc.createdAt
+      };
+    });
+  } catch (e) {
+    console.error("Failed to fetch global guest comments:", e);
+  }
+
+  // Combine local and global guest comments
+  const allGuestComments = [...localComments, ...globalGuestComments];
+
+  for (const comment of allGuestComments) {
     const existing = merged.get(comment.uri);
     if (existing) {
       merged.set(comment.uri, {
         ...existing,
-        handle: comment.handle ?? existing.handle,
+        handle: (comment as { handle?: string }).handle ?? existing.handle,
         authorDid: comment.authorDid || existing.authorDid,
         text: comment.text || existing.text,
         quote: comment.quote || existing.quote,
@@ -1606,7 +1706,7 @@ async function getDiscussion(
     merged.set(comment.uri, {
       uri: comment.uri,
       cid: null,
-      handle: comment.handle,
+      handle: (comment as { handle?: string }).handle || "guest.local",
       authorDid: comment.authorDid,
       text: comment.text,
       quote: comment.quote,
@@ -1614,7 +1714,7 @@ async function getDiscussion(
       createdAt: comment.createdAt,
       parentUri: announcement.announcementUri,
       depth: 1,
-      source: "tap",
+      source: "tap", // treat as external/local hybrid
     });
   }
 
@@ -1693,7 +1793,41 @@ async function handleArticlesPath(
         // Keep listing locally cached articles even if sync fails.
       }
       const q = url.searchParams.get("q")?.trim() ?? "";
-      const articles = await getRecentArticles(100, q);
+      let articles = await getRecentArticles(100, q);
+      
+      // Merge global guest articles from Firestore
+      try {
+        const guestArticles = await getRecentGuestArticles(20);
+        const guestArticleSummaries = guestArticles.map(doc => {
+          const v = doc.value as Record<string, unknown>;
+          const uriParts = doc.uri.split('/');
+          const rkey = uriParts[uriParts.length - 1];
+          return {
+            uri: doc.uri,
+            did: doc.repo,
+            rkey,
+            authorDid: doc.repo,
+            handle: "guest.local",
+            title: (v.title as string) || "Untitled",
+            authors: Array.isArray(v.authors) ? (v.authors as ArticleAuthor[]) : [],
+            sourceFormat: "markdown", // default assumption for guest summaries
+            broadcasted: 1,
+            createdAt: doc.createdAt,
+            announcementUri: null // Could be resolved if needed
+          } as ArticleSummary;
+        });
+        
+        // Filter out duplicates (if we already have them in IndexedDB)
+        const existingUris = new Set(articles.map(a => a.uri));
+        const newGuestArticles = guestArticleSummaries.filter(a => !existingUris.has(a.uri));
+        
+        articles = [...articles, ...newGuestArticles]
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          
+      } catch (e) {
+        console.error("Failed to fetch global guest articles:", e);
+      }
+
       return json({ success: true, articles });
     }
     if (request.method === "POST") {
@@ -1866,7 +2000,14 @@ async function syncLegacyArticles(force = false): Promise<Response> {
 
   let created = 0;
   for (const article of myArticles) {
-    const existingLinked = await getWorkspaceFileByLinkedArticleUri(article.uri, did);
+    // Check if any existing file is already linked to this URI
+    let existingLinked = await getWorkspaceFileByLinkedArticleUri(article.uri, did);
+    
+    // Backup check: search through currently loaded files in case the index is stale
+    if (!existingLinked) {
+      existingLinked = existingFiles.find(f => f.linkedArticleUri === article.uri) ?? null;
+    }
+
     if (existingLinked) {
       if (force) {
         const detail = await getArticleByDidAndRkey(article.did, article.rkey);
@@ -2576,12 +2717,21 @@ async function publishWorkspaceFile(
       // Guest local publish
       targetDid = did;
       targetRkey = Math.random().toString(36).substring(2, 12);
-      articleUri = `at://${targetDid}/${sci.peer.article.main}/${targetRkey}`;
-      
+      articleUri = `at://${targetDid}/${ARTICLE_COLLECTION}/${targetRkey}`;
+
       const atprotoAtUrl = buildScholarViewArticleUrl(targetDid, targetRkey);
-      let postText = customBroadcastText 
+      const postText = customBroadcastText
         ? customBroadcastText.replace(/\{\{article_url\}\}/g, atprotoAtUrl)
         : `新しい論文/実験計画を公開しました：『${title}』 ${atprotoAtUrl}`;
+
+      const articleValue = {
+        title,
+        authors,
+        blocks,
+        bibliography,
+        images: imageAssets as unknown as sci.peer.article.ImageAsset[],
+        createdAt: now,
+      };
 
       await upsertArticle({
         uri: articleUri,
@@ -2597,10 +2747,28 @@ async function publishWorkspaceFile(
         indexedAt: now,
       });
 
+      // Write article to Firestore
+      await writeGuestRecord(did, ARTICLE_COLLECTION, targetRkey, articleValue, now).catch(e => console.error("Failed to write guest article to Firestore:", e));
+
       // ゲスト用のローカル告知レコードを作成
-      const announcementUri = `at://${did}/app.bsky.feed.post/${targetRkey}`;
+      const announcementRkey = Math.random().toString(36).substring(2, 12);
+      const announcementUri = `at://${did}/app.bsky.feed.post/${announcementRkey}`;
       const announcementCid = "local-guest-cid";
-      
+
+      const announcementValue = {
+        $type: "app.bsky.feed.post",
+        text: postText,
+        createdAt: now,
+        embed: {
+          $type: "app.bsky.embed.external",
+          external: {
+            uri: atprotoAtUrl,
+            title,
+            description: "ScholarViewで論文を公開しました",
+          },
+        },
+      };
+
       await upsertArticleAnnouncement({
         articleUri,
         announcementUri,
@@ -2608,6 +2776,9 @@ async function publishWorkspaceFile(
         authorDid: did,
         createdAt: now,
       });
+
+      // Write announcement to Firestore
+      await writeGuestRecord(did, "app.bsky.feed.post", announcementRkey, announcementValue, now).catch(e => console.error("Failed to write guest announcement to Firestore:", e));
 
       // 最初の投稿として自分自身のDBにも入れる
       await upsertBskyInteraction({
