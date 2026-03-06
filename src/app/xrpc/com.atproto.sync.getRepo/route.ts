@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { GUEST_DID_PREFIX } from '@/lib/guest-identity';
 import { getGuestRecordsForRepo } from '@/lib/firebase-client';
-import { MemoryBlockstore, Repo } from '@atproto/repo';
+import { MemoryBlockstore, Repo, WriteOpAction, blocksToCarFile, type RecordCreateOp } from '@atproto/repo';
+import type { Keypair } from '@atproto/crypto';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -52,28 +53,36 @@ export async function GET(request: Request) {
     // Create a new Repo instance (this is a bit tricky without the signing key)
     // If this approach fails with the relay, we'll need to rethink the guest signing strategy.
     
-    const repo = await Repo.create(storage, repoDid, {
+    const unsignedKeypair: Keypair = {
+      jwtAlg: 'ES256K',
+      did() {
+        return repoDid;
+      },
       async sign(data: Uint8Array) {
+        void data;
         // Dummy signature - this WILL fail formal verification but might allow
-        // the relay to at least see the structure if it's not strictly verifying 
+        // the relay to at least see the structure if it's not strictly verifying
         // every hop during a manual requestCrawl (unlikely, but worth a shot for guest mode).
-        return new Uint8Array(64); 
-      }
-    });
+        return new Uint8Array(64);
+      },
+    };
 
-    // Add all records to the repo
-    let currentRepo = repo;
-    for (const rec of records) {
-      currentRepo = await currentRepo.put(rec.collection, rec.rkey, rec.value);
-    }
+    const initialWrites: RecordCreateOp[] = records.map((rec) => ({
+      action: WriteOpAction.Create,
+      collection: rec.collection,
+      rkey: rec.rkey,
+      record: rec.value,
+    }));
+    const currentRepo = await Repo.create(storage, repoDid, unsignedKeypair, initialWrites);
 
     // Export the entire repo as a CAR file
-    const carBytes = await storage.getCar(currentRepo.cid);
+    const carBytes = await blocksToCarFile(currentRepo.cid, storage.blocks);
+    const carBuffer = Buffer.from(carBytes);
 
-    return new Response(carBytes, {
+    return new Response(carBuffer, {
       headers: {
         'Content-Type': 'application/vnd.ipld.car',
-        'Content-Length': carBytes.length.toString(),
+        'Content-Length': carBuffer.length.toString(),
       },
     });
 
