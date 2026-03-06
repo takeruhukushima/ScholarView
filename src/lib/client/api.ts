@@ -385,9 +385,13 @@ function parseArticleValue(value: unknown): {
   }
 }
 
-async function triggerRelayCrawl() {
+async function triggerRelayCrawl(repo?: string) {
   try {
-    await fetch("/api/atproto/sync/request-crawl", { method: "POST" });
+    await fetch("/api/atproto/sync/request-crawl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo }),
+    });
   } catch (e) {
     console.error("Failed to trigger relay crawl:", e);
   }
@@ -1315,8 +1319,28 @@ async function deleteArticle(did: string, rkey: string): Promise<Response> {
   if (!ownerDid) throw new HttpError(404, "Article not found");
   if (ownerDid !== sessionDid) throw new HttpError(403, "Forbidden");
 
-  await lex.delete(sci.peer.article.main, { rkey });
+  let deletedArticleAtproto = false;
+  try {
+    await lex.deleteRecord(ARTICLE_COLLECTION, rkey);
+    deletedArticleAtproto = true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    // Remote already gone: proceed with local cleanup.
+    if (!/record not found|could not locate record|not found/i.test(message)) {
+      throw error;
+    }
+  }
+
   const announcement = await deleteArticleCascade(articleUri);
+  const workspaceFiles = await listWorkspaceFiles(sessionDid);
+  const linkedFiles = workspaceFiles.filter((file) => file.linkedArticleUri === articleUri);
+  for (const file of linkedFiles) {
+    await updateWorkspaceFileById(file.id, sessionDid, {
+      linkedArticleDid: null,
+      linkedArticleRkey: null,
+      linkedArticleUri: null,
+    });
+  }
 
   let deletedAnnouncement = false;
   if (announcement?.announcementUri) {
@@ -1331,8 +1355,11 @@ async function deleteArticle(did: string, rkey: string): Promise<Response> {
 
   return json({
     success: true,
+    articleUri,
+    unlinkedFileIds: linkedFiles.map((file) => file.id),
     deleted: {
       article: true,
+      articleAtproto: deletedArticleAtproto,
       announcement: deletedAnnouncement,
     },
   });
@@ -1422,7 +1449,7 @@ async function createInlineComment(
     };
     
     await writeGuestRecord(did, "app.bsky.feed.post", localRkey, commentValue, createdAt).catch(e => console.error("Failed to write guest comment to Firestore:", e));
-    void triggerRelayCrawl();
+    void triggerRelayCrawl(did);
   } else {
     throw new HttpError(400, "Cannot post comment without announcement or valid session");
   }
@@ -1997,13 +2024,95 @@ function uniqueFileName(
   }
 }
 
+function numericSuffixRank(name: string): number {
+  const dotIdx = name.lastIndexOf(".");
+  const stem = dotIdx > 0 ? name.slice(0, dotIdx) : name;
+  const match = stem.match(/-(\d+)$/);
+  if (!match) return 0;
+  const n = Number.parseInt(match[1] ?? "", 10);
+  return Number.isFinite(n) && n > 1 ? n : 1;
+}
+
+function compareDuplicatePriority(a: WorkspaceFileNode, b: WorkspaceFileNode): number {
+  const updatedA = safeTimestampMs(a.updatedAt) ?? Number.NEGATIVE_INFINITY;
+  const updatedB = safeTimestampMs(b.updatedAt) ?? Number.NEGATIVE_INFINITY;
+  if (updatedA !== updatedB) return updatedB - updatedA;
+
+  const suffixA = numericSuffixRank(a.name);
+  const suffixB = numericSuffixRank(b.name);
+  if (suffixA !== suffixB) return suffixA - suffixB;
+
+  const createdA = safeTimestampMs(a.createdAt) ?? Number.POSITIVE_INFINITY;
+  const createdB = safeTimestampMs(b.createdAt) ?? Number.POSITIVE_INFINITY;
+  if (createdA !== createdB) return createdA - createdB;
+
+  return a.id.localeCompare(b.id);
+}
+
+async function cleanupDuplicateWorkspaceFilesByLinkedArticleUri(
+  did: string,
+  existingFiles?: WorkspaceFileNode[],
+): Promise<{ deduped: number; files: WorkspaceFileNode[] }> {
+  const files = existingFiles ?? (await listWorkspaceFiles(did));
+  const byLinkedUri = new Map<string, WorkspaceFileNode[]>();
+
+  for (const file of files) {
+    const linkedUri = typeof file.linkedArticleUri === "string" ? file.linkedArticleUri.trim() : "";
+    if (!linkedUri) continue;
+    const grouped = byLinkedUri.get(linkedUri) ?? [];
+    grouped.push(file);
+    byLinkedUri.set(linkedUri, grouped);
+  }
+
+  let deduped = 0;
+  for (const grouped of byLinkedUri.values()) {
+    if (grouped.length < 2) continue;
+
+    const sorted = [...grouped].sort(compareDuplicatePriority);
+    const survivor = sorted[0];
+    const patch: {
+      linkedArticleDid?: string | null;
+      linkedArticleRkey?: string | null;
+      linkedArticleUri?: string | null;
+    } = {};
+
+    for (let i = 1; i < sorted.length; i += 1) {
+      const duplicate = sorted[i];
+      if (!patch.linkedArticleDid && !survivor.linkedArticleDid && duplicate.linkedArticleDid) {
+        patch.linkedArticleDid = duplicate.linkedArticleDid;
+      }
+      if (!patch.linkedArticleRkey && !survivor.linkedArticleRkey && duplicate.linkedArticleRkey) {
+        patch.linkedArticleRkey = duplicate.linkedArticleRkey;
+      }
+      if (!patch.linkedArticleUri && !survivor.linkedArticleUri && duplicate.linkedArticleUri) {
+        patch.linkedArticleUri = duplicate.linkedArticleUri;
+      }
+      await deleteWorkspaceFileById(duplicate.id, did);
+      deduped += 1;
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await updateWorkspaceFileById(survivor.id, did, patch);
+    }
+  }
+
+  if (deduped === 0) {
+    return { deduped: 0, files };
+  }
+
+  const refreshed = await listWorkspaceFiles(did);
+  return { deduped, files: refreshed };
+}
+
 async function syncLegacyArticles(force = false): Promise<Response> {
   await syncOwnArticlesFromRepo({ force });
   const did = await requireDid();
-  const [allArticles, existingFiles] = await Promise.all([
-    getRecentArticles(500),
-    listWorkspaceFiles(did),
-  ]);
+  const initialFiles = await listWorkspaceFiles(did);
+  const { deduped, files: existingFiles } = await cleanupDuplicateWorkspaceFilesByLinkedArticleUri(
+    did,
+    initialFiles,
+  );
+  const allArticles = await getRecentArticles(500);
   const myArticles = allArticles.filter((article) => article.authorDid === did);
   const existingNames = new Set(existingFiles.map((file) => file.name.toLowerCase()));
 
@@ -2061,7 +2170,7 @@ async function syncLegacyArticles(force = false): Promise<Response> {
   }
 
   const files = await listWorkspaceFiles(did);
-  return json({ success: true, created, files });
+  return json({ success: true, created, deduped, files });
 }
 
 async function seedWelcomeWorkspace(did: string): Promise<void> {
@@ -2788,7 +2897,7 @@ async function publishWorkspaceFile(
 
       // Write announcement to Firestore
       await writeGuestRecord(did, "app.bsky.feed.post", announcementRkey, announcementValue, now).catch(e => console.error("Failed to write guest announcement to Firestore:", e));
-      void triggerRelayCrawl();
+      void triggerRelayCrawl(did);
 
       // 最初の投稿として自分自身のDBにも入れる
       await upsertBskyInteraction({

@@ -2,14 +2,14 @@
  * AT Protocol Relay (BGS) に対して、指定したホストのクロールを要請します。
  * これにより、リレーが私たちのサーバー（PDS代行）にデータを吸い取りに来ます。
  */
-export async function requestRelayCrawl(hostname: string = "scholar-view.vercel.app") {
+export async function requestRelayCrawl(hostname: string = "scholar-view.vercel.app", repo?: string) {
   const RELAYS = [
     "https://bsky.network", // Bluesky公式リレー
   ];
 
   for (const relay of RELAYS) {
     try {
-      console.log(`[ATProto] Requesting crawl from ${relay} for ${hostname}`);
+      console.log(`[ATProto] Requesting crawl from ${relay} for ${hostname}${repo ? ` (repo: ${repo})` : ""}`);
       const res = await fetch(`${relay}/xrpc/com.atproto.sync.requestCrawl`, {
         method: "POST",
         headers: {

@@ -16,6 +16,7 @@
     "@atproto/crypto": "^0.4.5",
     "@atproto/lex": "^0.0.16",
     "@atproto/oauth-client-browser": "^0.3.41",
+    "@atproto/repo": "^0.8.12",
     "@atproto/syntax": "^0.4.3",
     "firebase": "^12.10.0",
     "katex": "^0.16.28",

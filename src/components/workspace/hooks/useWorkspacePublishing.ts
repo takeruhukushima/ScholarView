@@ -205,7 +205,7 @@ export function useWorkspacePublishing({
     }
 
     const confirmed = window.confirm(
-      "Bluesky Syncをオフにすると、Bluesky上の投稿とこれまでの議論（返信）が削除されます。よろしいですか？"
+      "Unpublish Articleを実行すると、AT Protocol上の論文レコードとBluesky投稿が削除されます。よろしいですか？"
     );
     if (!confirmed) return;
 
@@ -214,28 +214,50 @@ export function useWorkspacePublishing({
       const response = await fetch(
         `/api/articles/${encodeURIComponent(currentDid)}/${encodeURIComponent(currentRkey)}`,
         {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            sourceFormat,
-            broadcastToBsky: false,
-            ...(sourceFormat === "tex" ? { tex: sourceText } : { markdown: sourceText }),
-            bibliography: resolvedBibliography.map((entry) => ({
-              key: entry.key,
-              rawBibtex: entry.rawBibtex,
-            })),
-          }),
+          method: "DELETE",
         }
       );
 
-      const data = (await response.json()) as { success?: boolean; error?: string };
+      const data = (await response.json()) as {
+        success?: boolean;
+        articleUri?: string;
+        unlinkedFileIds?: string[];
+        deleted?: {
+          articleAtproto?: boolean;
+        };
+        error?: string;
+      };
       if (!response.ok || !data.success) {
         throw new Error(data.error ?? "Failed to unpublish article");
       }
 
       setBroadcastToBsky(false);
-      setStatusMessage("Unpublished from Bluesky.");
+      setCurrentDid(null);
+      setCurrentRkey(null);
+      setActiveArticleUri(null);
+      setCurrentAuthorDid(null);
+      setFiles((prev) =>
+        prev.map((item) => {
+          const shouldUnlink =
+            (Array.isArray(data.unlinkedFileIds) && data.unlinkedFileIds.includes(item.id)) ||
+            (typeof data.articleUri === "string" && item.linkedArticleUri === data.articleUri);
+          if (!shouldUnlink) return item;
+          return {
+            ...item,
+            linkedArticleDid: null,
+            linkedArticleRkey: null,
+            linkedArticleUri: null,
+          };
+        }),
+      );
+      await refreshArticles();
+      if (data.deleted?.articleAtproto) {
+        setStatusMessage("Deleted article from AT Protocol and Bluesky.");
+      } else {
+        setStatusMessage("Deleted local article data. AT Protocol record was already absent or non-TID.");
+      }
+    } catch (err: unknown) {
+      setStatusMessage(err instanceof Error ? err.message : "Failed to unpublish article");
     } finally {
       setBusy(false);
     }
