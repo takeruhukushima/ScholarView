@@ -93,3 +93,37 @@ export async function getRecentGuestArticles(limit: number = 20) {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, limit);
 }
+
+export async function getGuestRecordsForRepo(repo: string) {
+  const q = query(
+    collection(db, "atproto_records"),
+    where("repo", "==", repo)
+  );
+  
+  const snapshot = await getDocs(q);
+  const records: AtprotoRecordDoc[] = [];
+  
+  snapshot.forEach((doc) => {
+    records.push(doc.data() as AtprotoRecordDoc);
+  });
+  
+  return records;
+}
+
+export async function getAllGuestDids() {
+  const q = query(
+    collection(db, "atproto_records"),
+  );
+  
+  const snapshot = await getDocs(q);
+  const dids = new Set<string>();
+  
+  snapshot.forEach((doc) => {
+    const data = doc.data() as AtprotoRecordDoc;
+    if (data.repo && data.repo.startsWith(GUEST_DID_PREFIX)) {
+      dids.add(data.repo);
+    }
+  });
+  
+  return Array.from(dids).map(did => ({ did }));
+}

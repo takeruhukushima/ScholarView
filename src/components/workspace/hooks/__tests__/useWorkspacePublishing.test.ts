@@ -137,4 +137,53 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     expect(body.broadcastToBsky).toBe(true);
     expect(body.notifyUpdate).toBe(false);
   });
+
+  it('deletes article record on unpublish', async () => {
+    const mockConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const mockSetCurrentDid = vi.fn();
+    const mockSetCurrentRkey = vi.fn();
+    const mockSetActiveArticleUri = vi.fn();
+    const mockSetCurrentAuthorDid = vi.fn();
+    const mockSetBroadcastToBsky = vi.fn();
+
+    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        success: true,
+        articleUri: 'at://did:plc:user/sci.peer.article/rkey1',
+        unlinkedFileIds: ['f1'],
+        deleted: { articleAtproto: true },
+      }),
+    });
+
+    const props = {
+      ...defaultProps,
+      currentDid: 'did:plc:user',
+      currentRkey: 'rkey1',
+      setCurrentDid: mockSetCurrentDid,
+      setCurrentRkey: mockSetCurrentRkey,
+      setActiveArticleUri: mockSetActiveArticleUri,
+      setCurrentAuthorDid: mockSetCurrentAuthorDid,
+      setBroadcastToBsky: mockSetBroadcastToBsky,
+    };
+    const { result } = renderHook(() => useWorkspacePublishing(props));
+
+    await act(async () => {
+      await result.current.handleUnpublish();
+    });
+
+    expect(mockConfirm).toHaveBeenCalled();
+    expect(global.fetch).toHaveBeenCalledWith('/api/articles/did%3Aplc%3Auser/rkey1', {
+      method: 'DELETE',
+    });
+    expect(mockSetBroadcastToBsky).toHaveBeenCalledWith(false);
+    expect(mockSetCurrentDid).toHaveBeenCalledWith(null);
+    expect(mockSetCurrentRkey).toHaveBeenCalledWith(null);
+    expect(mockSetActiveArticleUri).toHaveBeenCalledWith(null);
+    expect(mockSetCurrentAuthorDid).toHaveBeenCalledWith(null);
+    expect(mockSetStatusMessage).toHaveBeenCalledWith('Deleted article from AT Protocol and Bluesky.');
+
+    mockConfirm.mockRestore();
+  });
 });
