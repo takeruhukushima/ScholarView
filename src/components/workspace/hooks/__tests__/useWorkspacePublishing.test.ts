@@ -102,7 +102,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('separates sync state from update notification flag', async () => {
+  it('uses modal checkbox state for update notification and broadcasting', async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       status: 200,
@@ -134,7 +134,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     expect(global.fetch).toHaveBeenCalled();
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.broadcastToBsky).toBe(true);
+    expect(body.broadcastToBsky).toBe(false);
     expect(body.notifyUpdate).toBe(false);
   });
 

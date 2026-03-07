@@ -802,7 +802,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
             savingFile={savingFile}
             busy={busy}
             broadcastToBsky={broadcastToBsky}
-            setBroadcastToBsky={setBroadcastToBsky}
             sourceFormat={sourceFormat}
             currentDid={currentDid}
             currentRkey={currentRkey}

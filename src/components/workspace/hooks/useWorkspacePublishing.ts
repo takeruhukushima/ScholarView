@@ -78,7 +78,11 @@ export function useWorkspacePublishing({
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const [broadcastPreviewText, setBroadcastPreviewText] = useState<string | null>(null);
 
-  const performPublish = async (broadcastText?: string, shouldNotify: boolean = true) => {
+  const performPublish = async (
+    broadcastText?: string,
+    shouldNotify: boolean = true,
+    shouldBroadcastToBsky: boolean = broadcastToBsky,
+  ) => {
     if (!activeFile) return;
 
     setBusy(true);
@@ -93,7 +97,7 @@ export function useWorkspacePublishing({
           body: JSON.stringify({
             title,
             authors: parseAuthors(authorsText),
-            broadcastToBsky,
+            broadcastToBsky: shouldBroadcastToBsky,
             notifyUpdate: shouldNotify,
             broadcastText,
             bibliography: resolvedBibliography.map((entry) => ({
@@ -192,7 +196,8 @@ export function useWorkspacePublishing({
 
   const confirmPublish = async (text: string, shouldNotify: boolean = true) => {
     setBroadcastPreviewText(null);
-    await performPublish(shouldNotify ? text : undefined, shouldNotify);
+    const shouldBroadcastToBsky = shouldNotify;
+    await performPublish(shouldNotify ? text : undefined, shouldNotify, shouldBroadcastToBsky);
   };
 
   const cancelPublish = () => {

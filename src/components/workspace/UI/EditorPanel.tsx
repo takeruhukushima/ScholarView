@@ -62,7 +62,6 @@ interface EditorPanelProps {
   savingFile: boolean;
   busy: boolean;
   broadcastToBsky: boolean;
-  setBroadcastToBsky: (val: boolean) => void;
   sourceFormat: SourceFormat;
   currentDid: string | null;
   currentRkey: string | null;
@@ -153,7 +152,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   savingFile,
   busy,
   broadcastToBsky,
-  setBroadcastToBsky,
   sourceFormat,
   currentDid,
   currentRkey,
@@ -321,6 +319,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         <BroadcastPreviewModal
           defaultText={broadcastPreviewText}
           isUpdate={Boolean(currentDid && currentRkey)}
+          broadcastToBsky={broadcastToBsky}
           onConfirm={confirmPublish}
           onCancel={cancelPublish}
         />
@@ -548,15 +547,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                             </select>
                           </div>
                         )}
-                        <label className="flex items-center justify-between px-2 py-1.5 hover:bg-slate-50 rounded-lg cursor-pointer transition-colors">
-                          <span className="text-xs text-slate-600 font-medium">Bluesky Sync</span>
-                          <input
-                            type="checkbox"
-                            checked={broadcastToBsky}
-                            onChange={(e) => setBroadcastToBsky(e.target.checked)}
-                            className="h-3 w-3 rounded text-indigo-600 focus:ring-indigo-500"
-                          />
-                        </label>
                       </div>
                       <div className="mt-2 p-2 border-t border-slate-50 space-y-1">
                         {isImageWorkspaceFile ? (
