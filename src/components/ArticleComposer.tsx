@@ -130,7 +130,10 @@ export function ArticleComposer({
     setBroadcastPreviewText(defaultText);
   }
 
-  async function performSubmit(broadcastText?: string) {
+  async function performSubmit(
+    broadcastText?: string,
+    shouldBroadcastToBsky: boolean = broadcastToBsky,
+  ) {
     setLoading(true);
     try {
       const endpoint =
@@ -143,8 +146,8 @@ export function ArticleComposer({
         title,
         authors: parseAuthors(authorsText),
         sourceFormat,
-        broadcastToBsky: !!broadcastText || broadcastToBsky,
-        broadcastText,
+        broadcastToBsky: shouldBroadcastToBsky,
+        ...(shouldBroadcastToBsky ? { broadcastText } : {}),
         ...(sourceFormat === "tex" ? { tex: content } : { markdown: content }),
       };
 
@@ -257,9 +260,10 @@ export function ArticleComposer({
       {broadcastPreviewText && (
         <BroadcastPreviewModal
           defaultText={broadcastPreviewText}
-          onConfirm={async (text) => {
+          broadcastToBsky={broadcastToBsky}
+          onConfirm={async (text, shouldNotify) => {
             setBroadcastPreviewText(null);
-            await performSubmit(text);
+            await performSubmit(shouldNotify ? text : undefined, shouldNotify);
           }}
           onCancel={() => setBroadcastPreviewText(null)}
         />
