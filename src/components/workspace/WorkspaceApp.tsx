@@ -723,7 +723,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           <Sidebar
             articles={articles}
             activeArticleUri={activeArticleUri}
-            onOpen={async (a) => openArticleExternal(a)}
+            openArticle={async (a) => openArticleExternal(a)}
             onRefreshArticle={async (article) => {
               if (activeFile && activeFile.kind === "file" && activeFile.linkedArticleUri === article.uri && (isDirtyFile || isDirtyTitle)) {
                 if (!confirm("ローカルの変更が消える可能性があります。本当にリフレッシュしますか？")) {
