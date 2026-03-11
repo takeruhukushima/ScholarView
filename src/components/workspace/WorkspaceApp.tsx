@@ -705,25 +705,25 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const shouldShowStatus = Boolean(statusMessage);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6 pb-20 lg:pb-6">
+    <div className="h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6 pb-24 lg:pb-6 flex flex-col">
       <OnboardingTour storageKey={TUTORIAL_STORAGE_KEY} />
 
       {shouldShowStatus ? (
-        <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">
+        <p className="mb-3 shrink-0 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">
           {statusMessage}
         </p>
       ) : null}
 
-      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-start">
+      <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-stretch overflow-hidden">
         <div
           className={`${
             mobileView === "files" ? "block" : "hidden"
-          } lg:block lg:sticky lg:top-6 lg:h-[calc(100vh-5rem)]`}
+          } lg:block lg:sticky lg:top-6 h-full lg:h-[calc(100vh-5rem)] overflow-hidden`}
         >
           <Sidebar
             articles={articles}
             activeArticleUri={activeArticleUri}
-            openArticle={async (a) => openArticleExternal(a)}
+            onOpen={async (a) => openArticleExternal(a)}
             onRefreshArticle={async (article) => {
               if (activeFile && activeFile.kind === "file" && activeFile.linkedArticleUri === article.uri && (isDirtyFile || isDirtyTitle)) {
                 if (!confirm("ローカルの変更が消える可能性があります。本当にリフレッシュしますか？")) {
@@ -750,7 +750,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
                 await openFile(currentActive);
               }
             }}
-            files={files}            activeFileId={activeFileId}
+            files={files}
+            activeFileId={activeFileId}
             openFile={openFile}
             renameWorkspaceItem={renameWorkspaceItem}
             deleteWorkspaceItem={deleteWorkspaceItem}
@@ -768,7 +769,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           />
         </div>
 
-        <div className={`${mobileView === "editor" ? "block" : "hidden"} lg:block`}>
+        <div className={`${mobileView === "editor" ? "block" : "hidden"} lg:block h-full overflow-hidden`}>
           <EditorPanel
             hasOpenDocument={hasOpenDocument}
             activeFile={activeFile}
