@@ -289,7 +289,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   return (
     <div
       data-tour-id="editor-panel"
-      className="min-w-0 rounded-xl border border-slate-200/60 bg-white p-6 shadow-sm overflow-y-auto h-[calc(100vh-12rem)] lg:h-[calc(100vh-5rem)] scrollbar-thin scrollbar-thumb-slate-200"
+      className="min-w-0 min-h-0 rounded-xl border border-slate-200/60 bg-white p-4 md:p-6 shadow-sm overflow-y-auto h-full lg:h-[calc(100vh-5rem)] scrollbar-thin scrollbar-thumb-slate-200"
       onClick={handleEditorCanvasClick}
       onDragOver={(event) => {
         if (!canEditTextCurrentFile) return;
@@ -345,8 +345,8 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
         </div>
       ) : (
         <div className="max-w-4xl mx-auto">
-          <div className="mb-8 flex items-start justify-between gap-6" data-tour-id="publish-flow">
-            <div className="flex flex-1 flex-col gap-2 min-w-0">
+          <div className="mb-6 lg:mb-8 flex flex-col md:flex-row items-start justify-between gap-4 md:gap-6" data-tour-id="publish-flow">
+            <div className="flex flex-1 flex-col gap-2 min-w-0 w-full">
               <input
                 ref={titleRef}
                 value={title}
@@ -376,12 +376,12 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                   }
                 }}
                 readOnly={!canEditCurrentFile}
-                className="w-full border-none bg-transparent text-4xl font-bold tracking-tight text-slate-900 outline-none placeholder:text-slate-200"
+                className="w-full border-none bg-transparent text-2xl md:text-4xl font-bold tracking-tight text-slate-900 outline-none placeholder:text-slate-200"
                 placeholder="Article Title..."
               />
 
               {canPublishCurrentFile && (
-                <div className="mt-2 min-h-[2rem]">
+                <div className="mt-1 md:mt-2 min-h-[1.5rem] md:min-h-[2rem]">
                   {isAuthorsFocused || !authorsText.trim() ? (
                     <>
                       <textarea
@@ -408,7 +408,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                           }
                         }}
                         readOnly={!canEditCurrentFile}
-                        className="w-full resize-none border-none bg-transparent font-mono text-sm text-indigo-600 outline-none placeholder:text-slate-300"
+                        className="w-full resize-none border-none bg-transparent font-mono text-[10px] md:text-sm text-indigo-600 outline-none placeholder:text-slate-300"
                         placeholder="Authors: Name <did:plc:...> (Affiliation), ..."
                         rows={Math.max(1, authorsText.split("\n").length)}
                       />
@@ -437,9 +437,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
               )}
             </div>
 
-            <div className="relative flex items-center gap-3 shrink-0 pt-2">
+            <div className="flex flex-wrap items-center justify-end gap-2 self-end md:self-start shrink-0 w-full md:w-auto">
               {canEditCurrentFile && (
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-50 border border-slate-100">
+                <div className="hidden md:flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-50 border border-slate-100">
                   <div className={`h-1.5 w-1.5 rounded-full ${savingFile ? "bg-amber-400 animate-pulse" : isDirtyFile || isDirtyTitle ? "bg-slate-300" : "bg-emerald-500"}`}></div>
                   <span className="text-[10px] font-bold uppercase tracking-tighter text-slate-500">
                     {savingFile ? "Syncing" : isDirtyFile || isDirtyTitle ? "Draft" : "Saved"}
@@ -449,63 +449,65 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
 
               {canPublishCurrentFile && (
                 <div className="flex items-center gap-2">
-                  {onAction && (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => {
-                        const message = (isDirtyFile || isDirtyTitle)
-                          ? "ローカルの変更が消える可能性があります。本当にリフレッシュしますか？"
-                          : "AT Protocolから最新データを取得してリフレッシュしますか？";
-                        
-                        if (confirm(message)) {
-                          void onAction().catch((err: unknown) => {
-                            setStatusMessage(err instanceof Error ? err.message : "Failed to refresh");
-                          });
-                        }
-                      }}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
-                      title="Refresh from AT Protocol"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-                      </svg>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={handleCopyMarkdown}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
-                    title={copiedMd ? "Copied!" : "Copy for LLM (Markdown)"}
-                  >
-                    {copiedMd ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                      </svg>
+                  <div className="flex items-center gap-2">
+                    {onAction && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          const message = (isDirtyFile || isDirtyTitle)
+                            ? "ローカルの変更が消える可能性があります。本当にリフレッシュしますか？"
+                            : "AT Protocolから最新データを取得してリフレッシュしますか？";
+                          
+                          if (confirm(message)) {
+                            void onAction().catch((err: unknown) => {
+                              setStatusMessage(err instanceof Error ? err.message : "Failed to refresh");
+                            });
+                          }
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
+                        title="Refresh from AT Protocol"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" /><path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                        </svg>
+                      </button>
                     )}
-                  </button>
-                  {currentDid && currentRkey && (
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={handleCopyUrl}
+                      onClick={handleCopyMarkdown}
                       className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
-                      title={copied ? "Copied URL!" : "Copy Article URL"}
+                      title={copiedMd ? "Copied!" : "Copy for LLM (Markdown)"}
                     >
-                      {copied ? (
+                      {copiedMd ? (
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                       ) : (
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                         </svg>
                       )}
                     </button>
-                  )}
+                    {currentDid && currentRkey && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={handleCopyUrl}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-indigo-600 transition-all disabled:opacity-50"
+                        title={copied ? "Copied URL!" : "Copy Article URL"}
+                      >
+                        {copied ? (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        ) : (
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={busy}
@@ -514,10 +516,11 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                         setStatusMessage(err instanceof Error ? err.message : "Failed to publish");
                       });
                     }}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50"
+                    className="rounded-lg bg-indigo-600 px-3 py-1.5 md:px-4 md:py-2 text-[10px] md:text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all disabled:opacity-50 shrink-0"
                   >
                     Broadcast
-                  </button>                </div>
+                  </button>
+                </div>
               )}
 
               {canEditCurrentFile && !isBibWorkspaceFile && (
