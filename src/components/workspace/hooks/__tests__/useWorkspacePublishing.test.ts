@@ -35,7 +35,6 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     loadDiscussion: vi.fn(),
     normalizeWorkspaceImageUrisForExport: (s: string) => s,
     files: [],
-    triggerAuthModal: vi.fn(),
   };
 
   beforeEach(() => {
@@ -87,22 +86,24 @@ describe('useWorkspacePublishing hook - Hardened', () => {
   });
 
   it('requires sessionDid to publish', async () => {
-    const mockTriggerAuthModal = vi.fn();
-    const unauthProps = { ...defaultProps, sessionDid: null, triggerAuthModal: mockTriggerAuthModal };
+    const unauthProps = { ...defaultProps, sessionDid: null };
     const { result } = renderHook(() => useWorkspacePublishing(unauthProps));
+
+    // Mock window.alert
+    const alertMock = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     await act(async () => {
       await result.current.handlePublish();
     });
 
-    expect(mockTriggerAuthModal).toHaveBeenCalledWith(
-      "Broadcast Identity",
-      expect.any(String)
-    );
+    expect(mockSetStatusMessage).toHaveBeenCalledWith('Login required to broadcast.');
+    expect(alertMock).toHaveBeenCalledWith(expect.stringContaining('Please log in'));
     expect(global.fetch).not.toHaveBeenCalled();
+
+    alertMock.mockRestore();
   });
 
-  it('uses modal checkbox state for update notification and broadcasting', async () => {
+  it('separates sync state from update notification flag', async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       status: 200,
@@ -134,56 +135,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     expect(global.fetch).toHaveBeenCalled();
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.broadcastToBsky).toBe(false);
+    expect(body.broadcastToBsky).toBe(true);
     expect(body.notifyUpdate).toBe(false);
-  });
-
-  it('deletes article record on unpublish', async () => {
-    const mockConfirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const mockSetCurrentDid = vi.fn();
-    const mockSetCurrentRkey = vi.fn();
-    const mockSetActiveArticleUri = vi.fn();
-    const mockSetCurrentAuthorDid = vi.fn();
-    const mockSetBroadcastToBsky = vi.fn();
-
-    (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        success: true,
-        articleUri: 'at://did:plc:user/sci.peer.article/rkey1',
-        unlinkedFileIds: ['f1'],
-        deleted: { articleAtproto: true },
-      }),
-    });
-
-    const props = {
-      ...defaultProps,
-      currentDid: 'did:plc:user',
-      currentRkey: 'rkey1',
-      setCurrentDid: mockSetCurrentDid,
-      setCurrentRkey: mockSetCurrentRkey,
-      setActiveArticleUri: mockSetActiveArticleUri,
-      setCurrentAuthorDid: mockSetCurrentAuthorDid,
-      setBroadcastToBsky: mockSetBroadcastToBsky,
-    };
-    const { result } = renderHook(() => useWorkspacePublishing(props));
-
-    await act(async () => {
-      await result.current.handleUnpublish();
-    });
-
-    expect(mockConfirm).toHaveBeenCalled();
-    expect(global.fetch).toHaveBeenCalledWith('/api/articles/did%3Aplc%3Auser/rkey1', {
-      method: 'DELETE',
-    });
-    expect(mockSetBroadcastToBsky).toHaveBeenCalledWith(false);
-    expect(mockSetCurrentDid).toHaveBeenCalledWith(null);
-    expect(mockSetCurrentRkey).toHaveBeenCalledWith(null);
-    expect(mockSetActiveArticleUri).toHaveBeenCalledWith(null);
-    expect(mockSetCurrentAuthorDid).toHaveBeenCalledWith(null);
-    expect(mockSetStatusMessage).toHaveBeenCalledWith('Deleted article from AT Protocol and Bluesky.');
-
-    mockConfirm.mockRestore();
   });
 });

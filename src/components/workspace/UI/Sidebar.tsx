@@ -6,6 +6,7 @@ import { ArticleSummary } from "@/lib/types";
 import { buildArticlePath, extractDidAndRkey } from "@/lib/articles/uri";
 import { ArticleList } from "../ArticleList";
 import { FileTree } from "../FileTree";
+import { LoginForm } from "@/components/LoginForm";
 import { LogoutButton } from "@/components/LogoutButton";
 
 interface SidebarProps {
@@ -21,7 +22,6 @@ interface SidebarProps {
   handleMoveWorkspaceItem: (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => Promise<void>;
   createWorkspaceItem: (kind: "folder" | "file") => Promise<void>;
   isLoggedIn: boolean;
-  isGuest?: boolean;
   accountHandle?: string | null;
   loadFiles: (did: string | null, setBusy: (b: boolean) => void, setStatusMessage: (m: string) => void) => Promise<WorkspaceFile[]>;
   sessionDid: string | null;
@@ -29,7 +29,6 @@ interface SidebarProps {
   setStatusMessage: (msg: string) => void;
   onRefreshArticle?: (article: ArticleSummary) => void;
   onAction?: () => void;
-  onSignInClick?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -45,7 +44,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   handleMoveWorkspaceItem,
   createWorkspaceItem,
   isLoggedIn,
-  isGuest,
   accountHandle,
   loadFiles,
   sessionDid,
@@ -53,7 +51,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setStatusMessage,
   onRefreshArticle,
   onAction,
-  onSignInClick,
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
@@ -240,7 +237,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* User Session Footer */}
-      {isLoggedIn && !isGuest ? (
+      {isLoggedIn ? (
         <div className="mt-auto flex items-center justify-between rounded-xl bg-slate-50/80 p-3 border border-slate-100">
           <div className="flex items-center gap-2 overflow-hidden">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold ring-2 ring-white">
@@ -255,44 +252,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <LogoutButton />
         </div>
-      ) : isGuest ? (
-        <div className="mt-auto border-t border-slate-100 pt-6 space-y-3">
-          <div className="flex items-center justify-between rounded-xl bg-amber-50/50 p-3 border border-amber-100/50">
-            <div className="flex items-center gap-2 overflow-hidden">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-xs font-bold ring-2 ring-white">
-                G
-              </div>
-              <div className="flex flex-col overflow-hidden text-left">
-                <span className="truncate text-xs font-bold text-slate-700">Guest User</span>
-                <span className="text-[10px] text-amber-600 font-medium">Local Mode</span>
-              </div>
-            </div>
-            <LogoutButton />
-          </div>
-          <button
-            onClick={onSignInClick}
-            className="w-full group relative flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white transition-all hover:bg-indigo-700 active:scale-[0.98] shadow-sm shadow-indigo-100"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
-            Upgrade to Bluesky
-          </button>
-        </div>
       ) : (
         <div className="mt-auto border-t border-slate-100 pt-6">
-          <button
-            onClick={onSignInClick}
-            className="w-full group relative flex items-center justify-center gap-3 overflow-hidden rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-200 active:scale-[0.98]"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-400 group-hover:rotate-12 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>
-            </svg>
-            Sign In / Join
-          </button>
-          <p className="mt-3 text-center text-[10px] font-medium text-slate-400">
-            Start writing or join the discussion
-          </p>
+          <LoginForm />
         </div>
       )}
     </div>

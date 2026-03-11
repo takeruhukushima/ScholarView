@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { DiscussionRoot, DiscussionPost } from "@/lib/workspace/types";
 
 interface UseWorkspaceDiscussionProps {
+  sessionDid: string | null;
   currentDid: string | null;
   currentRkey: string | null;
   setBusy: (busy: boolean) => void;
@@ -10,6 +11,7 @@ interface UseWorkspaceDiscussionProps {
 }
 
 export function useWorkspaceDiscussion({
+  sessionDid,
   currentDid,
   currentRkey,
   setBusy,
@@ -73,6 +75,10 @@ export function useWorkspaceDiscussion({
   }, [currentDid, currentRkey, selectedQuote]);
 
   const submitInlineComment = useCallback(async () => {
+    if (!sessionDid) {
+      setStatusMessage("Login required to comment.");
+      return;
+    }
     if (!currentDid || !currentRkey) {
       setStatusMessage("Publish article before commenting.");
       return;
@@ -108,6 +114,7 @@ export function useWorkspaceDiscussion({
       setBusy(false);
     }
   }, [
+    sessionDid,
     currentDid,
     currentRkey,
     selectedQuote,
@@ -120,6 +127,11 @@ export function useWorkspaceDiscussion({
 
   const runEngagement = useCallback(
     async (action: "like" | "repost" | "reply", post: DiscussionPost, text?: string) => {
+      if (!sessionDid) {
+        setStatusMessage("Login required.");
+        return;
+      }
+
       const response = await fetch("/api/bsky/engagement", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -137,7 +149,7 @@ export function useWorkspaceDiscussion({
 
       await loadDiscussion();
     },
-    [loadDiscussion]
+    [sessionDid, loadDiscussion, setStatusMessage]
   );
 
   const captureWindowSelection = useCallback(() => {

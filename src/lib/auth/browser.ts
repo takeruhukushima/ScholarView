@@ -2,8 +2,6 @@
 
 import { Client } from "@atproto/lex";
 import { BrowserOAuthClient, buildLoopbackClientId } from "@atproto/oauth-client-browser";
-import { GUEST_DID_PREFIX, getOrCreateGuestIdentity, clearGuestIdentity } from "@/lib/guest-identity";
-import { migrateGuestData } from "@/lib/client/store";
 
 const ACTIVE_DID_KEY = "scholarview:auth:active-did";
 const HANDLE_KEY_PREFIX = "scholarview:auth:handle:";
@@ -66,7 +64,7 @@ async function clearSession(client: BrowserOAuthClientLike, did: string | null):
     try {
       await client.revoke?.(did);
     } catch {
-      // ignore
+      // Session can already be unavailable; continue to clear local state.
     }
   }
   if (!did || activeDidMemory === did) {
@@ -110,11 +108,6 @@ function writeStoredDid(did: string | null) {
   }
 }
 
-export function setActiveDidToGuest(did: string) {
-  activeDidMemory = did;
-  writeStoredDid(did);
-}
-
 function readHandle(did: string): string | null {
   if (typeof window === "undefined") return null;
   return window.localStorage.getItem(`${HANDLE_KEY_PREFIX}${did}`);
@@ -140,6 +133,7 @@ async function createClient(): Promise<BrowserOAuthClientLike> {
     : new Ctor(
         loopback
           ? {
+              // Loopback clients cannot use path-based discoverable metadata.
               handleResolver,
               clientMetadata: undefined,
             }
@@ -170,33 +164,9 @@ export async function getBrowserOAuthClient(): Promise<BrowserOAuthClientLike> {
   return clientPromise;
 }
 
-async function getGuestSession(did: string): Promise<unknown | null> {
-  try {
-    const identity = await getOrCreateGuestIdentity();
-    if (identity.did !== did) return null;
-
-    return {
-      did: identity.did,
-      handle: "guest.local",
-      fetchHandler: async () => {
-        return new Response(JSON.stringify({ error: "Guest network access limited" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      },
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 起動時に呼び出され、セッションを初期化します。
- * セッションがない場合は自動的にゲストIDを作成します。
- */
 export async function initializeAuth(): Promise<{
-  did: string;
-  handle: string;
+  did: string | null;
+  handle: string | null;
 }> {
   const client = await getBrowserOAuthClient();
   const initResult = await client.init();
@@ -204,20 +174,7 @@ export async function initializeAuth(): Promise<{
   const initSessionValid =
     initResult && did ? await sessionHasRequiredScopes(initResult.session) : false;
 
-  const storedDid = readStoredDid();
-
   if (did && initSessionValid) {
-    // データ引き継ぎ (Migration)
-    if (storedDid && storedDid.startsWith(GUEST_DID_PREFIX) && storedDid !== did) {
-      console.log(`[Auth] Migrating guest data ${storedDid} -> ${did}`);
-      try {
-        await migrateGuestData(storedDid, did);
-        clearGuestIdentity();
-      } catch (err) {
-        console.error("[Auth] Migration failed:", err);
-      }
-    }
-
     activeDidMemory = did;
     writeStoredDid(did);
 
@@ -228,40 +185,31 @@ export async function initializeAuth(): Promise<{
           writeHandle(did, parsed.handle);
         }
       } catch {
-        // ignore
+        // Ignore malformed state payload.
       }
     }
   } else {
-    // 正規セッションが無効な場合
     if (did && !initSessionValid) {
       await clearSession(client, did);
       did = null;
     }
-
-    // 以前のセッション（ゲストまたは正規）の復元を試みる
+    const storedDid = readStoredDid();
     if (storedDid) {
-      if (storedDid.startsWith(GUEST_DID_PREFIX)) {
-        did = storedDid;
-      } else {
-        try {
-          const restored = await client.restore(storedDid);
-          const restoredDid = getDidFromSession(restored);
-          if (restoredDid && (await sessionHasRequiredScopes(restored))) {
-            did = restoredDid;
-          } else {
-            await clearSession(client, storedDid);
-            did = null;
-          }
-        } catch {
+      try {
+        const restored = await client.restore(storedDid);
+        const restoredDid = getDidFromSession(restored);
+        const restoredValid = restoredDid
+          ? await sessionHasRequiredScopes(restored)
+          : false;
+        if (restoredDid && restoredValid) {
+          did = restoredDid;
+        } else {
+          await clearSession(client, storedDid);
           did = null;
         }
+      } catch {
+        did = null;
       }
-    }
-
-    // それでもIDがない場合は、自動的にゲストIDを作成（必須化）
-    if (!did) {
-      const identity = await getOrCreateGuestIdentity();
-      did = identity.did;
     }
 
     activeDidMemory = did;
@@ -270,13 +218,16 @@ export async function initializeAuth(): Promise<{
 
   return {
     did,
-    handle: did.startsWith(GUEST_DID_PREFIX) ? "guest.local" : (readHandle(did) ?? did),
+    handle: did ? readHandle(did) : null,
   };
 }
 
 export async function signInWithHandle(handle: string): Promise<never> {
   const normalized = handle.trim();
-  if (!normalized) throw new Error("Handle is required");
+  if (!normalized) {
+    throw new Error("Handle is required");
+  }
+
   const client = await getBrowserOAuthClient();
   return client.signIn(normalized, {
     prompt: "consent",
@@ -286,75 +237,56 @@ export async function signInWithHandle(handle: string): Promise<never> {
 }
 
 export async function getActiveSession(): Promise<unknown | null> {
-  let did = activeDidMemory ?? readStoredDid();
-  
-  if (!did) {
-    const identity = await getOrCreateGuestIdentity();
-    did = identity.did;
-    activeDidMemory = did;
-    writeStoredDid(did);
-  }
-
-  if (did.startsWith(GUEST_DID_PREFIX)) {
-    return getGuestSession(did);
-  }
-
   const client = await getBrowserOAuthClient();
+  const did = activeDidMemory ?? readStoredDid();
+  if (!did) return null;
+
   try {
     const session = await client.restore(did);
-    if (await sessionHasRequiredScopes(session)) {
-      activeDidMemory = getDidFromSession(session);
-      writeStoredDid(activeDidMemory);
-      return session;
+    if (!(await sessionHasRequiredScopes(session))) {
+      await clearSession(client, did);
+      return null;
     }
+    activeDidMemory = getDidFromSession(session);
+    writeStoredDid(activeDidMemory);
+    return session;
   } catch {
-    // ignore
+    await clearSession(client, did);
+    return null;
   }
-  
-  // フォールバック: 正式セッションが失敗したらゲストへ
-  const identity = await getOrCreateGuestIdentity();
-  activeDidMemory = identity.did;
-  writeStoredDid(activeDidMemory);
-  return getGuestSession(activeDidMemory);
 }
 
-export async function getActiveDid(): Promise<string> {
-  const did = activeDidMemory ?? readStoredDid();
-  if (did) return did;
-  
-  const identity = await getOrCreateGuestIdentity();
-  activeDidMemory = identity.did;
-  writeStoredDid(activeDidMemory);
-  return activeDidMemory;
+export async function getActiveDid(): Promise<string | null> {
+  const session = await getActiveSession();
+  return getDidFromSession(session);
 }
 
-export async function getActiveHandle(): Promise<string> {
+export async function getActiveHandle(): Promise<string | null> {
   const did = await getActiveDid();
-  return did.startsWith(GUEST_DID_PREFIX) ? "guest.local" : (readHandle(did) ?? did);
+  if (!did) return null;
+  return readHandle(did);
 }
 
 export async function signOut(): Promise<void> {
   const did = await getActiveDid();
-  if (did && !did.startsWith(GUEST_DID_PREFIX)) {
+  if (did) {
     const client = await getBrowserOAuthClient();
     try {
       await client.revoke?.(did);
     } catch {
-      // ignore
+      // Token revocation can fail when session already invalidated.
     }
   }
 
   activeDidMemory = null;
   writeStoredDid(null);
-  
-  // ログアウトした瞬間、新しいゲストIDでリセットされる（実質的な匿名化）
-  const identity = await getOrCreateGuestIdentity();
-  activeDidMemory = identity.did;
-  writeStoredDid(activeDidMemory);
 }
 
 export async function getLexClientForCurrentSession(): Promise<Client> {
   const session = await getActiveSession();
+  if (!session) {
+    throw new Error("Unauthorized");
+  }
   return new Client(session as never);
 }
 
