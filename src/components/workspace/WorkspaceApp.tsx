@@ -718,7 +718,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         <div
           className={`${
             mobileView === "files" ? "block" : "hidden"
-          } lg:block lg:sticky lg:top-6 h-full lg:h-[calc(100vh-5rem)] overflow-hidden`}
+          } lg:block h-full overflow-hidden`}
         >
           <Sidebar
             articles={articles}
@@ -868,7 +868,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         <div
           className={`${
             mobileView === "discussion" ? "block" : "hidden"
-          } lg:block lg:sticky lg:top-6 lg:h-[calc(100vh-5rem)]`}
+          } lg:block h-full overflow-hidden`}
         >
           <RightPanel
             selectedQuote={selectedQuote}

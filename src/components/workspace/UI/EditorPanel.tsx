@@ -289,7 +289,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   return (
     <div
       data-tour-id="editor-panel"
-      className="min-w-0 min-h-0 rounded-xl border border-slate-200/60 bg-white p-4 md:p-6 shadow-sm overflow-y-auto h-full lg:h-[calc(100vh-5rem)] scrollbar-thin scrollbar-thumb-slate-200"
+      className="min-w-0 min-h-0 rounded-xl border border-slate-200/60 bg-white p-4 md:p-6 shadow-sm overflow-y-auto h-full scrollbar-thin scrollbar-thumb-slate-200"
       onClick={handleEditorCanvasClick}
       onDragOver={(event) => {
         if (!canEditTextCurrentFile) return;
