@@ -53,16 +53,13 @@ import { useWorkspaceCitations } from "./hooks/useWorkspaceCitations";
 
 const TUTORIAL_STORAGE_KEY = "scholarview:tutorial:v1";
 
-import { AuthModal } from "./UI/AuthModal";
-
 interface WorkspaceAppProps {
   initialArticles: ArticleSummary[];
   sessionDid: string | null;
   accountHandle?: string | null;
-  isGuest?: boolean;
 }
 
-export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGuest }: WorkspaceAppProps) {
+export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: WorkspaceAppProps) {
   const [articles, setArticles] = useState<ArticleSummary[]>(initialArticles);
   const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
   const [sourceFormat, setSourceFormat] = useState<SourceFormat>("markdown");
@@ -74,11 +71,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
   const [currentAuthorDid, setCurrentAuthorDid] = useState<string | null>(null);
 
   const [tab, setTab] = useState<RightTab>("discussion");
-  const [authModalConfig, setAuthModalConfig] = useState<{ title: string; description: string } | null>(null);
-
-  const triggerAuthModal = useCallback((title: string, description: string) => {
-    setAuthModalConfig({ title, description });
-  }, []);
   const [mobileView, setMobileView] = useState<"files" | "editor" | "discussion">("editor");
   const [statusMessage, setStatusMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -283,6 +275,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
     submitInlineComment,
     runEngagement,
   } = useWorkspaceDiscussion({
+    sessionDid,
     currentDid,
     currentRkey,
     setBusy,
@@ -383,8 +376,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
       ? "この論文は閲覧専用です（編集は作成者のみ）。"
       : isExistingArticle && !canEditCurrentFile
         ? "この投稿はワークスペースのファイルに未リンクのため閲覧専用です。"
-      : isGuest
-        ? "You are in Guest Mode."
       : null;
 
 
@@ -577,7 +568,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
     loadDiscussion,
     normalizeWorkspaceImageUrisForExport,
     files,
-    triggerAuthModal,
   });
 
   const handleSourceFormatChange = useCallback(
@@ -770,13 +760,11 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
             handleMoveWorkspaceItem={handleMoveWorkspaceItem}
             createWorkspaceItem={createWorkspaceItem}
             isLoggedIn={isLoggedIn}
-            isGuest={isGuest}
             accountHandle={accountHandle}
             loadFiles={loadFiles}
             sessionDid={sessionDid}
             setBusy={setBusy}
             setStatusMessage={setStatusMessage}
-            onSignInClick={() => triggerAuthModal("Get Started", "Join the DeSci community to write, review, and discuss research.")}
           />
         </div>
 
@@ -802,6 +790,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
             savingFile={savingFile}
             busy={busy}
             broadcastToBsky={broadcastToBsky}
+            setBroadcastToBsky={setBroadcastToBsky}
             sourceFormat={sourceFormat}
             currentDid={currentDid}
             currentRkey={currentRkey}
@@ -898,14 +887,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle, isGue
       </div>
 
       <MobileNavBar mobileView={mobileView} setMobileView={setMobileView} />
-
-      {authModalConfig && (
-        <AuthModal
-          title={authModalConfig.title}
-          description={authModalConfig.description}
-          onCancel={() => setAuthModalConfig(null)}
-        />
-      )}
     </div>
   );
 }

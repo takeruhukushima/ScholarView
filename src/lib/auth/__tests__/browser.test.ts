@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { initializeAuth, OAUTH_SCOPE } from '../browser';
-import { GUEST_DID_PREFIX } from '@/lib/guest-identity';
 
 const { mockClient } = vi.hoisted(() => ({
   mockClient: {
@@ -30,10 +29,10 @@ describe('auth browser logic', () => {
     mockClient.restore.mockReset();
   });
 
-  it('initializes with automatic guest ID when no session', async () => {
+  it('initializes with no session', async () => {
     const result = await initializeAuth();
-    expect(result.did).toMatch(new RegExp(`^${GUEST_DID_PREFIX}`));
-    expect(result.handle).toBe('guest.local');
+    expect(result.did).toBeNull();
+    expect(result.handle).toBeNull();
   });
 
   it('restores session from localStorage', async () => {
@@ -50,7 +49,7 @@ describe('auth browser logic', () => {
     expect(mockClient.restore).toHaveBeenCalledWith(mockDid);
   });
 
-  it('falls back to guest ID if scopes are insufficient', async () => {
+  it('clears session if scopes are insufficient', async () => {
     const mockDid = 'did:plc:insufficient';
     localStorage.setItem('scholarview:auth:active-did', mockDid);
     
@@ -61,8 +60,7 @@ describe('auth browser logic', () => {
     mockClient.revoke = vi.fn().mockResolvedValue(undefined);
 
     const result = await initializeAuth();
-    // In current implementation, if auth fails it resets to a guest ID
-    expect(result.did).toMatch(new RegExp(`^${GUEST_DID_PREFIX}`));
-    expect(result.handle).toBe('guest.local');
+    expect(result.did).toBeNull();
+    expect(localStorage.getItem('scholarview:auth:active-did')).toBeNull();
   });
 });

@@ -43,7 +43,6 @@ interface UseWorkspacePublishingProps {
   loadDiscussion: () => Promise<void>;
   normalizeWorkspaceImageUrisForExport: (input: string) => string;
   files: WorkspaceFile[];
-  triggerAuthModal: (title: string, description: string) => void;
 }
 
 export function useWorkspacePublishing({
@@ -73,16 +72,11 @@ export function useWorkspacePublishing({
   loadDiscussion,
   normalizeWorkspaceImageUrisForExport,
   files,
-  triggerAuthModal,
 }: UseWorkspacePublishingProps) {
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const [broadcastPreviewText, setBroadcastPreviewText] = useState<string | null>(null);
 
-  const performPublish = async (
-    broadcastText?: string,
-    shouldNotify: boolean = true,
-    shouldBroadcastToBsky: boolean = broadcastToBsky,
-  ) => {
+  const performPublish = async (broadcastText?: string, shouldNotify: boolean = true) => {
     if (!activeFile) return;
 
     setBusy(true);
@@ -97,7 +91,7 @@ export function useWorkspacePublishing({
           body: JSON.stringify({
             title,
             authors: parseAuthors(authorsText),
-            broadcastToBsky: shouldBroadcastToBsky,
+            broadcastToBsky,
             notifyUpdate: shouldNotify,
             broadcastText,
             bibliography: resolvedBibliography.map((entry) => ({
@@ -153,10 +147,8 @@ export function useWorkspacePublishing({
 
   const handlePublish = async () => {
     if (!sessionDid) {
-      triggerAuthModal(
-        "Broadcast Identity",
-        "Select how you want to be identified when publishing this article."
-      );
+      setStatusMessage("Login required to broadcast.");
+      alert("Please log in from the sidebar to broadcast your article.");
       return;
     }
 
@@ -179,25 +171,19 @@ export function useWorkspacePublishing({
       return;
     }
 
-    // すでに公開済みのDID/Rkeyがあるか、なければプレビュー用のURLを構築
-    const activeDid = currentDid || sessionDid;
-    // 完全に新規の場合は一時的なランダムRkeyでプレビューURLを作る（実際には保存時に確定する）
-    const activeRkey = currentRkey || "preview"; 
-    const url = buildScholarViewArticleUrl(activeDid || "", activeRkey);
-
     let defaultText = "";
     if (currentDid && currentRkey) {
+      const url = buildScholarViewArticleUrl(currentDid, currentRkey);
       defaultText = `更新した論文を公開しました：『${title}』 ${url}`;
     } else {
-      defaultText = `新しい論文/実験計画を公開しました：『${title}』 ${url}`;
+      defaultText = `新しい論文/実験計画を公開しました：『${title}』 {{article_url}}`;
     }
     setBroadcastPreviewText(defaultText);
   };
 
   const confirmPublish = async (text: string, shouldNotify: boolean = true) => {
     setBroadcastPreviewText(null);
-    const shouldBroadcastToBsky = shouldNotify;
-    await performPublish(shouldNotify ? text : undefined, shouldNotify, shouldBroadcastToBsky);
+    await performPublish(shouldNotify ? text : undefined, shouldNotify);
   };
 
   const cancelPublish = () => {
@@ -210,7 +196,7 @@ export function useWorkspacePublishing({
     }
 
     const confirmed = window.confirm(
-      "Unpublish Articleを実行すると、AT Protocol上の論文レコードとBluesky投稿が削除されます。よろしいですか？"
+      "Bluesky Syncをオフにすると、Bluesky上の投稿とこれまでの議論（返信）が削除されます。よろしいですか？"
     );
     if (!confirmed) return;
 
@@ -219,50 +205,28 @@ export function useWorkspacePublishing({
       const response = await fetch(
         `/api/articles/${encodeURIComponent(currentDid)}/${encodeURIComponent(currentRkey)}`,
         {
-          method: "DELETE",
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title,
+            sourceFormat,
+            broadcastToBsky: false,
+            ...(sourceFormat === "tex" ? { tex: sourceText } : { markdown: sourceText }),
+            bibliography: resolvedBibliography.map((entry) => ({
+              key: entry.key,
+              rawBibtex: entry.rawBibtex,
+            })),
+          }),
         }
       );
 
-      const data = (await response.json()) as {
-        success?: boolean;
-        articleUri?: string;
-        unlinkedFileIds?: string[];
-        deleted?: {
-          articleAtproto?: boolean;
-        };
-        error?: string;
-      };
+      const data = (await response.json()) as { success?: boolean; error?: string };
       if (!response.ok || !data.success) {
         throw new Error(data.error ?? "Failed to unpublish article");
       }
 
       setBroadcastToBsky(false);
-      setCurrentDid(null);
-      setCurrentRkey(null);
-      setActiveArticleUri(null);
-      setCurrentAuthorDid(null);
-      setFiles((prev) =>
-        prev.map((item) => {
-          const shouldUnlink =
-            (Array.isArray(data.unlinkedFileIds) && data.unlinkedFileIds.includes(item.id)) ||
-            (typeof data.articleUri === "string" && item.linkedArticleUri === data.articleUri);
-          if (!shouldUnlink) return item;
-          return {
-            ...item,
-            linkedArticleDid: null,
-            linkedArticleRkey: null,
-            linkedArticleUri: null,
-          };
-        }),
-      );
-      await refreshArticles();
-      if (data.deleted?.articleAtproto) {
-        setStatusMessage("Deleted article from AT Protocol and Bluesky.");
-      } else {
-        setStatusMessage("Deleted local article data. AT Protocol record was already absent or non-TID.");
-      }
-    } catch (err: unknown) {
-      setStatusMessage(err instanceof Error ? err.message : "Failed to unpublish article");
+      setStatusMessage("Unpublished from Bluesky.");
     } finally {
       setBusy(false);
     }

@@ -952,64 +952,6 @@ export async function resolveSubjectCidByUri(subjectUri: string): Promise<string
   return null;
 }
 
-export async function migrateGuestData(guestDid: string, newDid: string): Promise<number> {
-  return transact(
-    [
-      STORE_ARTICLES,
-      STORE_ANNOUNCEMENTS,
-      STORE_INLINE_COMMENTS,
-      STORE_WORKSPACE_FILES,
-    ],
-    "readwrite",
-    async (tx) => {
-      const articleStore = tx.objectStore(STORE_ARTICLES);
-      const announcementStore = tx.objectStore(STORE_ANNOUNCEMENTS);
-      const commentStore = tx.objectStore(STORE_INLINE_COMMENTS);
-      const workspaceStore = tx.objectStore(STORE_WORKSPACE_FILES);
-
-      let migratedCount = 0;
-
-      // 1. Workspace Files
-      const files = (await requestToPromise(workspaceStore.getAll())) as WorkspaceFileRecord[];
-      for (const file of files) {
-        if (file.ownerDid === guestDid) {
-          await requestToPromise(workspaceStore.put({ ...file, ownerDid: newDid }));
-          migratedCount++;
-        }
-      }
-
-      // 2. Articles
-      const articles = (await requestToPromise(articleStore.getAll())) as ArticleRecord[];
-      for (const article of articles) {
-        if (article.authorDid === guestDid) {
-          await requestToPromise(articleStore.put({ ...article, authorDid: newDid }));
-          migratedCount++;
-        }
-      }
-
-      // 3. Announcements
-      const announcements = (await requestToPromise(announcementStore.getAll())) as AnnouncementRecord[];
-      for (const announcement of announcements) {
-        if (announcement.authorDid === guestDid) {
-          await requestToPromise(announcementStore.put({ ...announcement, authorDid: newDid }));
-          migratedCount++;
-        }
-      }
-
-      // 4. Inline Comments
-      const comments = (await requestToPromise(commentStore.getAll())) as InlineCommentRecord[];
-      for (const comment of comments) {
-        if (comment.authorDid === guestDid) {
-          await requestToPromise(commentStore.put({ ...comment, authorDid: newDid }));
-          migratedCount++;
-        }
-      }
-
-      return migratedCount;
-    },
-  );
-}
-
 export type {
   AccountRecord,
   AnnouncementRecord,
