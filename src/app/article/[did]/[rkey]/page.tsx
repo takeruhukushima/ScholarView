@@ -334,16 +334,16 @@ function ArticlePageClient() {
   const canonicalUrl = buildScholarViewArticleUrl(article.did, article.rkey);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6 pb-20 lg:pb-6">
+    <div className="h-[100dvh] bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6 pb-20 lg:pb-6 flex flex-col overflow-hidden">
       {statusMessage && (
-        <p className="mb-3 rounded-md border bg-white px-3 py-2 text-sm text-slate-600 shadow-sm animate-in fade-in slide-in-from-top-2">
+        <p className="mb-3 shrink-0 rounded-md border bg-white px-3 py-2 text-sm text-slate-600 shadow-sm animate-in fade-in slide-in-from-top-2">
           {statusMessage}
         </p>
       )}
 
-      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-start">
+      <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-stretch overflow-hidden">
         {/* Left Sidebar */}
-        <div className={`${mobileView === "files" ? "block" : "hidden"} lg:block lg:sticky lg:top-6 lg:h-[calc(100vh-5rem)]`}>
+        <div className={`${mobileView === "files" ? "block" : "hidden"} lg:block h-full overflow-hidden`}>
           <Sidebar
             articles={articles}
             activeArticleUri={article.uri}
@@ -372,8 +372,8 @@ function ArticlePageClient() {
         </div>
 
         {/* Main Content */}
-        <div className={`${mobileView === "editor" ? "block" : "hidden"} lg:block`}>
-          <div className="rounded-xl border border-slate-200/60 bg-white p-6 shadow-sm min-h-[calc(100vh-5rem)] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
+        <div className={`${mobileView === "editor" ? "block" : "hidden"} lg:block h-full overflow-hidden`}>
+          <div className="rounded-xl border border-slate-200/60 bg-white p-6 shadow-sm h-full overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200">
             <div className="max-w-4xl mx-auto">
               <div className="mb-8 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2 rounded-full bg-slate-50 border border-slate-100 px-3 py-1">
@@ -420,7 +420,7 @@ function ArticlePageClient() {
         </div>
 
         {/* Right Panel (Discussion) */}
-        <div className={`${mobileView === "discussion" ? "block" : "hidden"} lg:block lg:sticky lg:top-6 lg:h-[calc(100vh-5rem)]`}>
+        <div className={`${mobileView === "discussion" ? "block" : "hidden"} lg:block h-full overflow-hidden`}>
           <RightPanel
             selectedQuote={selectedQuote}
             quoteComment={quoteComment}
