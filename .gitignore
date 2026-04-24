@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Local docs / notes
 @atproto/
+
+# nix
+.direnv/
