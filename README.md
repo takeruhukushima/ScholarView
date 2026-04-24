@@ -35,6 +35,19 @@ ScholarViewは、**研究執筆に特化したMarkdownエディタ**と、**AT P
 
 ## セットアップ
 
+### Nix (Flakes) + direnv を使用する場合 (推奨)
+
+Nixをインストール済みの環境であれば、プロジェクトディレクトリに移動するだけで開発環境が整います。
+
+1. [Nix](https://nixos.org/download.html) と [direnv](https://direnv.net/) をインストールします。
+2. ディレクトリに入り、`direnv allow` を実行します。
+   ```bash
+   direnv allow
+   ```
+3. Node.js および pnpm が自動的にセットアップされます。
+
+### 手動セットアップ
+
 ### 1. 依存関係をインストール
 
 ```bash
