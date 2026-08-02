@@ -41,6 +41,10 @@ export interface ArticleDetail extends ArticleSummary {
   bibliography: BibliographyEntry[];
   images?: ArticleImageAsset[];
   announcementCid: string | null;
+  /** Absolute workspace path of the source file when published (for cross-device folder restore). */
+  sourcePath?: string | null;
+  /** PDS revision (article indexedAt) this local copy was last reconciled against. */
+  indexedAt?: string;
 }
 
 export interface InlineCommentView {
@@ -78,6 +82,10 @@ export interface WorkspaceFileNode {
   expanded: 0 | 1;
   createdAt: string;
   updatedAt: string;
+  /** Hash of this device's local content at last sync/publish; detects unpublished local edits (dirty). */
+  syncedContentHash?: string | null;
+  /** Hash of the published (round-tripped) content last reconciled against; detects a new remote version. */
+  syncedRemoteHash?: string | null;
 }
 
 export interface BskyInteractionView {
