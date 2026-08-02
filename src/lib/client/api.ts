@@ -66,6 +66,7 @@ import type {
   WorkspaceFileNode,
 } from "@/lib/types";
 import { resolveWorkspaceImports } from "@/lib/workspace/imports";
+import { evaluateSync, hashContent } from "@/lib/workspace/reconcile";
 
 const MAX_TITLE_LENGTH = 300;
 const MAX_COMMENT_LENGTH = 2_000;
@@ -292,12 +293,21 @@ async function buildWorkspaceArticleImageAssets(
   sourceFormat: SourceFormat,
   ownerDid: string,
   sourceFile: WorkspaceFileNode,
+  fallbackAssets: ArticleImageAsset[] = [],
 ): Promise<UploadedArticleImageAsset[]> {
   const allFiles = await listWorkspaceFiles(ownerDid);
   const sourcePath = buildWorkspaceFilePath(sourceFile, allFiles);
   const baseDir = sourcePath ? dirname(sourcePath) : "/";
   const refs = collectImageRefsFromBlocks(blocks, sourceFormat);
   if (refs.length === 0) return [];
+
+  // Already-published blobs, keyed by normalized path, used to preserve images
+  // whose local source file is unavailable on this device (avoids wiping them).
+  const fallbackByPath = new Map<string, ArticleImageAsset>();
+  for (const asset of fallbackAssets) {
+    const key = normalizeWorkspacePath(asset.path) ?? asset.path;
+    fallbackByPath.set(key, asset);
+  }
 
   const assetsByPath = new Map<string, UploadedArticleImageAsset>();
   for (const ref of refs) {
@@ -307,15 +317,27 @@ async function buildWorkspaceArticleImageAssets(
     if (!path || assetsByPath.has(path)) continue;
 
     const imageFile = await getWorkspaceFileByPath(path, ownerDid);
-    if (!imageFile || imageFile.kind !== "file") continue;
+    const raw =
+      imageFile && imageFile.kind === "file" && typeof imageFile.content === "string"
+        ? imageFile.content
+        : "";
+    const decoded = raw ? decodeDataUrlToBytes(raw) : null;
 
-    const raw = typeof imageFile.content === "string" ? imageFile.content : "";
-    const decoded = decodeDataUrlToBytes(raw);
-    if (!decoded) continue;
+    if (decoded) {
+      const blob = await uploadBlobForCurrentSession(lex, decoded.mimeType, decoded.bytes);
+      const alt = ref.alt.trim();
+      assetsByPath.set(path, alt ? { path, alt, blob } : { path, blob });
+      continue;
+    }
 
-    const blob = await uploadBlobForCurrentSession(lex, decoded.mimeType, decoded.bytes);
-    const alt = ref.alt.trim();
-    assetsByPath.set(path, alt ? { path, alt, blob } : { path, blob });
+    // Local source missing: keep the existing published blob for this path so the
+    // image survives a re-publish from a device that lacks the raw file.
+    const fallback = fallbackByPath.get(normalizeWorkspacePath(path) ?? path);
+    if (fallback) {
+      const alt = ref.alt.trim() || (fallback.alt ?? "");
+      const blob = fallback.blob as unknown as UploadedArticleImageAsset["blob"];
+      assetsByPath.set(path, alt ? { path, alt, blob } : { path, blob });
+    }
   }
 
   return [...assetsByPath.values()];
@@ -328,6 +350,7 @@ function parseArticleValue(value: unknown): {
   bibliography: ReturnType<typeof normalizeBibliography>;
   images: ArticleImageAsset[];
   createdAt: string;
+  sourcePath: string | null;
 } | null {
   try {
     const parsed = sci.peer.article.$parse(value);
@@ -340,6 +363,7 @@ function parseArticleValue(value: unknown): {
       bibliography: normalizeBibliography((parsed as { bibliography?: unknown }).bibliography),
       images: (parsed.images ?? []) as unknown as ArticleImageAsset[],
       createdAt: parsed.createdAt,
+      sourcePath: typeof parsed.sourcePath === "string" ? parsed.sourcePath : null,
     };
   } catch {
     const obj = asObject(value);
@@ -377,6 +401,7 @@ function parseArticleValue(value: unknown): {
       bibliography: normalizeBibliography(obj.bibliography),
       images,
       createdAt: createdAtRaw || new Date().toISOString(),
+      sourcePath: obj.sourcePath ? asString(obj.sourcePath) : null,
     };
   }
 }
@@ -722,10 +747,14 @@ async function updateArticle(request: Request, did: string, rkey: string): Promi
   const current = await getArticleByDidAndRkey(did, rkey);
   if (!current) throw new HttpError(404, "Article not found");
 
+  const incomingBibliography =
+    body.bibliography === undefined ? null : normalizeBibliography(body.bibliography);
+  // Keep the stored bibliography when the client omits it or sends an empty set,
+  // so an un-hydrated edit cannot silently wipe references.
   const bibliography =
-    body.bibliography === undefined
-      ? current.bibliography
-      : compactBibliography(normalizeBibliography(body.bibliography));
+    incomingBibliography && incomingBibliography.length > 0
+      ? compactBibliography(incomingBibliography)
+      : current.bibliography;
   const compactedBibliography = compactBibliography(bibliography);
 
   const images =
@@ -924,6 +953,7 @@ function transformRecordToArticleDetail(
     blocks: normalizeBlocks(blocks),
     bibliography,
     images,
+    sourcePath: typeof record.sourcePath === "string" ? record.sourcePath : null,
   };
 }
 
@@ -942,6 +972,140 @@ async function resolvePdsEndpoint(did: string): Promise<string | null> {
     return pds?.serviceEndpoint ?? null;
   } catch {
     return null;
+  }
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function fetchBlobBytes(
+  did: string,
+  cid: string,
+): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+  const query = new URLSearchParams({ did, cid });
+  const endpoints: string[] = [];
+  const pds = await resolvePdsEndpoint(did);
+  if (pds) endpoints.push(pds.replace(/\/$/, ""));
+  endpoints.push("https://bsky.social");
+
+  for (const base of endpoints) {
+    try {
+      const res = await fetch(`${base}/xrpc/com.atproto.sync.getBlob?${query.toString()}`, {
+        cache: "force-cache",
+      });
+      if (!res.ok) continue;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const mimeType =
+        res.headers.get("content-type")?.split(";")[0]?.trim() || "application/octet-stream";
+      return { bytes, mimeType };
+    } catch {
+      // Try the next endpoint.
+    }
+  }
+  return null;
+}
+
+// Fetch a repo blob and encode it as a data URL for local (workspace file) storage.
+async function fetchBlobAsDataUrl(
+  did: string,
+  cid: string,
+  mimeTypeHint?: string,
+): Promise<string | null> {
+  const result = await fetchBlobBytes(did, cid);
+  if (!result) return null;
+  const mimeType =
+    mimeTypeHint && mimeTypeHint.startsWith("image/") ? mimeTypeHint : result.mimeType;
+  return `data:${mimeType};base64,${bytesToBase64(result.bytes)}`;
+}
+
+// Create a workspace file at an absolute path, materializing any missing parent folders.
+// Returns the existing file untouched if one already lives at that path.
+async function ensureWorkspaceFileAtPath(
+  ownerDid: string,
+  rawPath: string,
+  file: { content: string; sourceFormat?: SourceFormat | null },
+): Promise<WorkspaceFileNode | null> {
+  const normalized = normalizeWorkspacePath(rawPath);
+  if (!normalized) return null;
+
+  const existing = await getWorkspaceFileByPath(normalized, ownerDid);
+  if (existing) return existing;
+
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+
+  let parentId: string | null = null;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const folderPath = `/${segments.slice(0, i + 1).join("/")}`;
+    let folder = await getWorkspaceFileByPath(folderPath, ownerDid);
+    if (!folder) {
+      folder = await createWorkspaceFile({
+        ownerDid,
+        parentId,
+        name: segments[i],
+        kind: "folder",
+      });
+    }
+    if (folder.kind !== "folder") return null;
+    parentId = folder.id;
+  }
+
+  return createWorkspaceFile({
+    ownerDid,
+    parentId,
+    name: segments[segments.length - 1],
+    kind: "file",
+    sourceFormat: file.sourceFormat ?? null,
+    content: file.content,
+  });
+}
+
+// Materialize a published article's images and bibliography as editable local
+// workspace files, so the article can be rendered and re-published from any device.
+async function hydrateArticleAssets(
+  ownerDid: string,
+  detail: ArticleDetail,
+  bodyFile: WorkspaceFileNode,
+): Promise<void> {
+  for (const asset of detail.images ?? []) {
+    const path = normalizeWorkspacePath(asset.path);
+    if (!path) continue;
+    if (await getWorkspaceFileByPath(path, ownerDid)) continue;
+
+    const ref = asset.blob?.ref as { $link?: string } | string | undefined;
+    const cid = typeof ref === "string" ? ref : ref?.$link;
+    if (!cid) continue;
+
+    const dataUrl = await fetchBlobAsDataUrl(ownerDid, cid, asset.blob?.mimeType);
+    if (!dataUrl) continue;
+    await ensureWorkspaceFileAtPath(ownerDid, path, { content: dataUrl });
+  }
+
+  const entries = detail.bibliography ?? [];
+  if (entries.length > 0) {
+    const allFiles = await listWorkspaceFiles(ownerDid);
+    const bodyPath = buildWorkspaceFilePath(bodyFile, allFiles) ?? "/";
+    const bibDir = dirname(bodyPath);
+    const stem = sanitizeBaseName(detail.title || "references");
+    const bibPath = normalizeWorkspacePath(`${bibDir}/${stem}.bib`);
+    if (bibPath && !(await getWorkspaceFileByPath(bibPath, ownerDid))) {
+      const content = entries
+        .map((entry) => entry.rawBibtex)
+        .filter((raw) => typeof raw === "string" && raw.trim())
+        .join("\n\n");
+      if (content.trim()) {
+        await ensureWorkspaceFileAtPath(ownerDid, bibPath, {
+          content,
+          sourceFormat: "markdown",
+        });
+      }
+    }
   }
 }
 
@@ -1841,6 +2005,40 @@ function uniqueFileName(
   }
 }
 
+interface SyncConflict {
+  fileId: string;
+  articleUri: string;
+  did: string;
+  rkey: string;
+  title: string;
+}
+
+// Materialize an article's body into the workspace at its published `sourcePath`
+// (restoring folder structure). Non-destructive: if a file already occupies that
+// path, fall back to a unique root name rather than touching the existing file.
+async function materializeArticleBody(
+  did: string,
+  detail: ArticleDetail,
+  content: string,
+  sourceFormat: SourceFormat,
+  existingNames: Set<string>,
+): Promise<WorkspaceFileNode | null> {
+  const desiredPath = detail.sourcePath ? normalizeWorkspacePath(detail.sourcePath) : null;
+  if (desiredPath && !(await getWorkspaceFileByPath(desiredPath, did))) {
+    const created = await ensureWorkspaceFileAtPath(did, desiredPath, { content, sourceFormat });
+    if (created && created.kind === "file") return created;
+  }
+  const name = uniqueFileName(detail.title, sourceFormat, existingNames, detail.rkey);
+  return createWorkspaceFile({
+    ownerDid: did,
+    parentId: null,
+    name,
+    kind: "file",
+    sourceFormat,
+    content,
+  });
+}
+
 async function syncLegacyArticles(force = false): Promise<Response> {
   await syncOwnArticlesFromRepo({ force });
   const did = await requireDid();
@@ -1852,53 +2050,94 @@ async function syncLegacyArticles(force = false): Promise<Response> {
   const existingNames = new Set(existingFiles.map((file) => file.name.toLowerCase()));
 
   let created = 0;
-  for (const article of myArticles) {
-    const existingLinked = await getWorkspaceFileByLinkedArticleUri(article.uri, did);
-    if (existingLinked) {
-      if (force) {
-        const detail = await getArticleByDidAndRkey(article.did, article.rkey);
-        if (detail) {
-          const sourceFormat = detail.sourceFormat === "tex" ? "tex" : "markdown";
-          const content = blocksToSource(detail.blocks, sourceFormat);
-          await updateWorkspaceFileById(existingLinked.id, did, {
-            content,
-            sourceFormat,
-            linkedArticleDid: article.did,
-            linkedArticleRkey: article.rkey,
-            linkedArticleUri: article.uri,
-          });
-        }
-      }
-      continue;
-    }
+  const conflicts: SyncConflict[] = [];
 
+  for (const article of myArticles) {
     const detail = await getArticleByDidAndRkey(article.did, article.rkey);
     if (!detail) continue;
 
     const sourceFormat = detail.sourceFormat === "tex" ? "tex" : "markdown";
-    const content = blocksToSource(detail.blocks, sourceFormat);
-    const name = uniqueFileName(detail.title, sourceFormat, existingNames, article.rkey);
+    const remoteContent = blocksToSource(detail.blocks, sourceFormat);
+    const remoteHash = hashContent(remoteContent);
+    const existingLinked = await getWorkspaceFileByLinkedArticleUri(article.uri, did);
 
-    const file = await createWorkspaceFile({
-      ownerDid: did,
-      parentId: null,
-      name,
-      kind: "file",
-      sourceFormat,
-      content,
+    const decision = evaluateSync({
+      hasLocal: Boolean(existingLinked),
+      baselineLocalHash: existingLinked?.syncedContentHash,
+      baselineRemoteHash: existingLinked?.syncedRemoteHash,
+      localContent: existingLinked?.content ?? "",
+      remoteContent,
     });
 
-    await updateWorkspaceFileById(file.id, did, {
-      linkedArticleDid: article.did,
-      linkedArticleRkey: article.rkey,
-      linkedArticleUri: article.uri,
-    });
-
-    created += 1;
+    switch (decision.action) {
+      case "materialize": {
+        const file = await materializeArticleBody(
+          did,
+          detail,
+          remoteContent,
+          sourceFormat,
+          existingNames,
+        );
+        if (!file) break;
+        await updateWorkspaceFileById(file.id, did, {
+          linkedArticleDid: article.did,
+          linkedArticleRkey: article.rkey,
+          linkedArticleUri: article.uri,
+          syncedContentHash: remoteHash,
+          syncedRemoteHash: remoteHash,
+        });
+        await hydrateArticleAssets(did, detail, file);
+        created += 1;
+        break;
+      }
+      case "auto-update": {
+        if (!existingLinked) break;
+        // Local is clean; safe to pull the newer published version.
+        await updateWorkspaceFileById(existingLinked.id, did, {
+          content: remoteContent,
+          sourceFormat,
+          linkedArticleDid: article.did,
+          linkedArticleRkey: article.rkey,
+          linkedArticleUri: article.uri,
+          syncedContentHash: remoteHash,
+          syncedRemoteHash: remoteHash,
+        });
+        await hydrateArticleAssets(did, detail, existingLinked);
+        break;
+      }
+      case "adopt-baseline": {
+        if (!existingLinked) break;
+        // Legacy linked file: record baseline from current local + remote, do not overwrite.
+        await updateWorkspaceFileById(existingLinked.id, did, {
+          linkedArticleDid: article.did,
+          linkedArticleRkey: article.rkey,
+          linkedArticleUri: article.uri,
+          syncedContentHash: hashContent(existingLinked.content ?? ""),
+          syncedRemoteHash: remoteHash,
+        });
+        await hydrateArticleAssets(did, detail, existingLinked);
+        break;
+      }
+      case "conflict": {
+        // Unpublished local edits AND a newer remote version: never overwrite silently.
+        if (existingLinked) {
+          conflicts.push({
+            fileId: existingLinked.id,
+            articleUri: article.uri,
+            did: article.did,
+            rkey: article.rkey,
+            title: detail.title,
+          });
+        }
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   const files = await listWorkspaceFiles(did);
-  return json({ success: true, created, files });
+  return json({ success: true, created, conflicts, files });
 }
 
 async function seedWelcomeWorkspace(did: string): Promise<void> {
@@ -2210,6 +2449,11 @@ async function handleWorkspaceFilesPath(
       if (request.method !== "POST") return null;
       return publishWorkspaceFile(request, id, did);
     }
+
+    if (pathParts.length === 5 && pathParts[4] === "pull") {
+      if (request.method !== "POST") return null;
+      return pullWorkspaceFileFromPds(request, id, did);
+    }
   }
 
   return null;
@@ -2319,7 +2563,6 @@ async function publishWorkspaceFile(
       ? parseTexToBlocks(resolved.resolvedText)
       : parseMarkdownToBlocks(resolved.resolvedText);
   if (blocks.length === 0) throw new HttpError(400, "At least one section is required");
-  const imageAssets = await buildWorkspaceArticleImageAssets(lex, blocks, sourceFormat, did, file);
 
   const bibliographyInput =
     body.bibliography === undefined ? null : normalizeBibliography(body.bibliography);
@@ -2328,6 +2571,19 @@ async function publishWorkspaceFile(
   const linkedRkey = file.linkedArticleRkey;
   const existing =
     linkedDid && linkedRkey ? await getArticleByDidAndRkey(linkedDid, linkedRkey) : null;
+
+  // Record the body file's workspace path so other devices can restore folder structure.
+  const allWorkspaceFiles = await listWorkspaceFiles(did);
+  const sourcePath = buildWorkspaceFilePath(file, allWorkspaceFiles) ?? undefined;
+
+  const imageAssets = await buildWorkspaceArticleImageAssets(
+    lex,
+    blocks,
+    sourceFormat,
+    did,
+    file,
+    existing?.images ?? [],
+  );
 
   let mode: "created" | "updated" = "created";
   let targetDid = did;
@@ -2342,8 +2598,12 @@ async function publishWorkspaceFile(
     targetRkey = existing.rkey;
     articleUri = existing.uri;
 
+    // Guard against wiping the stored bibliography when the client sends an empty
+    // set (e.g. editing on a device whose .bib file has not been hydrated yet).
     const bibliography = compactBibliography(
-      bibliographyInput ?? existing.bibliography,
+      bibliographyInput && bibliographyInput.length > 0
+        ? bibliographyInput
+        : existing.bibliography,
     );
 
     await lex.put(
@@ -2354,6 +2614,7 @@ async function publishWorkspaceFile(
         blocks,
         bibliography,
         images: imageAssets as unknown as sci.peer.article.ImageAsset[],
+        ...(sourcePath ? { sourcePath } : {}),
         createdAt: new Date(existing.createdAt).toISOString(),
       },
       { rkey: targetRkey },
@@ -2473,6 +2734,7 @@ async function publishWorkspaceFile(
       sourceFormat,
       indexedAt: now,
       broadcasted,
+      sourcePath: sourcePath ?? null,
     });
   } else {
     mode = "created";
@@ -2483,6 +2745,7 @@ async function publishWorkspaceFile(
       blocks,
       bibliography,
       images: imageAssets as unknown as sci.peer.article.ImageAsset[],
+      ...(sourcePath ? { sourcePath } : {}),
       createdAt: now,
     });
 
@@ -2536,6 +2799,7 @@ async function publishWorkspaceFile(
       broadcasted: announcement ? 1 : 0,
       createdAt: now,
       indexedAt: now,
+      sourcePath: sourcePath ?? null,
     });
 
     if (announcement) {
@@ -2552,10 +2816,16 @@ async function publishWorkspaceFile(
     }
   }
 
+  // Record the sync baseline: local hash = this device's rich source (rawText),
+  // remote hash = the published round-tripped content. This keeps the authoring
+  // device "clean" and lets other devices detect the new published version.
+  const publishedRemoteContent = blocksToSource(blocks, sourceFormat);
   const updatedFile = await updateWorkspaceFileById(fileId, did, {
     linkedArticleDid: targetDid,
     linkedArticleRkey: targetRkey,
     linkedArticleUri: articleUri,
+    syncedContentHash: hashContent(rawText),
+    syncedRemoteHash: hashContent(publishedRemoteContent),
   });
 
   return json({
@@ -2568,6 +2838,64 @@ async function publishWorkspaceFile(
     diagnostics: resolved.diagnostics,
     file: updatedFile,
   });
+}
+
+// Explicit "Pull from PDS (replace local)" — the symmetric operation to Publish.
+// Overwrites the local file with the published version. Optionally keeps the
+// current local content as a separate (unlinked) copy so nothing is lost.
+async function pullWorkspaceFileFromPds(
+  request: Request,
+  fileId: string,
+  did: string,
+): Promise<Response> {
+  const file = await getWorkspaceFileById(fileId, did);
+  if (!file) throw new HttpError(404, "File not found");
+  if (file.kind !== "file") throw new HttpError(400, "Only files can be pulled");
+  if (!file.linkedArticleDid || !file.linkedArticleRkey) {
+    throw new HttpError(409, "File is not linked to a published article");
+  }
+
+  const body = (await request.json().catch(() => ({}))) as { keepBackup?: unknown };
+  const keepBackup = body.keepBackup === true;
+
+  try {
+    await syncOwnArticlesFromRepo({ force: true });
+  } catch {
+    // Fall back to the cached article if the refresh fails.
+  }
+  const detail = await getArticleByDidAndRkey(file.linkedArticleDid, file.linkedArticleRkey);
+  if (!detail) throw new HttpError(404, "Published article not found");
+
+  const sourceFormat = detail.sourceFormat === "tex" ? "tex" : "markdown";
+  const remoteContent = blocksToSource(detail.blocks, sourceFormat);
+  const remoteHash = hashContent(remoteContent);
+
+  let backupFile: WorkspaceFileNode | null = null;
+  if (keepBackup) {
+    const dotIndex = file.name.lastIndexOf(".");
+    const stem = dotIndex > 0 ? file.name.slice(0, dotIndex) : file.name;
+    const ext = dotIndex > 0 ? file.name.slice(dotIndex) : "";
+    backupFile = await createWorkspaceFile({
+      ownerDid: did,
+      parentId: file.parentId,
+      name: `${stem} (local copy)${ext}`,
+      kind: "file",
+      sourceFormat,
+      content: file.content ?? "",
+    });
+  }
+
+  const updated = await updateWorkspaceFileById(fileId, did, {
+    content: remoteContent,
+    sourceFormat,
+    syncedContentHash: remoteHash,
+    syncedRemoteHash: remoteHash,
+  });
+  if (updated) {
+    await hydrateArticleAssets(did, detail, updated);
+  }
+
+  return json({ success: true, file: updated, backupFile });
 }
 
 async function handleWorkspaceImportResolve(request: Request): Promise<Response> {

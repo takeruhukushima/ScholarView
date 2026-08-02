@@ -52,6 +52,7 @@ interface ArticleRecord {
   broadcasted: 0 | 1;
   createdAt: string;
   indexedAt: string;
+  sourcePath?: string | null;
 }
 
 interface AnnouncementRecord {
@@ -232,6 +233,7 @@ export async function updateArticleByUri(
     sourceFormat: SourceFormat;
     indexedAt: string;
     broadcasted?: 0 | 1;
+    sourcePath?: string | null;
   },
 ): Promise<void> {
   await transact([STORE_ARTICLES], "readwrite", async (tx) => {
@@ -249,6 +251,7 @@ export async function updateArticleByUri(
       sourceFormat: input.sourceFormat,
       indexedAt: input.indexedAt,
       broadcasted: input.broadcasted ?? current.broadcasted,
+      sourcePath: input.sourcePath !== undefined ? input.sourcePath : current.sourcePath,
     };
 
     await requestToPromise(store.put(next));
@@ -461,6 +464,8 @@ export async function getArticleByDidAndRkey(
         sourceFormat: normalizeSourceFormat(article.sourceFormat),
         broadcasted: article.broadcasted,
         createdAt: article.createdAt,
+        indexedAt: article.indexedAt,
+        sourcePath: article.sourcePath ?? null,
         announcementUri: announcement?.announcementUri ?? null,
         announcementCid: announcement?.announcementCid ?? null,
       };
@@ -581,6 +586,8 @@ export async function updateWorkspaceFileById(
     linkedArticleDid?: string | null;
     linkedArticleRkey?: string | null;
     linkedArticleUri?: string | null;
+    syncedContentHash?: string | null;
+    syncedRemoteHash?: string | null;
   },
 ): Promise<WorkspaceFileNode | null> {
   return transact([STORE_WORKSPACE_FILES], "readwrite", async (tx) => {
@@ -604,6 +611,12 @@ export async function updateWorkspaceFileById(
         : {}),
       ...(input.linkedArticleUri !== undefined
         ? { linkedArticleUri: input.linkedArticleUri }
+        : {}),
+      ...(input.syncedContentHash !== undefined
+        ? { syncedContentHash: input.syncedContentHash }
+        : {}),
+      ...(input.syncedRemoteHash !== undefined
+        ? { syncedRemoteHash: input.syncedRemoteHash }
         : {}),
       updatedAt: new Date().toISOString(),
     };

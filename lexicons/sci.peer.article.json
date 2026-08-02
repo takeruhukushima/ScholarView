@@ -74,6 +74,11 @@
             "description": "本文で使用する画像blobの参照",
             "items": { "type": "ref", "ref": "#imageAsset" }
           },
+          "sourcePath": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "本文のワークスペース絶対パス（クロスデバイスでフォルダ構造を復元するため。任意）"
+          },
           "createdAt": { "type": "string", "format": "datetime" }
         }
       }

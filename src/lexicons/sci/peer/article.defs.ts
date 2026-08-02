@@ -158,6 +158,11 @@ type Main = {
    * 本文で使用する画像blobの参照
    */
   images?: ImageAsset[]
+
+  /**
+   * 本文のワークスペース絶対パス（クロスデバイスでフォルダ構造を復元するため。任意）
+   */
+  sourcePath?: string
   createdAt: l.DatetimeString
 }
 
@@ -172,6 +177,7 @@ const main = l.record<'tid', Main>(
     blocks: l.array(l.ref<Block>((() => block) as any)),
     bibliography: l.optional(l.array(l.ref<Citation>((() => citation) as any))),
     images: l.optional(l.array(l.ref<ImageAsset>((() => imageAsset) as any))),
+    sourcePath: l.optional(l.string({ maxLength: 1024 })),
     createdAt: l.string({ format: 'datetime' }),
   }),
 )

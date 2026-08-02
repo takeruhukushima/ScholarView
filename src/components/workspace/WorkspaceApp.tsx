@@ -59,6 +59,14 @@ interface WorkspaceAppProps {
   accountHandle?: string | null;
 }
 
+interface SyncConflict {
+  fileId: string;
+  articleUri: string;
+  did: string;
+  rkey: string;
+  title: string;
+}
+
 export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: WorkspaceAppProps) {
   const [articles, setArticles] = useState<ArticleSummary[]>(initialArticles);
   const [activeArticleUri, setActiveArticleUri] = useState<string | null>(null);
@@ -74,6 +82,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [mobileView, setMobileView] = useState<"files" | "editor" | "discussion">("editor");
   const [statusMessage, setStatusMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([]);
 
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [savingFile, setSavingFile] = useState(false);
@@ -207,11 +216,13 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         const data = (await response.json()) as {
           success?: boolean;
           created?: number;
+          conflicts?: SyncConflict[];
           error?: string;
         };
         if (!response.ok || !data.success) {
           throw new Error(data.error ?? "Failed to sync legacy articles");
         }
+        setSyncConflicts(Array.isArray(data.conflicts) ? data.conflicts : []);
         const created = data.created ?? 0;
         let latestFiles = files;
         if (created > 0 || force) {
@@ -234,6 +245,42 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     },
     [loadFiles, sessionDid, setBusy, setStatusMessage, files],
   );
+
+  const pullFromPds = useCallback(
+    async (conflict: SyncConflict, keepBackup: boolean) => {
+      setBusy(true);
+      try {
+        const response = await fetch(
+          `/api/workspace/files/${encodeURIComponent(conflict.fileId)}/pull`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ keepBackup }),
+          },
+        );
+        const data = (await response.json()) as { success?: boolean; error?: string };
+        if (!response.ok || !data.success) {
+          throw new Error(data.error ?? "Failed to pull from AT Protocol");
+        }
+        await loadFiles(sessionDid, setBusy, setStatusMessage);
+        setSyncConflicts((prev) => prev.filter((item) => item.fileId !== conflict.fileId));
+        setStatusMessage(
+          keepBackup
+            ? `Pulled “${conflict.title}” from AT Protocol (kept a local copy)`
+            : `Pulled “${conflict.title}” from AT Protocol`,
+        );
+      } catch (err: unknown) {
+        setStatusMessage(err instanceof Error ? err.message : "Failed to pull from AT Protocol");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [loadFiles, sessionDid, setBusy, setStatusMessage],
+  );
+
+  const dismissConflict = useCallback((fileId: string) => {
+    setSyncConflicts((prev) => prev.filter((item) => item.fileId !== fileId));
+  }, []);
 
   const blockSourceText = useMemo(
     () => editorBlocksToSource(editorBlocks, sourceFormat),
@@ -712,6 +759,53 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         <p className="mb-3 shrink-0 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">
           {statusMessage}
         </p>
+      ) : null}
+
+      {syncConflicts.length > 0 ? (
+        <div className="mb-3 shrink-0 space-y-2">
+          {syncConflicts.map((conflict) => (
+            <div
+              key={conflict.fileId}
+              className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+            >
+              <div className="mb-1">
+                「{conflict.title}
+                」に未公開のローカル編集があり、AT Protocol上に新しい版があります。ローカルの編集は保持しています。
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-amber-400 bg-white px-2 py-1 text-xs font-medium hover:bg-amber-100"
+                  onClick={() => void pullFromPds(conflict, true)}
+                >
+                  両方残して取得
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-amber-400 bg-white px-2 py-1 text-xs font-medium hover:bg-amber-100"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `「${conflict.title}」のローカル編集を破棄してPDS版で置き換えます。よろしいですか？`,
+                      )
+                    ) {
+                      void pullFromPds(conflict, false);
+                    }
+                  }}
+                >
+                  PDS版で置き換え
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-2 py-1 text-xs text-amber-800 hover:underline"
+                  onClick={() => dismissConflict(conflict.fileId)}
+                >
+                  あとで
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : null}
 
       <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px] items-stretch overflow-hidden">
