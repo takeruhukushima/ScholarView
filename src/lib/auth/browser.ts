@@ -32,10 +32,17 @@ let clientPromise: Promise<BrowserOAuthClientLike> | null = null;
 let activeDidMemory: string | null = null;
 
 function buildLoopbackClientIdWithScope(scope: string): string {
-  const base = buildLoopbackClientId(window.location);
-  const url = new URL(base);
-  url.searchParams.set("scope", scope);
-  return url.toString();
+  // buildLoopbackClientId embeds location.pathname into the client id, so starting
+  // OAuth from a subpath (e.g. /vault) yields "http://localhost/vault?..." which
+  // atproto rejects ("client id must not contain a path component"). Force pathname
+  // to "/" so it behaves exactly like signing in from the app root, and avoid the
+  // `new URL().toString()` round-trip (which would re-add a "/" path).
+  const { hostname, port } = window.location;
+  const base = buildLoopbackClientId({ hostname, port, pathname: "/" });
+  const [origin, query = ""] = base.split("?");
+  const params = new URLSearchParams(query);
+  params.set("scope", scope);
+  return `${origin}?${params.toString()}`;
 }
 
 function hasRequiredScopes(grantedScope: string): boolean {
