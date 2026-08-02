@@ -40,11 +40,17 @@ function normalizeBaseUrl(raw) {
 
 async function main() {
   const isVercel = process.env.VERCEL === "1";
-  const vercelHost =
-    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
-    process.env.VERCEL_BRANCH_URL ||
-    process.env.VERCEL_URL ||
-    "";
+  // On preview/branch deployments, point the OAuth client metadata at the
+  // branch's OWN url — otherwise the authorization server reads the PRODUCTION
+  // client-metadata.json (whose scope may lag behind this branch) and rejects
+  // newly-added scopes with "invalid_scope".
+  const isProdDeployment = process.env.VERCEL_ENV === "production";
+  const vercelHost = isProdDeployment
+    ? process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL || ""
+    : process.env.VERCEL_BRANCH_URL ||
+      process.env.VERCEL_URL ||
+      process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+      "";
 
   if (isVercel && !process.env.NEXT_PUBLIC_SITE_URL && !vercelHost) {
     throw new Error(
