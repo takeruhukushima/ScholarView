@@ -10,6 +10,8 @@ export const OAUTH_SCOPE =
   "atproto " +
   "blob:*/* " +
   "repo:sci.peer.article?action=create&action=update&action=delete " +
+  "repo:sci.peer.encVault?action=create&action=update&action=delete " +
+  "repo:sci.peer.encNote?action=create&action=update&action=delete " +
   "repo:app.bsky.feed.post?action=create&action=delete " +
   "repo:app.bsky.feed.like?action=create " +
   "repo:app.bsky.feed.repost?action=create";
