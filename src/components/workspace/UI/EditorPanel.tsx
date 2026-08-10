@@ -36,7 +36,6 @@ import {
 import { ExportPreview } from "../hooks/useWorkspacePublishing";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { BroadcastPreviewModal } from "./BroadcastPreviewModal";
-import { parseCslReferenceDocument } from "@/lib/articles/csl";
 
 interface EditorPanelProps {
   // Document State
@@ -217,20 +216,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
 }) => {
   const [copied, setCopied] = React.useState(false);
   const [copiedMd, setCopiedMd] = React.useState(false);
-  const jsonValidation = React.useMemo(() => {
-    if (!isJsonWorkspaceFile) return null;
-    try {
-      const references = parseCslReferenceDocument(
-        editorBlocks.map((block) => block.text).join("\n\n"),
-      );
-      return { valid: true as const, message: `${references.length} reference(s)` };
-    } catch (cause) {
-      return {
-        valid: false as const,
-        message: cause instanceof Error ? cause.message : "Invalid CSL-JSON",
-      };
-    }
-  }, [editorBlocks, isJsonWorkspaceFile]);
 
   const handleCopyUrl = async () => {
     if (!currentDid || !currentRkey) return;
@@ -662,16 +647,6 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                     {isJsonWorkspaceFile ? "code" : `${editorBlocks.length} entries`}
                   </span>
                 </div>
-                {jsonValidation && (
-                  <div className={`rounded-lg border px-3 py-2 font-mono text-[11px] ${
-                    jsonValidation.valid
-                      ? "border-emerald-100 bg-emerald-50 text-emerald-700"
-                      : "border-red-100 bg-red-50 text-red-700"
-                  }`}>
-                    {jsonValidation.valid ? "Valid CSL-JSON · " : "Invalid CSL-JSON · "}
-                    {jsonValidation.message}
-                  </div>
-                )}
                 <div className="space-y-2">
                   {editorBlocks.map((block, index) => (
                     <div
