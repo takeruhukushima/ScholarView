@@ -10,7 +10,6 @@ import {
 
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
 import { type BibliographyEntry } from "@/lib/articles/citations";
-import { cslToScholarBibtex, deriveCitationKey, type CslReference } from "@/lib/articles/csl";
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
   type RightTab,
@@ -163,28 +162,17 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const isBibWorkspaceFile = Boolean(
     activeFile?.kind === "file" && activeFile.name.toLowerCase().endsWith(".bib"),
   );
+  const isJsonWorkspaceFile = Boolean(
+    activeFile?.kind === "file" && activeFile.name.toLowerCase().endsWith(".json"),
+  );
   const isExistingArticle = Boolean(currentDid && currentRkey);
   const canEditArticle = !isExistingArticle || (isLoggedIn && currentAuthorDid === sessionDid);
   const canEditCurrentFile = Boolean(canEditArticle && activeFile?.kind === "file");
   const canEditTextCurrentFile = canEditCurrentFile && !isImageWorkspaceFile;
-  const canPublishCurrentFile = canEditCurrentFile && !isBibWorkspaceFile && !isImageWorkspaceFile;
+  const canPublishCurrentFile =
+    canEditCurrentFile && !isBibWorkspaceFile && !isJsonWorkspaceFile && !isImageWorkspaceFile;
   const hasOpenDocument = Boolean((activeFile && activeFile.kind === "file") || activeArticleUri);
 
-  const appendCslReference = useCallback((reference: CslReference) => {
-    setEditorBlocks((previous) => {
-      const used = new Set(
-        previous.flatMap((block) =>
-          Array.from(block.text.matchAll(/@[A-Za-z]+\s*\{\s*([^,\s]+)/g), (match) => match[1]),
-        ),
-      );
-      const base = deriveCitationKey(reference, "ref");
-      let key = base;
-      let suffix = 2;
-      while (used.has(key)) key = `${base}-${suffix++}`;
-      return [...previous, { id: newId(), kind: "paragraph", text: cslToScholarBibtex(reference, key) }];
-    });
-    setStatusMessage("Added CSL reference to this project library");
-  }, [setEditorBlocks]);
 
   const {
     activeImagePreviewSrc,
@@ -307,8 +295,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const bibSourceText = useMemo(() => bibEditorBlocksToSource(editorBlocks), [editorBlocks]);
   const sourceText = useMemo(() => {
     if (isImageWorkspaceFile) return activeFile?.content ?? "";
-    return isBibWorkspaceFile ? bibSourceText : blockSourceText;
-  }, [activeFile, bibSourceText, blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile]);
+    return isBibWorkspaceFile || isJsonWorkspaceFile ? bibSourceText : blockSourceText;
+  }, [activeFile, bibSourceText, blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, isJsonWorkspaceFile]);
   const isDirtyFile = useMemo(() => {
     if (!canEditCurrentFile || !activeFile || activeFile.kind !== "file") {
       return false;
@@ -633,7 +621,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const handleSourceFormatChange = useCallback(
     (nextFormat: SourceFormat) => {
-      if (isBibWorkspaceFile || isImageWorkspaceFile) return;
+      if (isBibWorkspaceFile || isJsonWorkspaceFile || isImageWorkspaceFile) return;
       if (nextFormat === sourceFormat) return;
       const currentSource = blockSourceText;
       const nextBlocks = sourceToEditorBlocks(currentSource, nextFormat);
@@ -643,7 +631,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setBlockMenuForId(null);
       setActiveBlockId(null);
     },
-    [blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, sourceFormat, setEditorBlocks, setCitationMenu, setBlockMenuForId, setActiveBlockId],
+    [blockSourceText, isBibWorkspaceFile, isImageWorkspaceFile, isJsonWorkspaceFile, sourceFormat, setEditorBlocks, setCitationMenu, setBlockMenuForId, setActiveBlockId],
   );
 
   const handleMoveWorkspaceItem = useCallback(
@@ -894,6 +882,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             canPublishCurrentFile={canPublishCurrentFile}
             isImageWorkspaceFile={isImageWorkspaceFile}
             isBibWorkspaceFile={isBibWorkspaceFile}
+            isJsonWorkspaceFile={isJsonWorkspaceFile}
             isDirtyFile={isDirtyFile}
             isDirtyTitle={isDirtyTitle}
             savingFile={savingFile}
@@ -970,7 +959,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             showMoreMenu={showMoreMenu}
             setShowMoreMenu={setShowMoreMenu}
             formatBibtexBlockById={formatBibtexBlockById}
-            appendCslReference={appendCslReference}
           />
         </div>
 

@@ -71,7 +71,7 @@ export interface CitationMenuState {
 }
 
 export type TreeDropPosition = "before" | "after" | "inside";
-export type NewFileType = "markdown" | "tex" | "bib";
+export type NewFileType = "markdown" | "tex" | "bib" | "json";
 export type ImageDropPosition = "before" | "after";
 export type ImageAlign = "left" | "center" | "right";
 export type BlockMoveDropTarget = { blockId: string; position: ImageDropPosition };

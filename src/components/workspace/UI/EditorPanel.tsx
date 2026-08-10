@@ -36,8 +36,7 @@ import {
 import { ExportPreview } from "../hooks/useWorkspacePublishing";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { BroadcastPreviewModal } from "./BroadcastPreviewModal";
-import { ReferenceEditor } from "./ReferenceEditor";
-import type { CslReference } from "@/lib/articles/csl";
+import { parseCslReferenceDocument } from "@/lib/articles/csl";
 
 interface EditorPanelProps {
   // Document State
@@ -59,6 +58,7 @@ interface EditorPanelProps {
   canPublishCurrentFile: boolean;
   isImageWorkspaceFile: boolean;
   isBibWorkspaceFile: boolean;
+  isJsonWorkspaceFile: boolean;
   isDirtyFile: boolean;
   isDirtyTitle: boolean;
   savingFile: boolean;
@@ -132,7 +132,6 @@ interface EditorPanelProps {
   
   // BibTeX
   formatBibtexBlockById: (id: string, raw: string) => void;
-  appendCslReference: (reference: CslReference) => void;
 }
 
 export const EditorPanel: React.FC<EditorPanelProps> = ({
@@ -151,6 +150,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   canPublishCurrentFile,
   isImageWorkspaceFile,
   isBibWorkspaceFile,
+  isJsonWorkspaceFile,
   isDirtyFile,
   isDirtyTitle,
   savingFile,
@@ -214,10 +214,23 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   showMoreMenu,
   setShowMoreMenu,
   formatBibtexBlockById,
-  appendCslReference,
 }) => {
   const [copied, setCopied] = React.useState(false);
   const [copiedMd, setCopiedMd] = React.useState(false);
+  const jsonValidation = React.useMemo(() => {
+    if (!isJsonWorkspaceFile) return null;
+    try {
+      const references = parseCslReferenceDocument(
+        editorBlocks.map((block) => block.text).join("\n\n"),
+      );
+      return { valid: true as const, message: `${references.length} reference(s)` };
+    } catch (cause) {
+      return {
+        valid: false as const,
+        message: cause instanceof Error ? cause.message : "Invalid CSL-JSON",
+      };
+    }
+  }, [editorBlocks, isJsonWorkspaceFile]);
 
   const handleCopyUrl = async () => {
     if (!currentDid || !currentRkey) return;
@@ -639,15 +652,26 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                   )}
                 </div>
               </div>
-            ) : isBibWorkspaceFile ? (
+            ) : isBibWorkspaceFile || isJsonWorkspaceFile ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between px-1">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">BibTeX Source Library</p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    {isJsonWorkspaceFile ? "CSL-JSON Source" : "BibTeX Source Library"}
+                  </p>
                   <span className="text-[10px] font-medium text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full border border-slate-100">
-                    {editorBlocks.length} entries
+                    {isJsonWorkspaceFile ? "code" : `${editorBlocks.length} entries`}
                   </span>
                 </div>
-                {canEditTextCurrentFile && <ReferenceEditor onAdd={appendCslReference} />}
+                {jsonValidation && (
+                  <div className={`rounded-lg border px-3 py-2 font-mono text-[11px] ${
+                    jsonValidation.valid
+                      ? "border-emerald-100 bg-emerald-50 text-emerald-700"
+                      : "border-red-100 bg-red-50 text-red-700"
+                  }`}>
+                    {jsonValidation.valid ? "Valid CSL-JSON · " : "Invalid CSL-JSON · "}
+                    {jsonValidation.message}
+                  </div>
+                )}
                 <div className="space-y-2">
                   {editorBlocks.map((block, index) => (
                     <div
@@ -666,7 +690,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                             <div className="whitespace-pre font-mono text-[13px] leading-relaxed text-slate-800">
                               {block.text.length > 0
                                 ? renderBibtexHighlighted(block.text, `editor-bib-active-${block.id}`)
-                                : <span className="opacity-20 italic text-slate-400">{"@article{key, ...}"}</span>}
+                                : <span className="opacity-20 italic text-slate-400">
+                                    {isJsonWorkspaceFile ? '[{"id":"key","type":"article-journal","title":"..."}]' : "@article{key, ...}"}
+                                  </span>}
                             </div>
                           </div>
                           {/* Input Layer (Foreground, Transparent) */}
@@ -690,7 +716,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                               }
                             }}
                             onBlur={(e) => {
-                              formatBibtexBlockById(block.id, e.target.value);
+                              if (isBibWorkspaceFile) formatBibtexBlockById(block.id, e.target.value);
                             }}
                             onKeyDown={(e) => {
                               if (isImeComposing(e)) return;

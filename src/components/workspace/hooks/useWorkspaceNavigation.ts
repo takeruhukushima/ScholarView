@@ -80,7 +80,7 @@ export function useWorkspaceNavigation({
       const isImage = file.name.match(/\.(png|jpe?g|gif|webp|svg)$/i);
       if (isImage) {
         setEditorBlocks([]);
-      } else if (file.name.toLowerCase().endsWith(".bib")) {
+      } else if (/\.(bib|json)$/i.test(file.name)) {
         setEditorBlocks(sourceToBibEditorBlocks(file.content ?? ""));
       } else {
         setEditorBlocks(sourceToEditorBlocks(file.content ?? "", format));

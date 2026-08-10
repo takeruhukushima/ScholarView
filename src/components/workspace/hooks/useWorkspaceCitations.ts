@@ -10,9 +10,16 @@ import {
   parseBibtexEntries,
   formatBibtexSource
 } from "@/lib/articles/citations";
-import { 
-  collectProjectBibFiles
+import {
+  collectProjectBibFiles,
+  collectProjectJsonFiles,
 } from "@/lib/workspace/file-logic";
+import {
+  cslToBibliographyEntry,
+  cslToScholarBibtex,
+  deriveCitationKey,
+  parseCslReferenceDocument,
+} from "@/lib/articles/csl";
 import { 
   detectCitationTrigger
 } from "@/lib/workspace/editor-logic";
@@ -43,19 +50,43 @@ export function useWorkspaceCitations({
     () => collectProjectBibFiles(files, activeFileId),
     [activeFileId, files],
   );
+  const projectJsonFiles = useMemo(
+    () => collectProjectJsonFiles(files, activeFileId),
+    [activeFileId, files],
+  );
 
   const projectBibEntries = useMemo(() => {
     const merged = new Map<string, BibliographyEntry>();
+    const used = new Set<string>();
+    for (const file of projectJsonFiles) {
+      try {
+        for (const authored of parseCslReferenceDocument(file.content ?? "")) {
+          const base = authored.citationKey || deriveCitationKey(authored.reference, "ref");
+          let key = base;
+          let suffix = 2;
+          while (used.has(key)) key = `${base}-${suffix++}`;
+          used.add(key);
+          const entry = cslToBibliographyEntry(authored.reference, key);
+          merged.set(key, {
+            ...entry,
+            rawBibtex: cslToScholarBibtex(authored.reference, key),
+          });
+        }
+      } catch {
+        // Invalid JSON stays editable and is not silently converted or released.
+      }
+    }
     for (const file of projectBibFiles) {
       const entries = parseBibtexEntries(file.content ?? "");
       for (const entry of entries) {
         if (!merged.has(entry.key)) {
           merged.set(entry.key, entry);
+          used.add(entry.key);
         }
       }
     }
     return Array.from(merged.values());
-  }, [projectBibFiles]);
+  }, [projectBibFiles, projectJsonFiles]);
 
   const activeBibByKey = useMemo(() => {
     const map = new Map<string, BibliographyEntry>();
