@@ -361,6 +361,27 @@ function normalizedProjectPath(value: unknown): string {
   return parts.length > 0 ? `/${parts.join("/")}` : "";
 }
 
+function projectRecordOrder(row: PaperRepoRecord): string {
+  const createdAt = recordString(row.value.createdAt);
+  return `${createdAt}\u0000${row.uri}`;
+}
+
+/** Collapse legacy duplicate workspace records, keeping the newest snapshot per path. */
+export function selectLatestWorkspaceProjects(
+  projects: PaperRepoRecord[],
+): PaperRepoRecord[] {
+  const latestByPath = new Map<string, PaperRepoRecord>();
+  for (const project of projects) {
+    const path = normalizedProjectPath(project.value.path);
+    if (!path) continue;
+    const current = latestByPath.get(path);
+    if (!current || projectRecordOrder(project) > projectRecordOrder(current)) {
+      latestByPath.set(path, project);
+    }
+  }
+  return [...latestByPath.values()];
+}
+
 /** Select an already-released project by its ScholarView-owned path. */
 export function findExistingProjectRecords(input: {
   path: string;
@@ -369,7 +390,7 @@ export function findExistingProjectRecords(input: {
 }): { project: PaperRepoRecord; collection: PaperRepoRecord } | null {
   const path = normalizedProjectPath(input.path);
   if (!path) return null;
-  const project = input.projects.find(
+  const project = selectLatestWorkspaceProjects(input.projects).find(
     (row) => normalizedProjectPath(row.value.path) === path,
   );
   if (!project) return null;
