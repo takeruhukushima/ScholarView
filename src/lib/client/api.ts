@@ -1909,7 +1909,10 @@ async function deleteArticle(
   if (!ownerDid) throw new HttpError(404, "Article not found");
   if (ownerDid !== sessionDid) throw new HttpError(403, "Forbidden");
 
-  await lex.delete(sci.peer.article.main, { rkey });
+  // Legacy ScholarView articles may use pre-TID rkeys. The schema-aware
+  // `lex.delete()` validates the rkey as a TID before sending the request and
+  // rejects those otherwise valid existing records, so delete by collection.
+  await lex.deleteRecord(ARTICLE_COLLECTION, rkey);
   const announcement = await deleteArticleCascade(articleUri);
 
   let deletedAnnouncement = false;
