@@ -38,6 +38,7 @@ import {
   isWorkspaceImageFile,
   rewriteImagePathReferencesInMarkdown,
 } from "@/lib/workspace/image-logic";
+import { initialContentForFileType } from "@/lib/workspace/templates";
 import { Sidebar } from "./UI/Sidebar";
 import { EditorPanel } from "./UI/EditorPanel";
 import { RightPanel } from "./UI/RightPanel";
@@ -504,7 +505,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       setBusy,
       setStatusMessage,
       kind === "file"
-        ? { format: fileType === "tex" ? "tex" : "markdown", content: "" }
+        ? {
+            format: fileType === "tex" ? "tex" : "markdown",
+            content: initialContentForFileType(fileType),
+          }
         : undefined,
     );
 
