@@ -18,7 +18,12 @@ describe("PublishedDeleteModal", () => {
 
     expect(screen.getByText("公開済みプロジェクトを完全に削除")).toBeTruthy();
     expect(screen.getByText(/sci\.peer\.article/)).toBeTruthy();
+    const announcement = screen.getByRole("checkbox", {
+      name: /Blueskyの告知postも削除する/,
+    });
+    expect(announcement).toHaveProperty("checked", true);
+    fireEvent.click(announcement);
     fireEvent.click(screen.getByRole("button", { name: "完全に削除する" }));
-    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(onConfirm).toHaveBeenCalledWith(false);
   });
 });

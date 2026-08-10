@@ -522,13 +522,17 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }
   };
 
-  const performWorkspaceDelete = async (file: WorkspaceFile) => {
+  const performWorkspaceDelete = async (
+    file: WorkspaceFile,
+    deleteAnnouncement = true,
+  ) => {
     setPublishedDelete(null);
     const latestFiles = await apiDeleteItem(
       file.id,
       sessionDid,
       setBusy,
-      setStatusMessage
+      setStatusMessage,
+      { deleteAnnouncement },
     );
 
     if (latestFiles) {
@@ -792,7 +796,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           articleCount={publishedDelete.articleCount}
           busy={busy}
           onCancel={() => setPublishedDelete(null)}
-          onConfirm={() => void performWorkspaceDelete(publishedDelete.file)}
+          onConfirm={(deleteAnnouncement) =>
+            void performWorkspaceDelete(publishedDelete.file, deleteAnnouncement)
+          }
         />
       ) : null}
 

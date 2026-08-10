@@ -1898,7 +1898,11 @@ async function getArticle(did: string, rkey: string, originalFetch: typeof fetch
   return json({ success: true, article });
 }
 
-async function deleteArticle(did: string, rkey: string): Promise<Response> {
+async function deleteArticle(
+  did: string,
+  rkey: string,
+  options: { deleteAnnouncement?: boolean } = {},
+): Promise<Response> {
   const { did: sessionDid, lex } = await getAuthedLexClient();
   const articleUri = buildArticleUri(did, rkey);
   const ownerDid = await getArticleOwnerDid(articleUri);
@@ -1909,7 +1913,7 @@ async function deleteArticle(did: string, rkey: string): Promise<Response> {
   const announcement = await deleteArticleCascade(articleUri);
 
   let deletedAnnouncement = false;
-  if (announcement?.announcementUri) {
+  if (options.deleteAnnouncement !== false && announcement?.announcementUri) {
     try {
       const announcementAt = new AtUri(announcement.announcementUri);
       await lex.deleteRecord("app.bsky.feed.post", announcementAt.rkey);
@@ -2920,6 +2924,10 @@ async function handleWorkspaceFilesPath(
       }
 
       if (request.method === "DELETE") {
+        const deleteOptions = (await request.json().catch(() => ({}))) as {
+          deleteAnnouncement?: unknown;
+        };
+        const deleteAnnouncement = deleteOptions.deleteAnnouncement !== false;
         const existing = await getWorkspaceFileById(id, did);
         if (!existing) throw new HttpError(404, "file not found");
         const allFiles = await listWorkspaceFiles(did);
@@ -2941,7 +2949,9 @@ async function handleWorkspaceFilesPath(
         );
         for (const articleFile of deletedArticles) {
           if (articleFile.linkedArticleDid && articleFile.linkedArticleRkey) {
-            await deleteArticle(articleFile.linkedArticleDid, articleFile.linkedArticleRkey);
+            await deleteArticle(articleFile.linkedArticleDid, articleFile.linkedArticleRkey, {
+              deleteAnnouncement,
+            });
           }
         }
         if (affectedProjectRootIds.size > 0) {
