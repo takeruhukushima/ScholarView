@@ -599,7 +599,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     activeFile,
     title,
     authorsText,
-    broadcastToBsky,
     resolvedBibliography,
     projectBibEntries,
     sourceText,

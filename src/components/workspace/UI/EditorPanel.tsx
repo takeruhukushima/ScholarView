@@ -322,6 +322,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
       {broadcastPreviewText && (
         <BroadcastPreviewModal
           defaultText={broadcastPreviewText}
+          defaultPostToBluesky={broadcastToBsky}
           isUpdate={Boolean(currentDid && currentRkey)}
           onConfirm={confirmPublish}
           onCancel={cancelPublish}
