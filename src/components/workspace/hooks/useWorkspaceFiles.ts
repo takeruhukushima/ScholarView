@@ -76,12 +76,17 @@ export function useWorkspaceFiles() {
       fileId: string,
       sessionDid: string | null,
       setBusy: (b: boolean) => void,
-      setStatusMessage: (m: string) => void
+      setStatusMessage: (m: string) => void,
+      options?: { deleteAnnouncement?: boolean },
     ) => {
       try {
         setBusy(true);
         const response = await fetch(`/api/workspace/files/${encodeURIComponent(fileId)}`, {
           method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            deleteAnnouncement: options?.deleteAnnouncement !== false,
+          }),
         });
         const data = (await response.json()) as { success?: boolean; error?: string };
         if (!response.ok || !data.success) {

@@ -1,8 +1,10 @@
+import { useState } from "react";
+
 interface PublishedDeleteModalProps {
   name: string;
   articleCount: number;
   busy: boolean;
-  onConfirm: () => void;
+  onConfirm: (deleteAnnouncement: boolean) => void;
   onCancel: () => void;
 }
 
@@ -13,6 +15,7 @@ export function PublishedDeleteModal({
   onConfirm,
   onCancel,
 }: PublishedDeleteModalProps) {
+  const [deleteAnnouncement, setDeleteAnnouncement] = useState(true);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
       <div role="dialog" aria-modal="true" aria-labelledby="published-delete-title" className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -28,17 +31,30 @@ export function PublishedDeleteModal({
             <p className="mb-2 font-bold text-red-900">次のデータをAT Protocolから削除します</p>
             <ul className="list-disc space-y-1 pl-5 text-xs text-red-800">
               <li>公開記事（sci.peer.article）</li>
-              <li>Blueskyの告知postとdiscussion root</li>
               <li>paper project、collection、不要になったreference records</li>
               <li>この端末のworkspace file</li>
             </ul>
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4">
+            <input
+              type="checkbox"
+              checked={deleteAnnouncement}
+              onChange={(event) => setDeleteAnnouncement(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-red-600"
+            />
+            <span>
+              <span className="block font-bold text-slate-800">Blueskyの告知postも削除する</span>
+              <span className="mt-1 block text-xs text-slate-500">
+                オフにすると、告知postと既存discussionはBlueskyに残ります。
+              </span>
+            </span>
+          </label>
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
           <button type="button" disabled={busy} onClick={onCancel} className="px-4 py-2 text-sm font-bold text-slate-600 disabled:opacity-50">
             Cancel
           </button>
-          <button type="button" disabled={busy} onClick={onConfirm} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-200 hover:bg-red-700 disabled:opacity-50">
+          <button type="button" disabled={busy} onClick={() => onConfirm(deleteAnnouncement)} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-200 hover:bg-red-700 disabled:opacity-50">
             {busy ? "Deleting…" : "完全に削除する"}
           </button>
         </div>
