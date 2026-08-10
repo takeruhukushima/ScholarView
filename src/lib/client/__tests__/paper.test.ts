@@ -4,10 +4,12 @@ import {
   buildReferenceValue,
   buildCollectionItemValue,
   buildWorkspaceProjectValue,
+  buildProjectSnapshotFromWorkspace,
   cslReferenceFromRecordValue,
   projectSnapshotHash,
   referenceHash,
   type ProjectSnapshot,
+  type WorkspaceFileLike,
 } from "../paper";
 import type { CslReference } from "@/lib/articles/csl";
 
@@ -115,6 +117,50 @@ describe("cslReferenceFromRecordValue (defensive)", () => {
     expect(parsed?.type).toBe("misc");
     expect(parsed?.title).toBe("T");
     expect(parsed?.contributors).toEqual([{ literal: "Ada" }]);
+  });
+});
+
+describe("buildProjectSnapshotFromWorkspace", () => {
+  const files: WorkspaceFileLike[] = [
+    { id: "r0", parentId: null, name: "研究", kind: "folder", sortOrder: 0 },
+    { id: "a", parentId: "r0", name: "論文A", kind: "folder", sortOrder: 0 },
+    {
+      id: "p",
+      parentId: "a",
+      name: "paper.md",
+      kind: "file",
+      sortOrder: 0,
+      linkedArticleUri: "at://did:plc:x/sci.peer.article/rk",
+    },
+    { id: "b", parentId: "a", name: "refs.bib", kind: "file", sortOrder: 1 },
+    { id: "fig", parentId: "a", name: "figures", kind: "folder", sortOrder: 2 },
+    { id: "f1", parentId: "fig", name: "fig1.png", kind: "file", sortOrder: 0 },
+  ];
+
+  it("captures the project path and internal subtree, excluding .bib files", () => {
+    const snap = buildProjectSnapshotFromWorkspace({
+      files,
+      projectRootId: "a",
+      references: [vaswani],
+    });
+    expect(snap).not.toBeNull();
+    expect(snap?.name).toBe("論文A");
+    expect(snap?.path).toBe("/研究/論文A");
+    const paths = snap?.nodes.map((n) => n.path);
+    expect(paths).toEqual(["figures", "figures/fig1.png", "paper.md"]);
+    expect(paths).not.toContain("refs.bib");
+    const paperNode = snap?.nodes.find((n) => n.path === "paper.md");
+    expect(paperNode?.linkedArticleUri).toBe("at://did:plc:x/sci.peer.article/rk");
+    expect(snap?.references).toHaveLength(1);
+  });
+
+  it("returns null when the root is missing or is not a folder", () => {
+    expect(
+      buildProjectSnapshotFromWorkspace({ files, projectRootId: "p", references: [] }),
+    ).toBeNull();
+    expect(
+      buildProjectSnapshotFromWorkspace({ files, projectRootId: "nope", references: [] }),
+    ).toBeNull();
   });
 });
 

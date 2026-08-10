@@ -40,6 +40,99 @@ function nowIso(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Snapshot assembly from the workspace tree (pure)
+// ---------------------------------------------------------------------------
+
+/** Minimal structural view of a workspace file/folder node. */
+export interface WorkspaceFileLike {
+  id: string;
+  parentId: string | null;
+  name: string;
+  kind: "folder" | "file";
+  sortOrder: number;
+  linkedArticleUri?: string | null;
+}
+
+function absolutePathOf(byId: Map<string, WorkspaceFileLike>, id: string): string {
+  const parts: string[] = [];
+  let cursor: string | null = id;
+  const guard = new Set<string>();
+  while (cursor && !guard.has(cursor)) {
+    guard.add(cursor);
+    const node = byId.get(cursor);
+    if (!node) break;
+    parts.unshift(node.name);
+    cursor = node.parentId;
+  }
+  return `/${parts.join("/")}`.replace(/\/{2,}/g, "/");
+}
+
+function descendantsOf(
+  files: WorkspaceFileLike[],
+  rootId: string,
+): WorkspaceFileLike[] {
+  const childrenByParent = new Map<string | null, WorkspaceFileLike[]>();
+  for (const f of files) {
+    const list = childrenByParent.get(f.parentId) ?? [];
+    list.push(f);
+    childrenByParent.set(f.parentId, list);
+  }
+  const out: WorkspaceFileLike[] = [];
+  const stack = [...(childrenByParent.get(rootId) ?? [])];
+  const seen = new Set<string>();
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node || seen.has(node.id)) continue;
+    seen.add(node.id);
+    out.push(node);
+    for (const child of childrenByParent.get(node.id) ?? []) stack.push(child);
+  }
+  return out;
+}
+
+/**
+ * Assemble a {@link ProjectSnapshot} for the project rooted at `projectRootId`,
+ * capturing the project folder's absolute path and its internal subtree (so a
+ * new device can restore folders + `.bib`). References are the CSL entries the
+ * caller authored for this project. `.bib` file nodes are excluded from `nodes`
+ * because they are regenerated from `references` on restore.
+ */
+export function buildProjectSnapshotFromWorkspace(input: {
+  files: WorkspaceFileLike[];
+  projectRootId: string;
+  references: CslReference[];
+  meta?: { description?: string; purpose?: string; targetVenue?: string };
+}): ProjectSnapshot | null {
+  const byId = new Map(input.files.map((f) => [f.id, f]));
+  const root = byId.get(input.projectRootId);
+  if (!root || root.kind !== "folder") return null;
+
+  const rootPath = absolutePathOf(byId, root.id);
+  const rootPrefix = `${rootPath}/`;
+
+  const nodes: WorkspaceProjectNode[] = descendantsOf(input.files, root.id)
+    .filter((f) => !(f.kind === "file" && f.name.toLowerCase().endsWith(".bib")))
+    .map((f) => {
+      const abs = absolutePathOf(byId, f.id);
+      const rel = abs.startsWith(rootPrefix) ? abs.slice(rootPrefix.length) : f.name;
+      const node: WorkspaceProjectNode = { path: rel, kind: f.kind, sortOrder: f.sortOrder };
+      if (f.linkedArticleUri) node.linkedArticleUri = f.linkedArticleUri;
+      return node;
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  return {
+    name: root.name,
+    path: rootPath,
+    nodes,
+    references: input.references,
+    ...(input.meta?.description ? { description: input.meta.description } : {}),
+    ...(input.meta?.purpose ? { purpose: input.meta.purpose } : {}),
+    ...(input.meta?.targetVenue ? { targetVenue: input.meta.targetVenue } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Builders (produce validated record values ready for createRecord/putRecord)
 // ---------------------------------------------------------------------------
 
