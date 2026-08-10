@@ -1,0 +1,22 @@
+{
+  "lexicon": 1,
+  "id": "pub.paper.collection",
+  "description": "Minori互換。名前付きの論文/文献プロジェクト（集合）。スキーマはMinoriが所有し、ScholarViewはフィールドを追加しない。",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["name", "createdAt"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 1000, "description": "プロジェクト名" },
+          "description": { "type": "string", "maxLength": 10000, "description": "説明（任意）" },
+          "purpose": { "type": "string", "description": "writing/reading/teaching/topic/systematicReview/grantApplication/thesis など（任意）" },
+          "targetVenue": { "type": "string", "description": "投稿先（任意）" },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

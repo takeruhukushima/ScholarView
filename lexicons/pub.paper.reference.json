@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "pub.paper.reference",
+  "description": "Minori互換。CSL-JSON準拠の書誌エントリ（bibの代替、第一級レコード）。スキーマはMinoriが所有し、ScholarViewはフィールドを追加しない。",
+  "defs": {
+    "contributor": {
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "description": "author など" },
+        "literal": { "type": "string", "description": "表記そのままの著者名" },
+        "family": { "type": "string" },
+        "given": { "type": "string" },
+        "sequence": { "type": "integer" }
+      }
+    },
+    "issued": {
+      "type": "object",
+      "properties": {
+        "year": { "type": "integer" }
+      }
+    },
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["type", "title", "createdAt"],
+        "properties": {
+          "type": { "type": "string", "maxLength": 64, "description": "CSL type（article-journal / paper-conference / preprint / chapter / book / thesis / report / dataset / software / webpage / manuscript ...）" },
+          "title": { "type": "string", "maxLength": 2000 },
+          "containerTitle": { "type": "string", "maxLength": 2000, "description": "掲載誌・会議名" },
+          "issued": { "type": "ref", "ref": "#issued" },
+          "contributors": { "type": "array", "items": { "type": "ref", "ref": "#contributor" } },
+          "doi": { "type": "string", "maxLength": 512 },
+          "arxivId": { "type": "string", "maxLength": 64 },
+          "url": { "type": "string", "maxLength": 4096 },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

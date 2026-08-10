@@ -1,0 +1,40 @@
+{
+  "lexicon": 1,
+  "id": "sci.peer.workspaceProject",
+  "description": "ScholarView所有。pub.paper.collection（プロジェクト）のワークスペース配置。フォルダ構造をクロスデバイスで復元するための、パス・サブツリー・bib配置情報を持つ。",
+  "defs": {
+    "node": {
+      "type": "object",
+      "required": ["path", "kind"],
+      "properties": {
+        "path": { "type": "string", "maxLength": 1024, "description": "プロジェクトルートからの相対パス（例: figures/fig1.png）" },
+        "kind": { "type": "string", "description": "folder | file" },
+        "sortOrder": { "type": "integer", "description": "同一親内での並び順（任意）" },
+        "linkedArticleUri": { "type": "string", "description": "この file が公開記事本文の場合、その sci.peer.article の at-uri（任意）" }
+      }
+    },
+    "bibPlacement": {
+      "type": "object",
+      "required": ["referenceUri", "bibPath"],
+      "properties": {
+        "referenceUri": { "type": "string", "description": "pub.paper.reference の at-uri" },
+        "bibPath": { "type": "string", "maxLength": 1024, "description": "この reference を書き出す .bib のプロジェクト相対パス" }
+      }
+    },
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["collectionUri", "path", "createdAt"],
+        "properties": {
+          "collectionUri": { "type": "string", "description": "対応する pub.paper.collection の at-uri" },
+          "path": { "type": "string", "maxLength": 1024, "description": "プロジェクトルートのワークスペース絶対パス" },
+          "nodes": { "type": "array", "description": "プロジェクト内部の相対フォルダ/ファイル配置", "items": { "type": "ref", "ref": "#node" } },
+          "bibPlacements": { "type": "array", "description": "reference uri → 生成先 .bib 相対パス", "items": { "type": "ref", "ref": "#bibPlacement" } },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

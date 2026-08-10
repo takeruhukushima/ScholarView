@@ -1,0 +1,20 @@
+{
+  "lexicon": 1,
+  "id": "pub.paper.collectionItem",
+  "description": "Minori互換。referenceをcollectionに所属させるエッジ。スキーマはMinoriが所有し、ScholarViewはフィールドを追加しない。",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["collection", "reference", "addedAt"],
+        "properties": {
+          "collection": { "type": "ref", "ref": "com.atproto.repo.strongRef" },
+          "reference": { "type": "ref", "ref": "com.atproto.repo.strongRef" },
+          "addedAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

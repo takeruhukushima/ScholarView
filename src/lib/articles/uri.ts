@@ -2,6 +2,14 @@ import { AtUri } from "@atproto/syntax";
 
 export const ARTICLE_COLLECTION = "sci.peer.article";
 
+// Minori-owned collections (schema unchanged; ScholarView interoperates).
+export const PAPER_COLLECTION = "pub.paper.collection";
+export const PAPER_REFERENCE = "pub.paper.reference";
+export const PAPER_COLLECTION_ITEM = "pub.paper.collectionItem";
+
+// ScholarView-owned: workspace placement for a pub.paper.collection.
+export const WORKSPACE_PROJECT = "sci.peer.workspaceProject";
+
 /**
  * Get the public base URL of the application.
  * Prioritizes NEXT_PUBLIC_PUBLIC_URL environment variable, 
