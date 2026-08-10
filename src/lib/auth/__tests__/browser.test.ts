@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import clientMetadata from '../../../../public/client-metadata.json';
 import { initializeAuth, OAUTH_SCOPE } from '../browser';
 
 const { mockClient } = vi.hoisted(() => ({
@@ -33,6 +34,12 @@ describe('auth browser logic', () => {
     const result = await initializeAuth();
     expect(result.did).toBeNull();
     expect(result.handle).toBeNull();
+  });
+
+  it('keeps requested scopes declared in the client metadata', () => {
+    expect(new Set(clientMetadata.scope.split(/\s+/))).toEqual(
+      new Set(OAUTH_SCOPE.split(/\s+/)),
+    );
   });
 
   it('restores session from localStorage', async () => {
