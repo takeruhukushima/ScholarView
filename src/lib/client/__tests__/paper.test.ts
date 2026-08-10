@@ -11,6 +11,7 @@ import {
   findExistingCollectionItemRecord,
   findExistingProjectRecords,
   findExistingReferenceRecord,
+  findStaleProjectReferenceRecords,
   selectLatestWorkspaceProjects,
   type ProjectSnapshot,
   type WorkspaceFileLike,
@@ -283,5 +284,31 @@ describe("cross-device record adoption", () => {
       referenceUri: reference.uri,
       items: [item],
     })).toEqual(item);
+  });
+
+  it("removes stale edges but keeps references used by another collection", () => {
+    const sharedReferenceUri = reference.uri;
+    const staleForProject = item;
+    const usedElsewhere = {
+      ...item,
+      uri: "at://did:plc:x/pub.paper.collectionItem/i2",
+      value: {
+        collection: { uri: "at://did:plc:x/pub.paper.collection/other", cid: "other-cid" },
+        reference: { uri: sharedReferenceUri, cid: reference.cid },
+      },
+    };
+    expect(findStaleProjectReferenceRecords({
+      collectionUri: collection.uri,
+      desiredReferenceUris: [],
+      items: [staleForProject, usedElsewhere],
+    })).toEqual({ items: [staleForProject], orphanReferenceUris: [] });
+  });
+
+  it("removes a reference after its final project edge is deleted", () => {
+    expect(findStaleProjectReferenceRecords({
+      collectionUri: collection.uri,
+      desiredReferenceUris: [],
+      items: [item],
+    })).toEqual({ items: [item], orphanReferenceUris: [reference.uri] });
   });
 });

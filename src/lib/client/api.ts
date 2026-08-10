@@ -43,6 +43,7 @@ import {
   findExistingCollectionItemRecord,
   findExistingProjectRecords,
   findExistingReferenceRecord,
+  findStaleProjectReferenceRecords,
   referenceHash,
   selectLatestWorkspaceProjects,
   type StrongRef,
@@ -56,6 +57,7 @@ import {
 } from "@/lib/auth/browser";
 import {
   createWorkspaceFile,
+  deletePaperRecordBindingsByUris,
   deleteAnnouncementByUri,
   deleteArticleCascade,
   deleteDraftById,
@@ -745,20 +747,16 @@ async function releasePaperProject(input: {
   let workspaceBinding = await getPaperRecordBinding(workspaceKey);
   const collectionValue = buildCollectionValue({ name: projectRoot.name, purpose: "writing", createdAt: now });
   const collectionHash = hashContent(JSON.stringify({ name: projectRoot.name, purpose: "writing" }));
-  let remoteItems: RepoRecordRow[] = [];
-  let remoteReferences: RepoRecordRow[] = [];
+  const [remoteProjects, remoteCollections, remoteItems, remoteReferences] = await Promise.all([
+    listOwnRepoRecords(WORKSPACE_PROJECT),
+    listOwnRepoRecords(PAPER_COLLECTION),
+    listOwnRepoRecords(PAPER_COLLECTION_ITEM),
+    listOwnRepoRecords(PAPER_REFERENCE),
+  ]);
 
   // On a new browser the IndexedDB binding table is empty. Adopt the existing
   // project selected by its ScholarView-owned path before creating anything.
   if (!collectionBinding) {
-    const [remoteProjects, remoteCollections, listedItems, listedReferences] = await Promise.all([
-      listOwnRepoRecords(WORKSPACE_PROJECT),
-      listOwnRepoRecords(PAPER_COLLECTION),
-      listOwnRepoRecords(PAPER_COLLECTION_ITEM),
-      listOwnRepoRecords(PAPER_REFERENCE),
-    ]);
-    remoteItems = listedItems;
-    remoteReferences = listedReferences;
     const existingRecords = findExistingProjectRecords({
       path: projectPath,
       projects: remoteProjects,
@@ -862,6 +860,22 @@ async function releasePaperProject(input: {
       await upsertPaperRecordBinding({ ...edgeBinding, cid: edge.cid, syncedHash: edgeHash, updatedAt: now });
     }
   }
+
+  const stale = findStaleProjectReferenceRecords({
+    collectionUri: collectionRef.uri,
+    desiredReferenceUris: referenceRefs.map(({ ref }) => ref.uri),
+    items: remoteItems,
+  });
+  for (const row of stale.items) {
+    await lex.delete(pub.paper.collectionItem.main, { rkey: new AtUri(row.uri).rkey });
+  }
+  for (const uri of stale.orphanReferenceUris) {
+    await lex.delete(pub.paper.reference.main, { rkey: new AtUri(uri).rkey });
+  }
+  await deletePaperRecordBindingsByUris(did, [
+    ...stale.items.map((row) => row.uri),
+    ...stale.orphanReferenceUris,
+  ]);
 
   const byId = new Map(files.map((file) => [file.id, file]));
   const descendants = files.filter((candidate) => {
@@ -3256,9 +3270,7 @@ async function publishWorkspaceFile(
         projectRoot,
         files: releasedFiles,
         bibliography:
-          projectBibliographyInput && projectBibliographyInput.length > 0
-            ? projectBibliographyInput
-            : releasedArticle?.bibliography ?? [],
+          projectBibliographyInput ?? releasedArticle?.bibliography ?? [],
       });
     }
   }
