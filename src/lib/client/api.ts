@@ -40,6 +40,7 @@ import {
   buildReferenceValue,
   buildWorkspaceProjectValue,
   cslReferenceFromRecordValue,
+  collectionNameForArticle,
   findExistingCollectionItemRecord,
   findExistingProjectRecords,
   findExistingReferenceRecord,
@@ -99,6 +100,7 @@ import type {
 } from "@/lib/types";
 import { resolveWorkspaceImports } from "@/lib/workspace/imports";
 import { evaluateSync, hashContent } from "@/lib/workspace/reconcile";
+import { initialContentForFileType } from "@/lib/workspace/templates";
 
 const MAX_TITLE_LENGTH = 300;
 const MAX_COMMENT_LENGTH = 2_000;
@@ -670,9 +672,9 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
       // Published article bodies are restored by syncLegacyArticles with content.
       if (asString(node.linkedArticleUri)) continue;
       const kind = asString(node.kind) === "folder" ? "folder" : "file";
-      // CSL-JSON is regenerated from pub.paper.reference below, not as an
-      // empty placeholder that would block hydration.
-      if (kind === "file" && rel.toLowerCase().endsWith(".json")) continue;
+      // Reference files are regenerated from pub.paper.reference below, not as
+      // empty placeholders that would block their canonical reconstruction.
+      if (kind === "file" && /\.(bib|json)$/i.test(rel)) continue;
       const made = await ensureWorkspaceFileAtPath(did, fullPath, {
         kind,
         ...(kind === "file" ? { content: "", sourceFormat: "markdown" as const } : {}),
@@ -694,12 +696,21 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
       group.push({ ref, citationKey: asString(placement?.citationKey) || undefined });
       refsByBibPath.set(bibPath, group);
     }
-    for (const [bibPath, placedRefs] of refsByBibPath) {
+    const bibNodes = nodes.filter(
+      (node) => asString(node.kind) === "file" && asString(node.path).toLowerCase().endsWith(".bib"),
+    );
+    const bibPaths = bibNodes
+      .map((node) => safeProjectRelativePath(node.path))
+      .filter((path): path is string => Boolean(path));
+    for (const bibPath of new Set([...bibPaths, ...refsByBibPath.keys()])) {
+      const placedRefs = refsByBibPath.get(bibPath) ?? [];
       const fullPath = normalizeWorkspacePath(`${rootPath}/${bibPath}`);
       if (!fullPath || (await getWorkspaceFileByPath(fullPath, did))) continue;
       const made = await ensureWorkspaceFileAtPath(did, fullPath, {
         kind: "file",
-        content: placedRefs.every((item) => item.citationKey)
+        content: placedRefs.length === 0
+          ? initialContentForFileType("bib")
+          : placedRefs.every((item) => item.citationKey)
           ? formatBibtexSource(
               placedRefs
                 .map((item) => cslToScholarBibtex(item.ref, item.citationKey as string))
@@ -717,25 +728,28 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
       if (made) created += 1;
     }
 
-    const jsonNode = nodes.find(
+    const jsonNodes = nodes.filter(
       (node) =>
         asString(node.kind) === "file" &&
         asString(node.path).toLowerCase().endsWith(".json"),
     );
-    const jsonPath = safeProjectRelativePath(jsonNode?.path);
-    if (jsonPath) {
+    const authored = refUris.flatMap((refUri) => {
+      const ref = refsByUri.get(refUri);
+      if (!ref) return [];
+      const placement = placements.find((item) => asString(item?.referenceUri) === refUri);
+      const citationKey = asString(placement?.citationKey);
+      return [{ ...(citationKey ? { id: citationKey } : {}), ...ref }];
+    });
+    for (const jsonNode of jsonNodes) {
+      const jsonPath = safeProjectRelativePath(jsonNode.path);
+      if (!jsonPath) continue;
       const fullPath = normalizeWorkspacePath(`${rootPath}/${jsonPath}`);
       if (fullPath && !(await getWorkspaceFileByPath(fullPath, did))) {
-        const authored = refUris.flatMap((refUri) => {
-          const ref = refsByUri.get(refUri);
-          if (!ref) return [];
-          const placement = placements.find((item) => asString(item?.referenceUri) === refUri);
-          const citationKey = asString(placement?.citationKey);
-          return [{ ...(citationKey ? { id: citationKey } : {}), ...ref }];
-        });
         const made = await ensureWorkspaceFileAtPath(did, fullPath, {
           kind: "file",
-          content: `${JSON.stringify(authored, null, 2)}\n`,
+          content: authored.length > 0
+            ? `${JSON.stringify(authored, null, 2)}\n`
+            : initialContentForFileType("json"),
           sourceFormat: "markdown",
         });
         if (made) created += 1;
@@ -766,6 +780,7 @@ async function releasePaperProject(input: {
   projectRoot: WorkspaceFileNode;
   files: WorkspaceFileNode[];
   bibliography: BibliographyEntry[];
+  articleTitle: string;
 }): Promise<void> {
   const { did, lex, projectRoot, files } = input;
   const now = new Date().toISOString();
@@ -775,8 +790,9 @@ async function releasePaperProject(input: {
   const workspaceKey = bindingKey(did, "workspaceProject", projectRoot.id);
   let collectionBinding = await getPaperRecordBinding(collectionKey);
   let workspaceBinding = await getPaperRecordBinding(workspaceKey);
-  const collectionValue = buildCollectionValue({ name: projectRoot.name, purpose: "writing", createdAt: now });
-  const collectionHash = hashContent(JSON.stringify({ name: projectRoot.name, purpose: "writing" }));
+  const collectionName = collectionNameForArticle(input.articleTitle, projectRoot.name);
+  const collectionValue = buildCollectionValue({ name: collectionName, purpose: "writing", createdAt: now });
+  const collectionHash = hashContent(JSON.stringify({ name: collectionName, purpose: "writing" }));
   const [remoteProjects, remoteCollections, remoteItems, remoteReferences] = await Promise.all([
     listOwnRepoRecords(WORKSPACE_PROJECT),
     listOwnRepoRecords(PAPER_COLLECTION),
@@ -917,7 +933,6 @@ async function releasePaperProject(input: {
     return false;
   });
   const nodes = descendants
-    .filter((node) => !node.name.toLowerCase().endsWith(".bib"))
     .map((node) => {
       const absolute = buildWorkspaceFilePath(node, files) ?? node.name;
       return {
@@ -3450,6 +3465,7 @@ async function publishWorkspaceFile(
         lex,
         projectRoot,
         files: releasedFiles,
+        articleTitle: title,
         bibliography:
           projectBibliographyInput ?? releasedArticle?.bibliography ?? [],
       });

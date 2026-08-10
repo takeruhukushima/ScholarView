@@ -40,6 +40,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/** The published Markdown title is the human-facing paper collection name. */
+export function collectionNameForArticle(articleTitle: string, projectRootName: string): string {
+  return articleTitle.trim() || projectRootName.trim() || "Untitled";
+}
+
 // ---------------------------------------------------------------------------
 // Snapshot assembly from the workspace tree (pure)
 // ---------------------------------------------------------------------------
@@ -52,6 +57,7 @@ export interface WorkspaceFileLike {
   kind: "folder" | "file";
   sortOrder: number;
   linkedArticleUri?: string | null;
+  content?: string | null;
 }
 
 /** Nearest published-paper project containing a workspace node. */
@@ -137,9 +143,9 @@ function descendantsOf(
 /**
  * Assemble a {@link ProjectSnapshot} for the project rooted at `projectRootId`,
  * capturing the project folder's absolute path and its internal subtree (so a
- * new device can restore folders + `.bib`). References are the CSL entries the
- * caller authored for this project. `.bib` file nodes are excluded from `nodes`
- * because they are regenerated from `references` on restore.
+ * new device can restore folders and reference-file placement). References are
+ * the CSL entries the caller authored for this project. File contents are not
+ * stored in nodes; `.bib`/`.json` are regenerated from pub.paper.reference.
  */
 export function buildProjectSnapshotFromWorkspace(input: {
   files: WorkspaceFileLike[];
@@ -155,7 +161,6 @@ export function buildProjectSnapshotFromWorkspace(input: {
   const rootPrefix = `${rootPath}/`;
 
   const nodes: WorkspaceProjectNode[] = descendantsOf(input.files, root.id)
-    .filter((f) => !(f.kind === "file" && f.name.toLowerCase().endsWith(".bib")))
     .map((f) => {
       const abs = absolutePathOf(byId, f.id);
       const rel = abs.startsWith(rootPrefix) ? abs.slice(rootPrefix.length) : f.name;

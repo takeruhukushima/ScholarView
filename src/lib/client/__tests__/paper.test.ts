@@ -6,6 +6,7 @@ import {
   buildWorkspaceProjectValue,
   buildProjectSnapshotFromWorkspace,
   cslReferenceFromRecordValue,
+  collectionNameForArticle,
   projectSnapshotHash,
   referenceHash,
   findExistingCollectionItemRecord,
@@ -33,6 +34,11 @@ const vaswani: CslReference = {
 };
 
 describe("paper record builders", () => {
+  it("uses the published Markdown title as the collection name", () => {
+    expect(collectionNameForArticle("  Paper Title  ", "folder-name")).toBe("Paper Title");
+    expect(collectionNameForArticle("", "folder-name")).toBe("folder-name");
+  });
+
   it("buildCollectionValue stamps $type and omits empty optionals", () => {
     const v = buildCollectionValue({ name: "My Project", purpose: "writing" });
     expect(v.$type).toBe("pub.paper.collection");
@@ -149,7 +155,7 @@ describe("buildProjectSnapshotFromWorkspace", () => {
     { id: "f1", parentId: "fig", name: "fig1.png", kind: "file", sortOrder: 0 },
   ];
 
-  it("captures the project path and internal subtree, excluding .bib files", () => {
+  it("captures the project path and reference-file placement without contents", () => {
     const snap = buildProjectSnapshotFromWorkspace({
       files,
       projectRootId: "a",
@@ -159,8 +165,8 @@ describe("buildProjectSnapshotFromWorkspace", () => {
     expect(snap?.name).toBe("論文A");
     expect(snap?.path).toBe("/研究/論文A");
     const paths = snap?.nodes.map((n) => n.path);
-    expect(paths).toEqual(["figures", "figures/fig1.png", "paper.md"]);
-    expect(paths).not.toContain("refs.bib");
+    expect(paths).toEqual(["figures", "figures/fig1.png", "paper.md", "refs.bib"]);
+    expect(snap?.nodes.find((node) => node.path === "refs.bib")).not.toHaveProperty("content");
     const paperNode = snap?.nodes.find((n) => n.path === "paper.md");
     expect(paperNode?.linkedArticleUri).toBe("at://did:plc:x/sci.peer.article/rk");
     expect(snap?.references).toHaveLength(1);
