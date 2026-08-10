@@ -89,6 +89,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [publishedDelete, setPublishedDelete] = useState<{
     file: WorkspaceFile;
     articleCount: number;
+    error?: string | null;
   } | null>(null);
 
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -526,16 +527,21 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     file: WorkspaceFile,
     deleteAnnouncement = true,
   ) => {
-    setPublishedDelete(null);
+    setPublishedDelete((current) => current ? { ...current, error: null } : current);
     const latestFiles = await apiDeleteItem(
       file.id,
       sessionDid,
       setBusy,
       setStatusMessage,
-      { deleteAnnouncement },
+      {
+        deleteAnnouncement,
+        onError: (error) =>
+          setPublishedDelete((current) => current ? { ...current, error } : current),
+      },
     );
 
     if (latestFiles) {
+      setPublishedDelete(null);
       if (activeFileId && !latestFiles.some((item) => item.id === activeFileId)) {
         setActiveFileId(null);
         if (!activeArticleUri) {
@@ -795,6 +801,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           name={publishedDelete.file.name}
           articleCount={publishedDelete.articleCount}
           busy={busy}
+          error={publishedDelete.error}
           onCancel={() => setPublishedDelete(null)}
           onConfirm={(deleteAnnouncement) =>
             void performWorkspaceDelete(publishedDelete.file, deleteAnnouncement)

@@ -4,6 +4,7 @@ interface PublishedDeleteModalProps {
   name: string;
   articleCount: number;
   busy: boolean;
+  error?: string | null;
   onConfirm: (deleteAnnouncement: boolean) => void;
   onCancel: () => void;
 }
@@ -12,6 +13,7 @@ export function PublishedDeleteModal({
   name,
   articleCount,
   busy,
+  error,
   onConfirm,
   onCancel,
 }: PublishedDeleteModalProps) {
@@ -49,6 +51,11 @@ export function PublishedDeleteModal({
               </span>
             </span>
           </label>
+          {error ? (
+            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
+              削除できませんでした：{error}
+            </p>
+          ) : null}
         </div>
         <div className="flex justify-end gap-3 border-t border-slate-100 bg-slate-50 px-6 py-4">
           <button type="button" disabled={busy} onClick={onCancel} className="px-4 py-2 text-sm font-bold text-slate-600 disabled:opacity-50">

@@ -26,4 +26,18 @@ describe("PublishedDeleteModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "完全に削除する" }));
     expect(onConfirm).toHaveBeenCalledWith(false);
   });
+
+  it("shows deletion failures without dismissing the dialog", () => {
+    render(
+      <PublishedDeleteModal
+        name="paper.md"
+        articleCount={1}
+        busy={false}
+        error="PDS rejected the request"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("PDS rejected the request");
+  });
 });

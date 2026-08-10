@@ -962,6 +962,23 @@ async function deleteReleasedPaperProject(input: {
   });
   if (!existing) return;
 
+  const deleteIfPresent = async (
+    collection: `${string}.${string}.${string}`,
+    uri: string,
+  ) => {
+    try {
+      await input.lex.deleteRecord(collection, new AtUri(uri).rkey);
+    } catch (error) {
+      const detail = error as { error?: unknown; message?: unknown; status?: unknown };
+      const label = [detail.error, detail.message]
+        .filter((value): value is string => typeof value === "string")
+        .join(" ")
+        .toLowerCase();
+      if (detail.status === 404 || label.includes("not found")) return;
+      throw error;
+    }
+  };
+
   const collectionUri = existing.collection.uri;
   const stale = findStaleProjectReferenceRecords({
     collectionUri,
@@ -969,19 +986,13 @@ async function deleteReleasedPaperProject(input: {
     items,
   });
   for (const row of stale.items) {
-    await input.lex.delete(pub.paper.collectionItem.main, {
-      rkey: new AtUri(row.uri).rkey,
-    });
+    await deleteIfPresent(PAPER_COLLECTION_ITEM, row.uri);
   }
   for (const uri of stale.orphanReferenceUris) {
-    await input.lex.delete(pub.paper.reference.main, { rkey: new AtUri(uri).rkey });
+    await deleteIfPresent(PAPER_REFERENCE, uri);
   }
-  await input.lex.delete(sci.peer.workspaceProject.main, {
-    rkey: new AtUri(existing.project.uri).rkey,
-  });
-  await input.lex.delete(pub.paper.collection.main, {
-    rkey: new AtUri(existing.collection.uri).rkey,
-  });
+  await deleteIfPresent(WORKSPACE_PROJECT, existing.project.uri);
+  await deleteIfPresent(PAPER_COLLECTION, existing.collection.uri);
   await deletePaperRecordBindingsByUris(input.did, [
     existing.project.uri,
     existing.collection.uri,
@@ -1906,13 +1917,23 @@ async function deleteArticle(
   const { did: sessionDid, lex } = await getAuthedLexClient();
   const articleUri = buildArticleUri(did, rkey);
   const ownerDid = await getArticleOwnerDid(articleUri);
-  if (!ownerDid) throw new HttpError(404, "Article not found");
-  if (ownerDid !== sessionDid) throw new HttpError(403, "Forbidden");
+  if (did !== sessionDid || (ownerDid && ownerDid !== sessionDid)) {
+    throw new HttpError(403, "Forbidden");
+  }
 
   // Legacy ScholarView articles may use pre-TID rkeys. The schema-aware
   // `lex.delete()` validates the rkey as a TID before sending the request and
   // rejects those otherwise valid existing records, so delete by collection.
-  await lex.deleteRecord(ARTICLE_COLLECTION, rkey);
+  try {
+    await lex.deleteRecord(ARTICLE_COLLECTION, rkey);
+  } catch (error) {
+    const detail = error as { error?: unknown; message?: unknown; status?: unknown };
+    const label = [detail.error, detail.message]
+      .filter((value): value is string => typeof value === "string")
+      .join(" ")
+      .toLowerCase();
+    if (detail.status !== 404 && !label.includes("not found")) throw error;
+  }
   const announcement = await deleteArticleCascade(articleUri);
 
   let deletedAnnouncement = false;
@@ -2950,13 +2971,6 @@ async function handleWorkspaceFilesPath(
         const affectedProjectRootIds = new Set(
           deletedArticles.map((file) => file.parentId).filter((value): value is string => Boolean(value)),
         );
-        for (const articleFile of deletedArticles) {
-          if (articleFile.linkedArticleDid && articleFile.linkedArticleRkey) {
-            await deleteArticle(articleFile.linkedArticleDid, articleFile.linkedArticleRkey, {
-              deleteAnnouncement,
-            });
-          }
-        }
         if (affectedProjectRootIds.size > 0) {
           const lex = await getLexClientForCurrentSession();
           if (!lex) throw new HttpError(401, "Unauthorized");
@@ -2972,6 +2986,13 @@ async function handleWorkspaceFilesPath(
             if (!hasRemainingPublishedArticle && projectRoot?.kind === "folder") {
               await deleteReleasedPaperProject({ did, lex, projectRoot, files: allFiles });
             }
+          }
+        }
+        for (const articleFile of deletedArticles) {
+          if (articleFile.linkedArticleDid && articleFile.linkedArticleRkey) {
+            await deleteArticle(articleFile.linkedArticleDid, articleFile.linkedArticleRkey, {
+              deleteAnnouncement,
+            });
           }
         }
         const projectRootId = findPublishedProjectRootForNode(allFiles, existing.id);

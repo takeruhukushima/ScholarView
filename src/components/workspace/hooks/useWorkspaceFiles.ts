@@ -77,7 +77,7 @@ export function useWorkspaceFiles() {
       sessionDid: string | null,
       setBusy: (b: boolean) => void,
       setStatusMessage: (m: string) => void,
-      options?: { deleteAnnouncement?: boolean },
+      options?: { deleteAnnouncement?: boolean; onError?: (message: string) => void },
     ) => {
       try {
         setBusy(true);
@@ -95,7 +95,9 @@ export function useWorkspaceFiles() {
         const latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
         return latestFiles;
       } catch (err: unknown) {
-        setStatusMessage(err instanceof Error ? err.message : "Failed to delete item");
+        const message = err instanceof Error ? err.message : "Failed to delete item";
+        setStatusMessage(message);
+        options?.onError?.(message);
         return null;
       } finally {
         setBusy(false);
