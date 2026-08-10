@@ -11,6 +11,7 @@ import {
   findExistingCollectionItemRecord,
   findExistingProjectRecords,
   findExistingReferenceRecord,
+  selectLatestWorkspaceProjects,
   type ProjectSnapshot,
   type WorkspaceFileLike,
 } from "../paper";
@@ -239,6 +240,26 @@ describe("cross-device record adoption", () => {
       projects: [project],
       collections: [collection],
     })).toEqual({ project, collection });
+  });
+
+  it("uses only the newest workspace snapshot when legacy records share a path", () => {
+    const older = {
+      ...project,
+      uri: "at://did:plc:x/sci.peer.workspaceProject/older",
+      value: { ...project.value, path: "/research/P", createdAt: "2026-01-01T00:00:00Z" },
+    };
+    const newer = {
+      ...project,
+      uri: "at://did:plc:x/sci.peer.workspaceProject/newer",
+      value: { ...project.value, path: "//research/P/", createdAt: "2026-02-01T00:00:00Z" },
+    };
+
+    expect(selectLatestWorkspaceProjects([older, newer])).toEqual([newer]);
+    expect(findExistingProjectRecords({
+      path: "/research/P",
+      projects: [older, newer],
+      collections: [collection],
+    })?.project).toEqual(newer);
   });
 
   it("adopts only a matching reference linked to that collection", () => {

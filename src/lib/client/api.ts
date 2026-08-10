@@ -44,6 +44,7 @@ import {
   findExistingProjectRecords,
   findExistingReferenceRecord,
   referenceHash,
+  selectLatestWorkspaceProjects,
   type StrongRef,
 } from "@/lib/client/paper";
 import type { BibliographyEntry } from "@/lib/articles/citations";
@@ -606,13 +607,23 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
   }
 
   let created = 0;
-  for (const project of projects) {
+  for (const project of selectLatestWorkspaceProjects(projects)) {
     const rootPath = normalizeWorkspacePath(asString(project.value.path));
     const collectionUri = asString(project.value.collectionUri);
     if (!rootPath || !collectionUri || !collectionUris.has(collectionUri)) continue;
-    if (!(await getWorkspaceFileByPath(rootPath, did))) {
-      if (await ensureWorkspaceFileAtPath(did, rootPath, { kind: "folder" })) created += 1;
+    const hydrationKey = bindingKey(did, "workspaceProjectHydration", project.uri);
+    const hydration = await getPaperRecordBinding(hydrationKey);
+    // A remote snapshot is an import, not an always-on mirror. Once this exact
+    // CID has been applied on this device, respect local deletions until a
+    // later article publish/update changes the remote project CID.
+    if (hydration?.cid === project.cid) continue;
+
+    let projectRoot = await getWorkspaceFileByPath(rootPath, did);
+    if (!projectRoot) {
+      projectRoot = await ensureWorkspaceFileAtPath(did, rootPath, { kind: "folder" });
+      if (projectRoot) created += 1;
     }
+    if (!projectRoot || projectRoot.kind !== "folder") continue;
     const rawNodes = Array.isArray(project.value.nodes) ? project.value.nodes : [];
     const nodes = rawNodes
       .map(asObject)
@@ -697,6 +708,17 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
         if (made) created += 1;
       }
     }
+
+    await upsertPaperRecordBinding({
+      key: hydrationKey,
+      ownerDid: did,
+      kind: "workspaceProjectHydration",
+      localId: rootPath,
+      uri: project.uri,
+      cid: project.cid,
+      syncedHash: project.cid,
+      updatedAt: new Date().toISOString(),
+    });
   }
   return { created };
 }

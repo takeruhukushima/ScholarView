@@ -39,7 +39,12 @@ export interface PaperRecordBinding {
   /** `${ownerDid}:${kind}:${localId}`; stable across repeated releases on this device. */
   key: string;
   ownerDid: string;
-  kind: "collection" | "reference" | "collectionItem" | "workspaceProject";
+  kind:
+    | "collection"
+    | "reference"
+    | "collectionItem"
+    | "workspaceProject"
+    | "workspaceProjectHydration";
   localId: string;
   uri: string;
   cid: string;
