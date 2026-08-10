@@ -54,6 +54,25 @@ export interface WorkspaceFileLike {
   linkedArticleUri?: string | null;
 }
 
+/** Nearest published-paper project containing a workspace node. */
+export function findPublishedProjectRootForNode(
+  files: WorkspaceFileLike[],
+  nodeId: string,
+): string | null {
+  const byId = new Map(files.map((file) => [file.id, file]));
+  const publishedRoots = new Set(
+    files
+      .filter((file) => file.kind === "file" && Boolean(file.linkedArticleUri) && file.parentId)
+      .map((file) => file.parentId as string),
+  );
+  let cursor: string | null = nodeId;
+  while (cursor) {
+    if (publishedRoots.has(cursor)) return cursor;
+    cursor = byId.get(cursor)?.parentId ?? null;
+  }
+  return null;
+}
+
 function absolutePathOf(byId: Map<string, WorkspaceFileLike>, id: string): string {
   const parts: string[] = [];
   let cursor: string | null = id;

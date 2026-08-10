@@ -43,6 +43,7 @@ import {
   findExistingCollectionItemRecord,
   findExistingProjectRecords,
   findExistingReferenceRecord,
+  findPublishedProjectRootForNode,
   findStaleProjectReferenceRecords,
   referenceHash,
   selectLatestWorkspaceProjects,
@@ -927,6 +928,18 @@ async function releasePaperProject(input: {
     workspaceBinding = { ...workspaceBinding, cid: updated.cid, syncedHash: workspaceHash, updatedAt: now };
   }
   await upsertPaperRecordBinding(workspaceBinding);
+  // The publishing browser already has this exact project snapshot locally.
+  // Mark it applied so a reload cannot rehydrate files the user later deletes.
+  await upsertPaperRecordBinding({
+    key: bindingKey(did, "workspaceProjectHydration", workspaceBinding.uri),
+    ownerDid: did,
+    kind: "workspaceProjectHydration",
+    localId: projectPath,
+    uri: workspaceBinding.uri,
+    cid: workspaceBinding.cid,
+    syncedHash: workspaceBinding.cid,
+    updatedAt: now,
+  });
 }
 
 async function requireDid(): Promise<string> {
@@ -2861,6 +2874,25 @@ async function handleWorkspaceFilesPath(
       if (request.method === "DELETE") {
         const existing = await getWorkspaceFileById(id, did);
         if (!existing) throw new HttpError(404, "file not found");
+        const allFiles = await listWorkspaceFiles(did);
+        const projectRootId = findPublishedProjectRootForNode(allFiles, existing.id);
+        if (projectRootId) {
+          const published = await getPaperRecordBinding(
+            bindingKey(did, "workspaceProject", projectRootId),
+          );
+          if (published) {
+            await upsertPaperRecordBinding({
+              key: bindingKey(did, "workspaceProjectHydration", published.uri),
+              ownerDid: did,
+              kind: "workspaceProjectHydration",
+              localId: projectRootId,
+              uri: published.uri,
+              cid: published.cid,
+              syncedHash: published.cid,
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        }
         await deleteWorkspaceFileById(id, did);
         return json({ success: true });
       }

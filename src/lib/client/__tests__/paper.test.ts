@@ -11,6 +11,7 @@ import {
   findExistingCollectionItemRecord,
   findExistingProjectRecords,
   findExistingReferenceRecord,
+  findPublishedProjectRootForNode,
   findStaleProjectReferenceRecords,
   selectLatestWorkspaceProjects,
   type ProjectSnapshot,
@@ -171,6 +172,11 @@ describe("buildProjectSnapshotFromWorkspace", () => {
     expect(
       buildProjectSnapshotFromWorkspace({ files, projectRootId: "nope", references: [] }),
     ).toBeNull();
+  });
+
+  it("finds the published project that owns a nested file deletion", () => {
+    expect(findPublishedProjectRootForNode(files, "f1")).toBe("a");
+    expect(findPublishedProjectRootForNode(files, "r0")).toBeNull();
   });
 });
 
