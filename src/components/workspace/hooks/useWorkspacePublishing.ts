@@ -98,6 +98,10 @@ export function useWorkspacePublishing({
               key: entry.key,
               rawBibtex: entry.rawBibtex,
             })),
+            projectBibliography: projectBibEntries.map((entry) => ({
+              key: entry.key,
+              rawBibtex: entry.rawBibtex,
+            })),
           }),
         }
       );

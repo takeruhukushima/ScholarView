@@ -14,6 +14,7 @@ import { cslToScholarBibtex, deriveCitationKey, type CslReference } from "@/lib/
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
   type RightTab,
+  type NewFileType,
   type TreeDropPosition,
   type WorkspaceFile,
   type BlockMoveDropTarget,
@@ -498,19 +499,12 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const createWorkspaceItem = async (
     kind: "folder" | "file",
-    options?: {
-      name?: string;
-      format?: SourceFormat;
-      content?: string;
-    },
+    fileType: NewFileType = "markdown",
   ) => {
-    let name =
-      options?.name ?? window.prompt(kind === "folder" ? "Folder name" : "File name");
+    let name = window.prompt(kind === "folder" ? "Folder name" : "File name");
     if (!name) return;
 
-    if (kind === "file" && !name.includes(".")) {
-      name = `${name}.md`;
-    }
+    if (kind === "file") name = ensureFileExtension(name, fileType);
 
     const parentId = activeFile?.kind === "folder" ? activeFile.id : activeFile?.parentId ?? null;
 
@@ -520,7 +514,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       parentId,
       sessionDid,
       setBusy,
-      setStatusMessage
+      setStatusMessage,
+      kind === "file"
+        ? { format: fileType === "tex" ? "tex" : "markdown", content: "" }
+        : undefined,
     );
 
     if (created) {

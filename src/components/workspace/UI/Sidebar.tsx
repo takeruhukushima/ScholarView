@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { WorkspaceFile, TreeDropPosition } from "@/lib/workspace/types";
+import { NewFileType, WorkspaceFile, TreeDropPosition } from "@/lib/workspace/types";
 import { ArticleSummary } from "@/lib/types";
 import { buildArticlePath, extractDidAndRkey } from "@/lib/articles/uri";
 import { ArticleList } from "../ArticleList";
@@ -20,7 +20,7 @@ interface SidebarProps {
   deleteWorkspaceItem: (file: WorkspaceFile) => Promise<void>;
   downloadWorkspaceItem: (file: WorkspaceFile) => Promise<void>;
   handleMoveWorkspaceItem: (draggedId: string, target: WorkspaceFile, position: TreeDropPosition) => Promise<void>;
-  createWorkspaceItem: (kind: "folder" | "file") => Promise<void>;
+  createWorkspaceItem: (kind: "folder" | "file", fileType?: NewFileType) => Promise<void>;
   isLoggedIn: boolean;
   accountHandle?: string | null;
   loadFiles: (did: string | null, setBusy: (b: boolean) => void, setStatusMessage: (m: string) => void) => Promise<WorkspaceFile[]>;
@@ -54,6 +54,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showNewFileTypes, setShowNewFileTypes] = useState(false);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,11 +153,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <line x1="9" y1="14" x2="15" y2="14" />
               </svg>
             </button>
-            <button
-              onClick={() => createWorkspaceItem("file")}
-              className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-              title="New File"
-            >
+            <div className="relative">
+              <button
+                onClick={() => setShowNewFileTypes((value) => !value)}
+                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+                title="New File"
+                aria-label="New File"
+                aria-expanded={showNewFileTypes}
+              >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 className="h-3.5 w-3.5"
@@ -170,7 +174,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <line x1="12" y1="11" x2="12" y2="17" />
                 <line x1="9" y1="14" x2="15" y2="14" />
               </svg>
-            </button>
+              </button>
+              {showNewFileTypes && (
+                <div className="absolute right-0 top-7 z-40 w-44 rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl ring-1 ring-black/5">
+                  {([
+                    ["markdown", "Markdown", ".md"],
+                    ["tex", "LaTeX", ".tex"],
+                    ["bib", "Bibliography", ".bib"],
+                  ] as const).map(([type, label, extension]) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setShowNewFileTypes(false);
+                        void createWorkspaceItem("file", type);
+                      }}
+                      className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-xs font-medium text-slate-600 hover:bg-indigo-50 hover:text-indigo-700"
+                    >
+                      <span>{label}</span>
+                      <span className="font-mono text-[10px] text-slate-400">{extension}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-slate-200">

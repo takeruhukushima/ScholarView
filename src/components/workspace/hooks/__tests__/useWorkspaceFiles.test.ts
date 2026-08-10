@@ -49,4 +49,31 @@ describe('useWorkspaceFiles hook', () => {
     expect(created).toEqual(newFile);
     expect(result.current.files).toContainEqual(newFile);
   });
+
+  it('sends the selected file format to the API', async () => {
+    const newFile = { id: '3', name: 'paper.tex', kind: 'file', sourceFormat: 'tex' };
+    (global.fetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, file: newFile }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true, files: [newFile] }) });
+
+    const { result } = renderHook(() => useWorkspaceFiles());
+    await act(async () => {
+      await result.current.createWorkspaceItem(
+        'paper.tex',
+        'file',
+        null,
+        'did:1',
+        mockSetBusy,
+        mockSetStatusMessage,
+        { format: 'tex', content: '' },
+      );
+    });
+
+    const request = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(JSON.parse(request.body)).toMatchObject({
+      name: 'paper.tex',
+      kind: 'file',
+      format: 'tex',
+    });
+  });
 });

@@ -47,14 +47,15 @@ export function useWorkspaceFiles() {
       parentId: string | null,
       sessionDid: string | null,
       setBusy: (b: boolean) => void,
-      setStatusMessage: (m: string) => void
+      setStatusMessage: (m: string) => void,
+      options?: { format?: "markdown" | "tex"; content?: string },
     ) => {
       try {
         setBusy(true);
         const response = await fetch("/api/workspace/files", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, kind, parentId }),
+          body: JSON.stringify({ name, kind, parentId, ...options }),
         });
         const data = (await response.json()) as { success?: boolean; file?: WorkspaceFile; error?: string };
 
