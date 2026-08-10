@@ -100,6 +100,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [blockMoveDropTarget, setBlockMoveDropTarget] = useState<BlockMoveDropTarget | null>(null);
   const bibHighlightScrollRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const legacySyncRequestedRef = useRef(false);
+  const filesRef = useRef<WorkspaceFile[]>([]);
   const draggingEditorBlockIdRef = useRef<string | null>(null);
 
   const {
@@ -119,6 +120,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     () => files.find((file) => file.id === activeFileId) ?? null,
     [files, activeFileId],
   );
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
   const filePathMap = useMemo(() => buildFilePathMap(files), [files]);
   const activeFilePath = useMemo(
     () =>
@@ -216,9 +220,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
   const syncLegacyArticles = useCallback(
     async (options?: { force?: boolean; silent?: boolean }) => {
-      if (!sessionDid) return files;
+      if (!sessionDid) return filesRef.current;
       const force = options?.force === true;
-      if (!force && legacySyncRequestedRef.current) return files;
+      if (!force && legacySyncRequestedRef.current) return filesRef.current;
       if (!force) {
         legacySyncRequestedRef.current = true;
       }
@@ -239,10 +243,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         }
         setSyncConflicts(Array.isArray(data.conflicts) ? data.conflicts : []);
         const created = data.created ?? 0;
-        let latestFiles = files;
-        if (created > 0 || force) {
-          latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
-        }
+        // Always reload after the PDS sync. The server may have reconciled
+        // updates/deletions without incrementing `created`.
+        const latestFiles = await loadFiles(sessionDid, setBusy, setStatusMessage);
         if (!options?.silent) {
           setStatusMessage(
             created > 0
@@ -255,10 +258,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
         return latestFiles;
       } catch (err: unknown) {
         setStatusMessage(err instanceof Error ? err.message : "Failed to sync legacy articles");
-        return files;
+        return filesRef.current;
       }
     },
-    [loadFiles, sessionDid, setBusy, setStatusMessage, files],
+    [loadFiles, sessionDid, setBusy, setStatusMessage],
   );
 
   const pullFromPds = useCallback(
@@ -454,10 +457,23 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   }, []);
 
   useEffect(() => {
-    void loadFiles(sessionDid, setBusy, setStatusMessage).catch((err: unknown) => {
-      setStatusMessage(err instanceof Error ? err.message : "Failed to load files");
-    });
-  }, [loadFiles, sessionDid]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        await loadFiles(sessionDid, setBusy, setStatusMessage);
+        if (!cancelled && sessionDid) {
+          await syncLegacyArticles({ silent: true });
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setStatusMessage(err instanceof Error ? err.message : "Failed to load files");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadFiles, sessionDid, syncLegacyArticles]);
 
   useEffect(() => {
     void refreshArticles();
@@ -476,10 +492,6 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
       }
     }
   }, [files, openFile]);
-
-  useEffect(() => {
-    void syncLegacyArticles({ silent: true });
-  }, [syncLegacyArticles]);
 
   useEffect(() => {
     for (const block of editorBlocks) {
