@@ -430,3 +430,30 @@ export function findExistingCollectionItemRecord(input: {
       recordString(recordObject(row.value.reference)?.uri) === input.referenceUri,
   ) ?? null;
 }
+
+/** Records to remove when a project's published reference set shrinks. */
+export function findStaleProjectReferenceRecords(input: {
+  collectionUri: string;
+  desiredReferenceUris: Iterable<string>;
+  items: PaperRepoRecord[];
+}): { items: PaperRepoRecord[]; orphanReferenceUris: string[] } {
+  const desired = new Set(input.desiredReferenceUris);
+  const staleItems = input.items.filter((row) => {
+    const collectionUri = recordString(recordObject(row.value.collection)?.uri);
+    const referenceUri = recordString(recordObject(row.value.reference)?.uri);
+    return collectionUri === input.collectionUri && !desired.has(referenceUri);
+  });
+  const staleItemUris = new Set(staleItems.map((row) => row.uri));
+  const stillReferenced = new Set(
+    input.items
+      .filter((row) => !staleItemUris.has(row.uri))
+      .map((row) => recordString(recordObject(row.value.reference)?.uri))
+      .filter(Boolean),
+  );
+  const orphanReferenceUris = [...new Set(
+    staleItems
+      .map((row) => recordString(recordObject(row.value.reference)?.uri))
+      .filter((uri) => uri && !stillReferenced.has(uri)),
+  )];
+  return { items: staleItems, orphanReferenceUris };
+}

@@ -173,6 +173,23 @@ export async function upsertPaperRecordBinding(input: PaperRecordBinding): Promi
   });
 }
 
+export async function deletePaperRecordBindingsByUris(
+  ownerDid: string,
+  uris: Iterable<string>,
+): Promise<void> {
+  const targets = new Set(uris);
+  if (targets.size === 0) return;
+  await transact([STORE_PAPER_RECORDS], "readwrite", async (tx) => {
+    const store = tx.objectStore(STORE_PAPER_RECORDS);
+    const records = (await requestToPromise(store.getAll())) as PaperRecord[];
+    for (const record of records) {
+      if (record.ownerDid === ownerDid && targets.has(record.uri)) {
+        await requestToPromise(store.delete(record.key));
+      }
+    }
+  });
+}
+
 async function transact<T>(
   stores: StoreName[],
   mode: IDBTransactionMode,
