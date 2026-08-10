@@ -371,7 +371,7 @@ async function buildWorkspaceArticleImageAssets(
   return [...assetsByPath.values()];
 }
 
-function parseArticleValue(value: unknown): {
+export function parseArticleValue(value: unknown): {
   title: string;
   authors: ArticleAuthor[];
   blocks: ArticleBlock[];
@@ -527,6 +527,7 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
           broadcasted: 0,
           createdAt,
           indexedAt: indexedAt || createdAt,
+          sourcePath: parsed.sourcePath,
         });
       }
 
