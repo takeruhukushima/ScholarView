@@ -5,6 +5,8 @@ import {
   deriveCitationKey,
   deriveUniqueCitationKeys,
   cslToBibtex,
+  cslToScholarBibtex,
+  cslFromScholarBibtex,
   cslToBibliographyEntry,
   referencesToBib,
   type CslReference,
@@ -117,6 +119,18 @@ describe("csl helpers", () => {
       expect(out).toContain("@misc{p,");
       expect(out).toContain("url = {https://arxiv.org/abs/2101.00001}");
       expect(out).toContain("eprint = {2101.00001}");
+    });
+  });
+
+  describe("ScholarView CSL preservation", () => {
+    it("round-trips canonical CSL through the generated BibTeX artifact", () => {
+      const bib = cslToScholarBibtex(vaswani, "vaswani2017");
+      expect(bib).toContain("scholarviewcsl = {");
+      expect(cslFromScholarBibtex(bib)).toEqual(vaswani);
+    });
+
+    it("does not infer CSL from arbitrary hand-authored BibTeX", () => {
+      expect(cslFromScholarBibtex("@article{x, title={Legacy}}")).toBeNull();
     });
   });
 

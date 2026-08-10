@@ -36,6 +36,8 @@ import {
 import { ExportPreview } from "../hooks/useWorkspacePublishing";
 import { ExportPreviewModal } from "./ExportPreviewModal";
 import { BroadcastPreviewModal } from "./BroadcastPreviewModal";
+import { ReferenceEditor } from "./ReferenceEditor";
+import type { CslReference } from "@/lib/articles/csl";
 
 interface EditorPanelProps {
   // Document State
@@ -130,6 +132,7 @@ interface EditorPanelProps {
   
   // BibTeX
   formatBibtexBlockById: (id: string, raw: string) => void;
+  appendCslReference: (reference: CslReference) => void;
 }
 
 export const EditorPanel: React.FC<EditorPanelProps> = ({
@@ -211,6 +214,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
   showMoreMenu,
   setShowMoreMenu,
   formatBibtexBlockById,
+  appendCslReference,
 }) => {
   const [copied, setCopied] = React.useState(false);
   const [copiedMd, setCopiedMd] = React.useState(false);
@@ -643,6 +647,7 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                     {editorBlocks.length} entries
                   </span>
                 </div>
+                {canEditTextCurrentFile && <ReferenceEditor onAdd={appendCslReference} />}
                 <div className="space-y-2">
                   {editorBlocks.map((block, index) => (
                     <div

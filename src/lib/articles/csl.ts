@@ -180,6 +180,31 @@ export function cslToBibtex(ref: CslReference, key: string): string {
   return entry;
 }
 
+/**
+ * BibTeX used as a generated compatibility artifact. The encoded CSL payload
+ * is retained in a namespaced custom field, so ScholarView never needs to
+ * reverse-parse arbitrary BibTeX into canonical CSL data.
+ */
+export function cslToScholarBibtex(ref: CslReference, key: string): string {
+  const bibtex = cslToBibtex(ref, key);
+  const encoded = encodeURIComponent(JSON.stringify(ref));
+  return bibtex.replace(/\n}$/, `,\n  scholarviewcsl = {${encoded}}\n}`);
+}
+
+export function cslFromScholarBibtex(rawBibtex: string): CslReference | null {
+  const match = rawBibtex.match(/scholarviewcsl\s*=\s*\{([^}]*)\}/i);
+  if (!match) return null;
+  try {
+    const value = JSON.parse(decodeURIComponent(match[1])) as unknown;
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    if (typeof record.type !== "string" || typeof record.title !== "string") return null;
+    return value as CslReference;
+  } catch {
+    return null;
+  }
+}
+
 /** Convert a CSL reference to a {@link BibliographyEntry} (for in-app rendering). */
 export function cslToBibliographyEntry(ref: CslReference, key: string): BibliographyEntry {
   return {

@@ -15,6 +15,7 @@ import type { CslReference, CslContributor } from "@/lib/articles/csl";
 import { hashContent } from "@/lib/workspace/reconcile";
 
 export type StrongRef = { uri: string; cid: string };
+export type PaperRepoRecord = { uri: string; cid: string; value: Record<string, unknown> };
 export type WorkspaceProjectNode = sci.peer.workspaceProject.Node;
 export type WorkspaceProjectBibPlacement = sci.peer.workspaceProject.BibPlacement;
 
@@ -148,7 +149,7 @@ export function buildCollectionValue(input: {
     ...(input.description ? { description: input.description } : {}),
     ...(input.purpose ? { purpose: input.purpose } : {}),
     ...(input.targetVenue ? { targetVenue: input.targetVenue } : {}),
-    createdAt: input.createdAt ?? nowIso(),
+    createdAt: (input.createdAt ?? nowIso()) as pub.paper.collection.Main["createdAt"],
   });
 }
 
@@ -185,7 +186,7 @@ export function buildReferenceValue(
     ...(ref.doi ? { doi: ref.doi } : {}),
     ...(ref.arxivId ? { arxivId: ref.arxivId } : {}),
     ...(ref.url ? { url: ref.url } : {}),
-    createdAt: createdAt ?? nowIso(),
+    createdAt: (createdAt ?? nowIso()) as pub.paper.reference.Main["createdAt"],
   });
 }
 
@@ -203,7 +204,7 @@ export function buildCollectionItemValue(input: {
     $type: "pub.paper.collectionItem",
     collection: input.collection,
     reference: input.reference,
-    addedAt: input.addedAt ?? nowIso(),
+    addedAt: (input.addedAt ?? nowIso()) as pub.paper.collectionItem.Main["addedAt"],
   };
 }
 
@@ -221,7 +222,7 @@ export function buildWorkspaceProjectValue(input: {
     ...(input.bibPlacements && input.bibPlacements.length > 0
       ? { bibPlacements: input.bibPlacements }
       : {}),
-    createdAt: input.createdAt ?? nowIso(),
+    createdAt: (input.createdAt ?? nowIso()) as sci.peer.workspaceProject.Main["createdAt"],
   });
 }
 
@@ -343,4 +344,68 @@ export function referenceHash(ref: CslReference): string {
       ref.url ?? "",
     ].join(""),
   );
+}
+
+function recordObject(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+}
+
+function recordString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function normalizedProjectPath(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const parts = value.replace(/\\/g, "/").split("/").filter((part) => part && part !== ".");
+  if (parts.some((part) => part === "..")) return "";
+  return parts.length > 0 ? `/${parts.join("/")}` : "";
+}
+
+/** Select an already-released project by its ScholarView-owned path. */
+export function findExistingProjectRecords(input: {
+  path: string;
+  projects: PaperRepoRecord[];
+  collections: PaperRepoRecord[];
+}): { project: PaperRepoRecord; collection: PaperRepoRecord } | null {
+  const path = normalizedProjectPath(input.path);
+  if (!path) return null;
+  const project = input.projects.find(
+    (row) => normalizedProjectPath(row.value.path) === path,
+  );
+  if (!project) return null;
+  const collectionUri = recordString(project.value.collectionUri);
+  const collection = input.collections.find((row) => row.uri === collectionUri);
+  return collection ? { project, collection } : null;
+}
+
+/** Find a Minori/ScholarView reference already linked to this collection. */
+export function findExistingReferenceRecord(input: {
+  collectionUri: string;
+  hash: string;
+  items: PaperRepoRecord[];
+  references: PaperRepoRecord[];
+}): PaperRepoRecord | null {
+  const linkedUris = new Set(
+    input.items
+      .filter((row) => recordString(recordObject(row.value.collection)?.uri) === input.collectionUri)
+      .map((row) => recordString(recordObject(row.value.reference)?.uri))
+      .filter(Boolean),
+  );
+  return input.references.find((row) => {
+    if (!linkedUris.has(row.uri)) return false;
+    const parsed = cslReferenceFromRecordValue(row.value);
+    return parsed ? referenceHash(parsed) === input.hash : false;
+  }) ?? null;
+}
+
+export function findExistingCollectionItemRecord(input: {
+  collectionUri: string;
+  referenceUri: string;
+  items: PaperRepoRecord[];
+}): PaperRepoRecord | null {
+  return input.items.find(
+    (row) =>
+      recordString(recordObject(row.value.collection)?.uri) === input.collectionUri &&
+      recordString(recordObject(row.value.reference)?.uri) === input.referenceUri,
+  ) ?? null;
 }

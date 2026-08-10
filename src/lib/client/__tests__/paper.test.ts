@@ -8,6 +8,9 @@ import {
   cslReferenceFromRecordValue,
   projectSnapshotHash,
   referenceHash,
+  findExistingCollectionItemRecord,
+  findExistingProjectRecords,
+  findExistingReferenceRecord,
   type ProjectSnapshot,
   type WorkspaceFileLike,
 } from "../paper";
@@ -90,7 +93,11 @@ describe("paper record builders", () => {
         { path: "figures/fig1.png", kind: "file", sortOrder: 0 },
       ],
       bibPlacements: [
-        { referenceUri: "at://did:plc:x/pub.paper.reference/r1", bibPath: "refs.bib" },
+        {
+          referenceUri: "at://did:plc:x/pub.paper.reference/r1",
+          bibPath: "refs.bib",
+          citationKey: "vaswani2017",
+        },
       ],
     });
     expect(v.$type).toBe("sci.peer.workspaceProject");
@@ -98,6 +105,7 @@ describe("paper record builders", () => {
     expect(v.path).toBe("/research/paperA");
     expect(v.nodes).toHaveLength(2);
     expect(v.bibPlacements?.[0].bibPath).toBe("refs.bib");
+    expect(v.bibPlacements?.[0].citationKey).toBe("vaswani2017");
   });
 });
 
@@ -197,5 +205,62 @@ describe("idempotency hashes", () => {
   it("referenceHash is stable and distinguishes edits", () => {
     expect(referenceHash(vaswani)).toBe(referenceHash({ ...vaswani }));
     expect(referenceHash(vaswani)).not.toBe(referenceHash({ ...vaswani, doi: "10.1/x" }));
+  });
+});
+
+describe("cross-device record adoption", () => {
+  const collection = {
+    uri: "at://did:plc:x/pub.paper.collection/c1",
+    cid: "collection-cid",
+    value: { name: "P", createdAt: "2026-01-01T00:00:00Z" },
+  };
+  const project = {
+    uri: "at://did:plc:x/sci.peer.workspaceProject/w1",
+    cid: "project-cid",
+    value: { collectionUri: collection.uri, path: "/research/P" },
+  };
+  const reference = {
+    uri: "at://did:plc:x/pub.paper.reference/r1",
+    cid: "reference-cid",
+    value: buildReferenceValue(vaswani, "2026-01-01T00:00:00Z") as unknown as Record<string, unknown>,
+  };
+  const item = {
+    uri: "at://did:plc:x/pub.paper.collectionItem/i1",
+    cid: "item-cid",
+    value: {
+      collection: { uri: collection.uri, cid: collection.cid },
+      reference: { uri: reference.uri, cid: reference.cid },
+    },
+  };
+
+  it("adopts an existing collection/workspaceProject by normalized path", () => {
+    expect(findExistingProjectRecords({
+      path: "//research/P/",
+      projects: [project],
+      collections: [collection],
+    })).toEqual({ project, collection });
+  });
+
+  it("adopts only a matching reference linked to that collection", () => {
+    expect(findExistingReferenceRecord({
+      collectionUri: collection.uri,
+      hash: referenceHash(vaswani),
+      items: [item],
+      references: [reference],
+    })).toEqual(reference);
+    expect(findExistingReferenceRecord({
+      collectionUri: "at://did:plc:x/pub.paper.collection/other",
+      hash: referenceHash(vaswani),
+      items: [item],
+      references: [reference],
+    })).toBeNull();
+  });
+
+  it("adopts the existing collectionItem edge", () => {
+    expect(findExistingCollectionItemRecord({
+      collectionUri: collection.uri,
+      referenceUri: reference.uri,
+      items: [item],
+    })).toEqual(item);
   });
 });

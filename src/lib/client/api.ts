@@ -4,6 +4,7 @@ import { Client } from "@atproto/lex";
 import { AtUri } from "@atproto/syntax";
 
 import * as sci from "@/lexicons/sci";
+import * as pub from "@/lexicons/pub";
 import {
   normalizeBlocks,
   parseMarkdownToBlocks,
@@ -13,15 +14,39 @@ import {
 } from "@/lib/articles/blocks";
 import {
   compactBibliography,
+  formatBibtexSource,
   normalizeBibliography,
   serializeBibliography,
 } from "@/lib/articles/citations";
 import {
   ARTICLE_COLLECTION,
+  PAPER_COLLECTION,
+  PAPER_COLLECTION_ITEM,
+  PAPER_REFERENCE,
+  WORKSPACE_PROJECT,
   buildArticleUri,
   buildScholarViewArticleUrl,
   extractQuoteFromExternalUri,
 } from "@/lib/articles/uri";
+import {
+  cslFromScholarBibtex,
+  cslToScholarBibtex,
+  deriveUniqueCitationKeys,
+  type CslReference,
+} from "@/lib/articles/csl";
+import {
+  buildCollectionItemValue,
+  buildCollectionValue,
+  buildReferenceValue,
+  buildWorkspaceProjectValue,
+  cslReferenceFromRecordValue,
+  findExistingCollectionItemRecord,
+  findExistingProjectRecords,
+  findExistingReferenceRecord,
+  referenceHash,
+  type StrongRef,
+} from "@/lib/client/paper";
+import type { BibliographyEntry } from "@/lib/articles/citations";
 import {
   getActiveDid,
   getActiveHandle,
@@ -44,6 +69,7 @@ import {
   getWorkspaceFileById,
   getWorkspaceFileByLinkedArticleUri,
   getWorkspaceFileByPath,
+  getPaperRecordBinding,
   listBskyInteractionsBySubjects,
   listDrafts,
   listWorkspaceFiles,
@@ -56,6 +82,7 @@ import {
   upsertArticleAnnouncement,
   upsertBskyInteraction,
   upsertInlineComment,
+  upsertPaperRecordBinding,
 } from "@/lib/client/store";
 import type {
   ArticleAuthor,
@@ -515,6 +542,326 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
   } finally {
     ownArticleSyncInFlight.delete(did);
   }
+}
+
+type RepoRecordRow = { uri: string; cid: string; value: Record<string, unknown> };
+
+async function listOwnRepoRecords(collection: string): Promise<RepoRecordRow[]> {
+  const did = await requireDid();
+  const fetchHandler = await getSessionFetchHandler();
+  if (!fetchHandler) return [];
+  const result: RepoRecordRow[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 50; page += 1) {
+    const query = new URLSearchParams({ repo: did, collection, limit: "100" });
+    if (cursor) query.set("cursor", cursor);
+    const response = await fetchHandler(`/xrpc/com.atproto.repo.listRecords?${query}`);
+    if (!response.ok) break;
+    const payload = (await response.json()) as { records?: unknown; cursor?: unknown };
+    const rows = Array.isArray(payload.records) ? payload.records : [];
+    for (const raw of rows) {
+      const row = asObject(raw);
+      const value = asObject(row?.value);
+      const uri = asString(row?.uri);
+      const cid = asString(row?.cid);
+      if (uri && cid && value) result.push({ uri, cid, value });
+    }
+    cursor = typeof payload.cursor === "string" ? payload.cursor : null;
+    if (!cursor || rows.length === 0) break;
+  }
+  return result;
+}
+
+function safeProjectRelativePath(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = normalizeWorkspacePath(`/${value}`);
+  return normalized?.slice(1) || null;
+}
+
+/** Restore project containers and generated bibliography without overwriting local files. */
+async function hydratePaperProjects(): Promise<{ created: number }> {
+  const did = await requireDid();
+  const [projects, collections, items, references] = await Promise.all([
+    listOwnRepoRecords(WORKSPACE_PROJECT),
+    listOwnRepoRecords(PAPER_COLLECTION),
+    listOwnRepoRecords(PAPER_COLLECTION_ITEM),
+    listOwnRepoRecords(PAPER_REFERENCE),
+  ]);
+  const collectionUris = new Set(collections.map((row) => row.uri));
+  const refsByUri = new Map<string, CslReference>();
+  for (const row of references) {
+    const ref = cslReferenceFromRecordValue(row.value);
+    if (ref) refsByUri.set(row.uri, ref);
+  }
+  const refUrisByCollection = new Map<string, string[]>();
+  for (const row of items) {
+    const collection = asObject(row.value.collection);
+    const reference = asObject(row.value.reference);
+    const collectionUri = asString(collection?.uri);
+    const referenceUri = asString(reference?.uri);
+    if (!collectionUri || !referenceUri) continue;
+    const values = refUrisByCollection.get(collectionUri) ?? [];
+    if (!values.includes(referenceUri)) values.push(referenceUri);
+    refUrisByCollection.set(collectionUri, values);
+  }
+
+  let created = 0;
+  for (const project of projects) {
+    const rootPath = normalizeWorkspacePath(asString(project.value.path));
+    const collectionUri = asString(project.value.collectionUri);
+    if (!rootPath || !collectionUri || !collectionUris.has(collectionUri)) continue;
+    if (!(await getWorkspaceFileByPath(rootPath, did))) {
+      if (await ensureWorkspaceFileAtPath(did, rootPath, { kind: "folder" })) created += 1;
+    }
+    const rawNodes = Array.isArray(project.value.nodes) ? project.value.nodes : [];
+    const nodes = rawNodes
+      .map(asObject)
+      .filter((node): node is Record<string, unknown> => Boolean(node))
+      .sort((a, b) => asString(a.path).split("/").length - asString(b.path).split("/").length);
+    for (const node of nodes) {
+      const rel = safeProjectRelativePath(node.path);
+      if (!rel) continue;
+      const fullPath = normalizeWorkspacePath(`${rootPath}/${rel}`);
+      if (!fullPath || (await getWorkspaceFileByPath(fullPath, did))) continue;
+      // Published article bodies are restored by syncLegacyArticles with content.
+      if (asString(node.linkedArticleUri)) continue;
+      const kind = asString(node.kind) === "folder" ? "folder" : "file";
+      const made = await ensureWorkspaceFileAtPath(did, fullPath, {
+        kind,
+        ...(kind === "file" ? { content: "", sourceFormat: "markdown" as const } : {}),
+      });
+      if (made) created += 1;
+    }
+
+    const refUris = refUrisByCollection.get(collectionUri) ?? [];
+    const placements = Array.isArray(project.value.bibPlacements)
+      ? project.value.bibPlacements.map(asObject).filter(Boolean)
+      : [];
+    const refsByBibPath = new Map<string, Array<{ ref: CslReference; citationKey?: string }>>();
+    for (const refUri of refUris) {
+      const ref = refsByUri.get(refUri);
+      if (!ref) continue;
+      const placement = placements.find((p) => asString(p?.referenceUri) === refUri);
+      const bibPath = safeProjectRelativePath(placement?.bibPath) ?? "refs.bib";
+      const group = refsByBibPath.get(bibPath) ?? [];
+      group.push({ ref, citationKey: asString(placement?.citationKey) || undefined });
+      refsByBibPath.set(bibPath, group);
+    }
+    for (const [bibPath, placedRefs] of refsByBibPath) {
+      const fullPath = normalizeWorkspacePath(`${rootPath}/${bibPath}`);
+      if (!fullPath || (await getWorkspaceFileByPath(fullPath, did))) continue;
+      const made = await ensureWorkspaceFileAtPath(did, fullPath, {
+        kind: "file",
+        content: placedRefs.every((item) => item.citationKey)
+          ? formatBibtexSource(
+              placedRefs
+                .map((item) => cslToScholarBibtex(item.ref, item.citationKey as string))
+                .join("\n\n"),
+            )
+          : (() => {
+              const refs = placedRefs.map((item) => item.ref);
+              const keys = deriveUniqueCitationKeys(refs);
+              return formatBibtexSource(
+                refs.map((ref, index) => cslToScholarBibtex(ref, keys[index])).join("\n\n"),
+              );
+            })(),
+        sourceFormat: "markdown",
+      });
+      if (made) created += 1;
+    }
+  }
+  return { created };
+}
+
+function bindingKey(did: string, kind: string, localId: string): string {
+  return `${did}:${kind}:${localId}`;
+}
+
+async function releasePaperProject(input: {
+  did: string;
+  lex: Client;
+  projectRoot: WorkspaceFileNode;
+  files: WorkspaceFileNode[];
+  bibliography: BibliographyEntry[];
+}): Promise<void> {
+  const { did, lex, projectRoot, files } = input;
+  const now = new Date().toISOString();
+  const projectPath = buildWorkspaceFilePath(projectRoot, files);
+  if (!projectPath) return;
+  const collectionKey = bindingKey(did, "collection", projectRoot.id);
+  const workspaceKey = bindingKey(did, "workspaceProject", projectRoot.id);
+  let collectionBinding = await getPaperRecordBinding(collectionKey);
+  let workspaceBinding = await getPaperRecordBinding(workspaceKey);
+  const collectionValue = buildCollectionValue({ name: projectRoot.name, purpose: "writing", createdAt: now });
+  const collectionHash = hashContent(JSON.stringify({ name: projectRoot.name, purpose: "writing" }));
+  let remoteItems: RepoRecordRow[] = [];
+  let remoteReferences: RepoRecordRow[] = [];
+
+  // On a new browser the IndexedDB binding table is empty. Adopt the existing
+  // project selected by its ScholarView-owned path before creating anything.
+  if (!collectionBinding) {
+    const [remoteProjects, remoteCollections, listedItems, listedReferences] = await Promise.all([
+      listOwnRepoRecords(WORKSPACE_PROJECT),
+      listOwnRepoRecords(PAPER_COLLECTION),
+      listOwnRepoRecords(PAPER_COLLECTION_ITEM),
+      listOwnRepoRecords(PAPER_REFERENCE),
+    ]);
+    remoteItems = listedItems;
+    remoteReferences = listedReferences;
+    const existingRecords = findExistingProjectRecords({
+      path: projectPath,
+      projects: remoteProjects,
+      collections: remoteCollections,
+    });
+    if (existingRecords) {
+      const { project: remoteProject, collection: remoteCollection } = existingRecords;
+      collectionBinding = {
+        key: collectionKey, ownerDid: did, kind: "collection", localId: projectRoot.id,
+        uri: remoteCollection.uri, cid: remoteCollection.cid, syncedHash: collectionHash, updatedAt: now,
+      };
+      workspaceBinding = {
+        key: workspaceKey, ownerDid: did, kind: "workspaceProject", localId: projectRoot.id,
+        uri: remoteProject.uri, cid: remoteProject.cid, syncedHash: "", updatedAt: now,
+      };
+      await Promise.all([
+        upsertPaperRecordBinding(collectionBinding),
+        upsertPaperRecordBinding(workspaceBinding),
+      ]);
+    }
+  }
+  if (!collectionBinding) {
+    const created = await lex.create(pub.paper.collection.main, collectionValue);
+    collectionBinding = {
+      key: collectionKey, ownerDid: did, kind: "collection", localId: projectRoot.id,
+      uri: created.uri, cid: created.cid, syncedHash: collectionHash, updatedAt: now,
+    };
+    await upsertPaperRecordBinding(collectionBinding);
+  } else {
+    if (collectionBinding.syncedHash !== collectionHash) {
+      const result = await lex.put(pub.paper.collection.main, collectionValue, {
+        rkey: new AtUri(collectionBinding.uri).rkey,
+      });
+      collectionBinding = { ...collectionBinding, cid: result.cid, syncedHash: collectionHash, updatedAt: now };
+      await upsertPaperRecordBinding(collectionBinding);
+    }
+  }
+  const collectionRef: StrongRef = { uri: collectionBinding.uri, cid: collectionBinding.cid };
+  const referenceRefs: Array<{ key: string; ref: StrongRef }> = [];
+  for (const entry of input.bibliography) {
+    const csl = cslFromScholarBibtex(entry.rawBibtex);
+    // Existing hand-authored BibTeX remains local/article bibliography data.
+    // Only references authored as CSL are released as pub.paper.reference.
+    if (!csl) continue;
+    const localId = `${projectRoot.id}:${entry.key}`;
+    const key = bindingKey(did, "reference", localId);
+    let binding = await getPaperRecordBinding(key);
+    const value = buildReferenceValue(csl, now);
+    const hash = referenceHash(csl);
+    if (!binding && remoteReferences.length > 0) {
+      const remote = findExistingReferenceRecord({
+        collectionUri: collectionRef.uri,
+        hash,
+        items: remoteItems,
+        references: remoteReferences,
+      });
+      if (remote) {
+        binding = { key, ownerDid: did, kind: "reference", localId, uri: remote.uri, cid: remote.cid, syncedHash: hash, updatedAt: now };
+        await upsertPaperRecordBinding(binding);
+      }
+    }
+    if (!binding) {
+      const created = await lex.create(pub.paper.reference.main, value);
+      binding = { key, ownerDid: did, kind: "reference", localId, uri: created.uri, cid: created.cid, syncedHash: hash, updatedAt: now };
+      await upsertPaperRecordBinding(binding);
+    } else if (binding.syncedHash !== hash) {
+      const result = await lex.put(pub.paper.reference.main, value, { rkey: new AtUri(binding.uri).rkey });
+      binding = { ...binding, cid: result.cid, syncedHash: hash, updatedAt: now };
+      await upsertPaperRecordBinding(binding);
+    }
+    referenceRefs.push({ key: entry.key, ref: { uri: binding.uri, cid: binding.cid } });
+
+    const edgeLocalId = `${projectRoot.id}:${binding.uri}`;
+    const edgeKey = bindingKey(did, "collectionItem", edgeLocalId);
+    let edgeBinding = await getPaperRecordBinding(edgeKey);
+    const edgeHash = hashContent(`${collectionRef.cid}:${binding.cid}`);
+    const edgeValue = buildCollectionItemValue({
+      collection: collectionRef,
+      reference: { uri: binding.uri, cid: binding.cid },
+      addedAt: now,
+    });
+    if (!edgeBinding && remoteItems.length > 0) {
+      const remote = findExistingCollectionItemRecord({
+        collectionUri: collectionRef.uri,
+        referenceUri: binding.uri,
+        items: remoteItems,
+      });
+      if (remote) {
+        edgeBinding = { key: edgeKey, ownerDid: did, kind: "collectionItem", localId: edgeLocalId, uri: remote.uri, cid: remote.cid, syncedHash: edgeHash, updatedAt: now };
+        await upsertPaperRecordBinding(edgeBinding);
+      }
+    }
+    if (!edgeBinding) {
+      const edge = await lex.create(pub.paper.collectionItem.main, edgeValue);
+      edgeBinding = { key: edgeKey, ownerDid: did, kind: "collectionItem", localId: edgeLocalId, uri: edge.uri, cid: edge.cid, syncedHash: edgeHash, updatedAt: now };
+      await upsertPaperRecordBinding(edgeBinding);
+    } else if (edgeBinding.syncedHash !== edgeHash) {
+      const edge = await lex.put(pub.paper.collectionItem.main, edgeValue, {
+        rkey: new AtUri(edgeBinding.uri).rkey,
+      });
+      await upsertPaperRecordBinding({ ...edgeBinding, cid: edge.cid, syncedHash: edgeHash, updatedAt: now });
+    }
+  }
+
+  const byId = new Map(files.map((file) => [file.id, file]));
+  const descendants = files.filter((candidate) => {
+    let parentId = candidate.parentId;
+    while (parentId) {
+      if (parentId === projectRoot.id) return true;
+      parentId = byId.get(parentId)?.parentId ?? null;
+    }
+    return false;
+  });
+  const nodes = descendants
+    .filter((node) => !node.name.toLowerCase().endsWith(".bib"))
+    .map((node) => {
+      const absolute = buildWorkspaceFilePath(node, files) ?? node.name;
+      return {
+        path: absolute.startsWith(`${projectPath}/`) ? absolute.slice(projectPath.length + 1) : node.name,
+        kind: node.kind,
+        sortOrder: node.sortOrder,
+        ...(node.linkedArticleUri ? { linkedArticleUri: node.linkedArticleUri } : {}),
+      };
+    });
+  const bibPaths = descendants
+    .filter((node) => node.kind === "file" && node.name.toLowerCase().endsWith(".bib"))
+    .map((node) => (buildWorkspaceFilePath(node, files) ?? "").slice(projectPath.length + 1))
+    .filter(Boolean);
+  const defaultBibPath = bibPaths[0] ?? "refs.bib";
+  const workspaceValue = buildWorkspaceProjectValue({
+    collectionUri: collectionRef.uri,
+    path: projectPath,
+    nodes,
+    bibPlacements: referenceRefs.map(({ key, ref }) => ({
+      referenceUri: ref.uri,
+      bibPath: defaultBibPath,
+      citationKey: key,
+    })),
+    createdAt: now,
+  });
+  const workspaceHash = hashContent(JSON.stringify({
+    collectionUri: workspaceValue.collectionUri,
+    path: workspaceValue.path,
+    nodes: workspaceValue.nodes ?? [],
+    bibPlacements: workspaceValue.bibPlacements ?? [],
+  }));
+  if (!workspaceBinding) {
+    const created = await lex.create(sci.peer.workspaceProject.main, workspaceValue);
+    workspaceBinding = { key: workspaceKey, ownerDid: did, kind: "workspaceProject", localId: projectRoot.id, uri: created.uri, cid: created.cid, syncedHash: workspaceHash, updatedAt: now };
+  } else if (workspaceBinding.syncedHash !== workspaceHash) {
+    const updated = await lex.put(sci.peer.workspaceProject.main, workspaceValue, { rkey: new AtUri(workspaceBinding.uri).rkey });
+    workspaceBinding = { ...workspaceBinding, cid: updated.cid, syncedHash: workspaceHash, updatedAt: now };
+  }
+  await upsertPaperRecordBinding(workspaceBinding);
 }
 
 async function requireDid(): Promise<string> {
@@ -1029,7 +1376,7 @@ async function fetchBlobAsDataUrl(
 async function ensureWorkspaceFileAtPath(
   ownerDid: string,
   rawPath: string,
-  file: { content: string; sourceFormat?: SourceFormat | null },
+  file: { kind?: "folder" | "file"; content?: string; sourceFormat?: SourceFormat | null },
 ): Promise<WorkspaceFileNode | null> {
   const normalized = normalizeWorkspacePath(rawPath);
   if (!normalized) return null;
@@ -1056,13 +1403,14 @@ async function ensureWorkspaceFileAtPath(
     parentId = folder.id;
   }
 
+  const leafKind = file.kind ?? "file";
   return createWorkspaceFile({
     ownerDid,
     parentId,
     name: segments[segments.length - 1],
-    kind: "file",
-    sourceFormat: file.sourceFormat ?? null,
-    content: file.content,
+    kind: leafKind,
+    sourceFormat: leafKind === "file" ? (file.sourceFormat ?? null) : null,
+    content: leafKind === "file" ? (file.content ?? "") : null,
   });
 }
 
@@ -2040,6 +2388,9 @@ async function materializeArticleBody(
 }
 
 async function syncLegacyArticles(force = false): Promise<Response> {
+  // Restore project containers first, so article sourcePath hydration lands in
+  // the intended subtree on a clean browser.
+  const projectHydration = await hydratePaperProjects();
   await syncOwnArticlesFromRepo({ force });
   const did = await requireDid();
   const [allArticles, existingFiles] = await Promise.all([
@@ -2137,7 +2488,13 @@ async function syncLegacyArticles(force = false): Promise<Response> {
   }
 
   const files = await listWorkspaceFiles(did);
-  return json({ success: true, created, conflicts, files });
+  return json({
+    success: true,
+    created: created + projectHydration.created,
+    projectFilesCreated: projectHydration.created,
+    conflicts,
+    files,
+  });
 }
 
 async function seedWelcomeWorkspace(did: string): Promise<void> {
@@ -2827,6 +3184,25 @@ async function publishWorkspaceFile(
     syncedContentHash: hashContent(rawText),
     syncedRemoteHash: hashContent(publishedRemoteContent),
   });
+
+  // A folder containing a published paper is the project boundary. Release its
+  // structure and references as a separate, idempotent pub.paper.* layer.
+  if (updatedFile?.parentId) {
+    const [projectRoot, releasedFiles, releasedArticle] = await Promise.all([
+      getWorkspaceFileById(updatedFile.parentId, did),
+      listWorkspaceFiles(did),
+      getArticleByDidAndRkey(targetDid, targetRkey),
+    ]);
+    if (projectRoot?.kind === "folder") {
+      await releasePaperProject({
+        did,
+        lex,
+        projectRoot,
+        files: releasedFiles,
+        bibliography: releasedArticle?.bibliography ?? [],
+      });
+    }
+  }
 
   return json({
     success: true,

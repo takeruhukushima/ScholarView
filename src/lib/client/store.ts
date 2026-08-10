@@ -24,7 +24,7 @@ import type {
 } from "@/lib/types";
 
 const DB_NAME = "scholarview-client-db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORE_ACCOUNTS = "accounts";
 const STORE_ARTICLES = "articles";
@@ -33,6 +33,19 @@ const STORE_INLINE_COMMENTS = "inline_comments";
 const STORE_DRAFTS = "drafts";
 const STORE_WORKSPACE_FILES = "workspace_files";
 const STORE_INTERACTIONS = "interactions";
+const STORE_PAPER_RECORDS = "paper_records";
+
+export interface PaperRecordBinding {
+  /** `${ownerDid}:${kind}:${localId}`; stable across repeated releases on this device. */
+  key: string;
+  ownerDid: string;
+  kind: "collection" | "reference" | "collectionItem" | "workspaceProject";
+  localId: string;
+  uri: string;
+  cid: string;
+  syncedHash: string;
+  updatedAt: string;
+}
 
 interface AccountRecord {
   did: string;
@@ -79,6 +92,7 @@ type DraftRecord = DraftArticle;
 type WorkspaceFileRecord = WorkspaceFileNode;
 
 type InteractionRecord = BskyInteractionView;
+type PaperRecord = PaperRecordBinding;
 
 type StoreName =
   | typeof STORE_ACCOUNTS
@@ -87,7 +101,8 @@ type StoreName =
   | typeof STORE_INLINE_COMMENTS
   | typeof STORE_DRAFTS
   | typeof STORE_WORKSPACE_FILES
-  | typeof STORE_INTERACTIONS;
+  | typeof STORE_INTERACTIONS
+  | typeof STORE_PAPER_RECORDS;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -127,6 +142,7 @@ function openDb(): Promise<IDBDatabase> {
       ensureStore(db, STORE_DRAFTS, "id");
       ensureStore(db, STORE_WORKSPACE_FILES, "id");
       ensureStore(db, STORE_INTERACTIONS, "uri");
+      ensureStore(db, STORE_PAPER_RECORDS, "key");
     };
 
     request.onsuccess = () => resolve(request.result);
@@ -135,6 +151,21 @@ function openDb(): Promise<IDBDatabase> {
   });
 
   return dbPromise;
+}
+
+export async function getPaperRecordBinding(key: string): Promise<PaperRecordBinding | null> {
+  return transact([STORE_PAPER_RECORDS], "readonly", async (tx) => {
+    const value = (await requestToPromise(
+      tx.objectStore(STORE_PAPER_RECORDS).get(key),
+    )) as PaperRecord | undefined;
+    return value ?? null;
+  });
+}
+
+export async function upsertPaperRecordBinding(input: PaperRecordBinding): Promise<void> {
+  await transact([STORE_PAPER_RECORDS], "readwrite", async (tx) => {
+    await requestToPromise(tx.objectStore(STORE_PAPER_RECORDS).put(input));
+  });
 }
 
 async function transact<T>(

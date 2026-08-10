@@ -26,6 +26,8 @@ type BibPlacement = {
   referenceUri: string
   /** この reference を書き出す .bib のプロジェクト相対パス */
   bibPath: string
+  /** 本文の cite と一致させるBibTeX citation key */
+  citationKey?: string
 }
 
 type Main = {
@@ -69,6 +71,7 @@ const main = l.record<'tid', Main>(
         l.object({
           referenceUri: l.string(),
           bibPath: l.string({ maxLength: 1024 }),
+          citationKey: l.optional(l.string({ maxLength: 256 })),
         }),
       ),
     ),
