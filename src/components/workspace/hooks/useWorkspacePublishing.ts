@@ -21,7 +21,6 @@ interface UseWorkspacePublishingProps {
   activeFile: WorkspaceFile | null;
   title: string;
   authorsText: string;
-  broadcastToBsky: boolean;
   resolvedBibliography: BibliographyEntry[];
   projectBibEntries: BibliographyEntry[];
   sourceText: string;
@@ -50,7 +49,6 @@ export function useWorkspacePublishing({
   activeFile,
   title,
   authorsText,
-  broadcastToBsky,
   resolvedBibliography,
   projectBibEntries,
   sourceText,
@@ -76,7 +74,7 @@ export function useWorkspacePublishing({
   const [exportPreview, setExportPreview] = useState<ExportPreview | null>(null);
   const [broadcastPreviewText, setBroadcastPreviewText] = useState<string | null>(null);
 
-  const performPublish = async (broadcastText?: string, shouldNotify: boolean = true) => {
+  const performPublish = async (broadcastText?: string, postToBluesky: boolean = true) => {
     if (!activeFile) return;
 
     setBusy(true);
@@ -91,8 +89,8 @@ export function useWorkspacePublishing({
           body: JSON.stringify({
             title,
             authors: parseAuthors(authorsText),
-            broadcastToBsky,
-            notifyUpdate: shouldNotify,
+            broadcastToBsky: postToBluesky,
+            notifyUpdate: postToBluesky,
             broadcastText,
             bibliography: resolvedBibliography.map((entry) => ({
               key: entry.key,
@@ -185,9 +183,9 @@ export function useWorkspacePublishing({
     setBroadcastPreviewText(defaultText);
   };
 
-  const confirmPublish = async (text: string, shouldNotify: boolean = true) => {
+  const confirmPublish = async (text: string, postToBluesky: boolean = true) => {
     setBroadcastPreviewText(null);
-    await performPublish(shouldNotify ? text : undefined, shouldNotify);
+    await performPublish(postToBluesky ? text : undefined, postToBluesky);
   };
 
   const cancelPublish = () => {

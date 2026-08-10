@@ -13,7 +13,6 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     activeFile: { id: 'f1', name: 'paper.md', kind: 'file' as const, parentId: null, sortOrder: 0, lastModified: '' },
     title: 'New Paper',
     authorsText: 'Alice',
-    broadcastToBsky: true,
     resolvedBibliography: [],
     projectBibEntries: [],
     sourceText: '# Hello',
@@ -103,7 +102,7 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     alertMock.mockRestore();
   });
 
-  it('separates sync state from update notification flag', async () => {
+  it('broadcasts to AT Protocol without posting to Bluesky', async () => {
     (global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       status: 200,
@@ -120,7 +119,6 @@ describe('useWorkspacePublishing hook - Hardened', () => {
       ...defaultProps,
       currentDid: 'did:plc:user',
       currentRkey: 'rkey1',
-      broadcastToBsky: true,
     };
     const { result } = renderHook(() => useWorkspacePublishing(updateProps));
 
@@ -135,7 +133,8 @@ describe('useWorkspacePublishing hook - Hardened', () => {
     expect(global.fetch).toHaveBeenCalled();
     const [, init] = (global.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.broadcastToBsky).toBe(true);
+    expect(body.broadcastToBsky).toBe(false);
     expect(body.notifyUpdate).toBe(false);
+    expect(body.broadcastText).toBeUndefined();
   });
 });
