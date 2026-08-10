@@ -44,6 +44,7 @@ import { EditorPanel } from "./UI/EditorPanel";
 import { RightPanel } from "./UI/RightPanel";
 import { MobileNavBar } from "./UI/MobileNavBar";
 import { PublishedDeleteModal } from "./UI/PublishedDeleteModal";
+import { ReferenceSyncNoticeModal } from "./UI/ReferenceSyncNoticeModal";
 import { OnboardingTour } from "./OnboardingTour";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
@@ -91,6 +92,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     articleCount: number;
     error?: string | null;
   } | null>(null);
+  const [referenceSyncNotice, setReferenceSyncNotice] = useState<string | null>(null);
 
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [savingFile, setSavingFile] = useState(false);
@@ -520,6 +522,9 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
 
     if (created) {
       await openFile(created);
+      if (fileType === "bib" || fileType === "json") {
+        setReferenceSyncNotice(created.name);
+      }
     }
   };
 
@@ -806,6 +811,12 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           onConfirm={(deleteAnnouncement) =>
             void performWorkspaceDelete(publishedDelete.file, deleteAnnouncement)
           }
+        />
+      ) : null}
+      {referenceSyncNotice ? (
+        <ReferenceSyncNoticeModal
+          fileName={referenceSyncNotice}
+          onClose={() => setReferenceSyncNotice(null)}
         />
       ) : null}
 
