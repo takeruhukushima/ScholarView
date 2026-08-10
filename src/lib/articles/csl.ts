@@ -4,8 +4,8 @@
  * `pub.paper.reference` records store bibliographic data as CSL-JSON (the
  * canonical form, authored directly in the editor). This module converts a
  * CSL reference to a BibTeX entry so a `.bib` file can be regenerated on any
- * device. Conversion is intentionally ONE-WAY (CSL -> BibTeX): we never parse
- * BibTeX back into CSL, to avoid lossy/ambiguous imports.
+ * device. Generated BibTeX carries a lossless ScholarView payload, while
+ * hand-authored BibTeX is imported through a conservative common-field map.
  */
 
 import type { BibliographyEntry } from "@/lib/articles/citations";
@@ -239,18 +239,120 @@ export function cslToScholarBibtex(ref: CslReference, key: string): string {
   return bibtex.replace(/\n}$/, `,\n  scholarviewcsl = {${encoded}}\n}`);
 }
 
+function bibtexTypeToCslType(type: string): string {
+  switch (type.toLowerCase()) {
+    case "article": return "article-journal";
+    case "inproceedings":
+    case "conference": return "paper-conference";
+    case "incollection": return "chapter";
+    case "book":
+    case "inbook": return "book";
+    case "phdthesis":
+    case "mastersthesis": return "thesis";
+    case "techreport": return "report";
+    case "unpublished": return "manuscript";
+    default: return "preprint";
+  }
+}
+
+function unwrapBibtexValue(value: string): string {
+  let result = value.trim();
+  if ((result.startsWith("{") && result.endsWith("}")) ||
+      (result.startsWith('"') && result.endsWith('"'))) {
+    result = result.slice(1, -1);
+  }
+  return result.replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function parseBibtexFields(rawBibtex: string): { type: string; fields: Map<string, string> } | null {
+  const header = rawBibtex.match(/^\s*@([A-Za-z]+)\s*[{(]\s*[^,]+,/);
+  if (!header) return null;
+  const body = rawBibtex.slice(header[0].length, rawBibtex.lastIndexOf(rawBibtex.trimEnd().endsWith(")") ? ")" : "}"));
+  const chunks: string[] = [];
+  let start = 0;
+  let depth = 0;
+  let quoted = false;
+  for (let index = 0; index < body.length; index += 1) {
+    const char = body[index];
+    if (char === '"' && body[index - 1] !== "\\") quoted = !quoted;
+    if (quoted) continue;
+    if (char === "{") depth += 1;
+    else if (char === "}") depth = Math.max(0, depth - 1);
+    else if (char === "," && depth === 0) {
+      chunks.push(body.slice(start, index));
+      start = index + 1;
+    }
+  }
+  chunks.push(body.slice(start));
+  const fields = new Map<string, string>();
+  for (const chunk of chunks) {
+    const equals = chunk.indexOf("=");
+    if (equals < 1) continue;
+    const name = chunk.slice(0, equals).trim().toLowerCase();
+    const value = unwrapBibtexValue(chunk.slice(equals + 1));
+    if (name && value) fields.set(name, value);
+  }
+  return { type: header[1], fields };
+}
+
+function contributorsFromBibtex(author: string | undefined): CslContributor[] | undefined {
+  if (!author) return undefined;
+  const contributors = author.split(/\s+and\s+/i).map((raw, index): CslContributor => {
+    const name = raw.trim();
+    const comma = name.indexOf(",");
+    if (comma >= 0) {
+      return {
+        role: "author",
+        family: name.slice(0, comma).trim(),
+        given: name.slice(comma + 1).trim() || undefined,
+        sequence: index + 1,
+      };
+    }
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length > 1) {
+      return {
+        role: "author",
+        family: parts.pop(),
+        given: parts.join(" "),
+        sequence: index + 1,
+      };
+    }
+    return { role: "author", literal: name, sequence: index + 1 };
+  }).filter((contributor) => contributor.family || contributor.literal);
+  return contributors.length > 0 ? contributors : undefined;
+}
+
 export function cslFromScholarBibtex(rawBibtex: string): CslReference | null {
   const match = rawBibtex.match(/scholarviewcsl\s*=\s*\{([^}]*)\}/i);
-  if (!match) return null;
-  try {
-    const value = JSON.parse(decodeURIComponent(match[1])) as unknown;
-    if (!value || typeof value !== "object") return null;
-    const record = value as Record<string, unknown>;
-    if (typeof record.type !== "string" || typeof record.title !== "string") return null;
-    return value as CslReference;
-  } catch {
-    return null;
+  if (match) {
+    try {
+      const value = JSON.parse(decodeURIComponent(match[1])) as unknown;
+      if (!value || typeof value !== "object") return null;
+      const record = value as Record<string, unknown>;
+      if (typeof record.type !== "string" || typeof record.title !== "string") return null;
+      return value as CslReference;
+    } catch {
+      return null;
+    }
   }
+
+  const parsed = parseBibtexFields(rawBibtex);
+  const title = parsed?.fields.get("title")?.trim();
+  if (!parsed || !title) return null;
+  const yearText = parsed.fields.get("year")?.match(/\d{4}/)?.[0];
+  const containerTitle = parsed.fields.get("journal") ?? parsed.fields.get("booktitle");
+  const arxivId = parsed.fields.get("eprint");
+  const contributors = contributorsFromBibtex(parsed.fields.get("author"));
+  return {
+    type: bibtexTypeToCslType(parsed.type),
+    title,
+    ...(containerTitle ? { containerTitle } : {}),
+    ...(yearText ? { issued: { year: Number(yearText) } } : {}),
+    ...(contributors ? { contributors } : {}),
+    ...(parsed.fields.get("doi") ? { doi: parsed.fields.get("doi") } : {}),
+    ...(arxivId ? { arxivId } : {}),
+    ...(parsed.fields.get("url") ? { url: parsed.fields.get("url") } : {}),
+  };
 }
 
 /** Convert a CSL reference to a {@link BibliographyEntry} (for in-app rendering). */

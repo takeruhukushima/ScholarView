@@ -130,8 +130,30 @@ describe("csl helpers", () => {
       expect(cslFromScholarBibtex(bib)).toEqual(vaswani);
     });
 
-    it("does not infer CSL from arbitrary hand-authored BibTeX", () => {
-      expect(cslFromScholarBibtex("@article{x, title={Legacy}}")).toBeNull();
+    it("imports common fields from hand-authored BibTeX", () => {
+      expect(cslFromScholarBibtex(`@article{x,
+        author = {Lovelace, Ada and Alan Turing},
+        title = {{A} Legacy Paper},
+        journal = {Journal of Tests},
+        year = {1843},
+        doi = {10.1/example},
+        url = {https://example.com/paper}
+      }`)).toEqual({
+        type: "article-journal",
+        title: "A Legacy Paper",
+        containerTitle: "Journal of Tests",
+        issued: { year: 1843 },
+        contributors: [
+          { role: "author", family: "Lovelace", given: "Ada", sequence: 1 },
+          { role: "author", family: "Turing", given: "Alan", sequence: 2 },
+        ],
+        doi: "10.1/example",
+        url: "https://example.com/paper",
+      });
+    });
+
+    it("leaves incomplete BibTeX templates unpublished", () => {
+      expect(cslFromScholarBibtex("@article{x, author={Someone}}")).toBeNull();
     });
   });
 
