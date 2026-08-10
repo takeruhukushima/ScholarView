@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { handleClientApiRequest } from '../api';
+import { handleClientApiRequest, parseArticleValue } from '../api';
 
 // Mock all internal dependencies
 vi.mock('@/lib/auth/browser', () => ({
@@ -88,5 +88,19 @@ describe('client api router', () => {
     const request = new Request('http://localhost/api/unknown');
     const response = await handleClientApiRequest(request, undefined, fetch);
     expect(response).toBeNull();
+  });
+});
+
+describe('article record parsing', () => {
+  it('preserves sourcePath for cross-browser workspace placement', () => {
+    const parsed = parseArticleValue({
+      $type: 'sci.peer.article',
+      title: 'Nested paper',
+      blocks: [{ level: 1, heading: 'Section', content: 'Body' }],
+      sourcePath: '/project/paper.md',
+      createdAt: '2026-08-11T00:00:00.000Z',
+    });
+
+    expect(parsed?.sourcePath).toBe('/project/paper.md');
   });
 });
