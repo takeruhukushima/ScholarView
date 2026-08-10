@@ -10,6 +10,7 @@ import {
 
 import { installClientFetchBridge } from "@/lib/client/fetch-bridge";
 import { type BibliographyEntry } from "@/lib/articles/citations";
+import { cslToScholarBibtex, deriveCitationKey, type CslReference } from "@/lib/articles/csl";
 import type { ArticleSummary, SourceFormat } from "@/lib/types";
 import {
   type RightTab,
@@ -167,6 +168,22 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const canEditTextCurrentFile = canEditCurrentFile && !isImageWorkspaceFile;
   const canPublishCurrentFile = canEditCurrentFile && !isBibWorkspaceFile && !isImageWorkspaceFile;
   const hasOpenDocument = Boolean((activeFile && activeFile.kind === "file") || activeArticleUri);
+
+  const appendCslReference = useCallback((reference: CslReference) => {
+    setEditorBlocks((previous) => {
+      const used = new Set(
+        previous.flatMap((block) =>
+          Array.from(block.text.matchAll(/@[A-Za-z]+\s*\{\s*([^,\s]+)/g), (match) => match[1]),
+        ),
+      );
+      const base = deriveCitationKey(reference, "ref");
+      let key = base;
+      let suffix = 2;
+      while (used.has(key)) key = `${base}-${suffix++}`;
+      return [...previous, { id: newId(), kind: "paragraph", text: cslToScholarBibtex(reference, key) }];
+    });
+    setStatusMessage("Added CSL reference to this project library");
+  }, [setEditorBlocks]);
 
   const {
     activeImagePreviewSrc,
@@ -956,6 +973,7 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
             showMoreMenu={showMoreMenu}
             setShowMoreMenu={setShowMoreMenu}
             formatBibtexBlockById={formatBibtexBlockById}
+            appendCslReference={appendCslReference}
           />
         </div>
 

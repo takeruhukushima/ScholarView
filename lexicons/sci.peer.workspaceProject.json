@@ -18,7 +18,8 @@
       "required": ["referenceUri", "bibPath"],
       "properties": {
         "referenceUri": { "type": "string", "description": "pub.paper.reference の at-uri" },
-        "bibPath": { "type": "string", "maxLength": 1024, "description": "この reference を書き出す .bib のプロジェクト相対パス" }
+        "bibPath": { "type": "string", "maxLength": 1024, "description": "この reference を書き出す .bib のプロジェクト相対パス" },
+        "citationKey": { "type": "string", "maxLength": 256, "description": "本文の cite と一致させるBibTeX citation key（任意、旧レコードは決定論的に生成）" }
       }
     },
     "main": {
