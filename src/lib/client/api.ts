@@ -2891,6 +2891,7 @@ async function publishWorkspaceFile(
     notifyUpdate?: unknown;
     broadcastText?: unknown;
     bibliography?: unknown;
+    projectBibliography?: unknown;
   };
 
   const customBroadcastText = typeof body.broadcastText === "string" ? body.broadcastText : null;
@@ -2923,6 +2924,10 @@ async function publishWorkspaceFile(
 
   const bibliographyInput =
     body.bibliography === undefined ? null : normalizeBibliography(body.bibliography);
+  const projectBibliographyInput =
+    body.projectBibliography === undefined
+      ? null
+      : normalizeBibliography(body.projectBibliography);
   const now = new Date().toISOString();
   const linkedDid = file.linkedArticleDid;
   const linkedRkey = file.linkedArticleRkey;
@@ -3199,7 +3204,10 @@ async function publishWorkspaceFile(
         lex,
         projectRoot,
         files: releasedFiles,
-        bibliography: releasedArticle?.bibliography ?? [],
+        bibliography:
+          projectBibliographyInput && projectBibliographyInput.length > 0
+            ? projectBibliographyInput
+            : releasedArticle?.bibliography ?? [],
       });
     }
   }
