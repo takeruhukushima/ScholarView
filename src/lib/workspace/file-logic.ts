@@ -96,6 +96,29 @@ export function collectProjectJsonFiles(files: WorkspaceFile[], activeFileId: st
   return collectProjectFilesByExtension(files, activeFileId, ".json");
 }
 
+/** Whether a .bib/.json file belongs to a folder containing a broadcast article. */
+export function isPublishedProjectDataFile(
+  files: WorkspaceFile[],
+  target: WorkspaceFile,
+): boolean {
+  if (
+    target.kind !== "file" ||
+    !/\.(bib|json)$/i.test(target.name)
+  ) return false;
+  const publishedRoots = new Set(
+    files
+      .filter((file) => file.kind === "file" && Boolean(file.linkedArticleUri) && file.parentId)
+      .map((file) => file.parentId as string),
+  );
+  const byId = new Map(files.map((file) => [file.id, file]));
+  let parentId = target.parentId;
+  while (parentId) {
+    if (publishedRoots.has(parentId)) return true;
+    parentId = byId.get(parentId)?.parentId ?? null;
+  }
+  return false;
+}
+
 function collectProjectFilesByExtension(
   files: WorkspaceFile[],
   activeFileId: string | null,

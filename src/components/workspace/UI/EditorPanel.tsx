@@ -648,6 +648,9 @@ export const EditorPanel: React.FC<EditorPanelProps> = ({
                     {isJsonWorkspaceFile ? "code" : `${editorBlocks.length} entries`}
                   </span>
                 </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  articleを公開・更新するまでは、このファイルが公開・更新されることはありません。
+                </div>
                 <div className="space-y-2">
                   {editorBlocks.map((block, index) => (
                     <div
