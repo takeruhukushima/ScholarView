@@ -626,6 +626,9 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
       // Published article bodies are restored by syncLegacyArticles with content.
       if (asString(node.linkedArticleUri)) continue;
       const kind = asString(node.kind) === "folder" ? "folder" : "file";
+      // CSL-JSON is regenerated from pub.paper.reference below, not as an
+      // empty placeholder that would block hydration.
+      if (kind === "file" && rel.toLowerCase().endsWith(".json")) continue;
       const made = await ensureWorkspaceFileAtPath(did, fullPath, {
         kind,
         ...(kind === "file" ? { content: "", sourceFormat: "markdown" as const } : {}),
@@ -668,6 +671,31 @@ async function hydratePaperProjects(): Promise<{ created: number }> {
         sourceFormat: "markdown",
       });
       if (made) created += 1;
+    }
+
+    const jsonNode = nodes.find(
+      (node) =>
+        asString(node.kind) === "file" &&
+        asString(node.path).toLowerCase().endsWith(".json"),
+    );
+    const jsonPath = safeProjectRelativePath(jsonNode?.path);
+    if (jsonPath) {
+      const fullPath = normalizeWorkspacePath(`${rootPath}/${jsonPath}`);
+      if (fullPath && !(await getWorkspaceFileByPath(fullPath, did))) {
+        const authored = refUris.flatMap((refUri) => {
+          const ref = refsByUri.get(refUri);
+          if (!ref) return [];
+          const placement = placements.find((item) => asString(item?.referenceUri) === refUri);
+          const citationKey = asString(placement?.citationKey);
+          return [{ ...(citationKey ? { id: citationKey } : {}), ...ref }];
+        });
+        const made = await ensureWorkspaceFileAtPath(did, fullPath, {
+          kind: "file",
+          content: `${JSON.stringify(authored, null, 2)}\n`,
+          sourceFormat: "markdown",
+        });
+        if (made) created += 1;
+      }
     }
   }
   return { created };

@@ -181,6 +181,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ["markdown", "Markdown", ".md"],
                     ["tex", "LaTeX", ".tex"],
                     ["bib", "Bibliography", ".bib"],
+                    ["json", "CSL-JSON", ".json"],
                   ] as const).map(([type, label, extension]) => (
                     <button
                       key={type}

@@ -9,6 +9,7 @@ import {
   cslFromScholarBibtex,
   cslToBibliographyEntry,
   referencesToBib,
+  parseCslReferenceDocument,
   type CslReference,
 } from "../csl";
 
@@ -131,6 +132,23 @@ describe("csl helpers", () => {
 
     it("does not infer CSL from arbitrary hand-authored BibTeX", () => {
       expect(cslFromScholarBibtex("@article{x, title={Legacy}}")).toBeNull();
+    });
+  });
+
+  describe("parseCslReferenceDocument", () => {
+    it("accepts an array and preserves an explicit citation id", () => {
+      expect(parseCslReferenceDocument(JSON.stringify([
+        { id: "paper-key", type: "article-journal", title: "Paper" },
+      ]))).toEqual([
+        {
+          citationKey: "paper-key",
+          reference: { type: "article-journal", title: "Paper" },
+        },
+      ]);
+    });
+
+    it("rejects entries without required schema fields", () => {
+      expect(() => parseCslReferenceDocument('[{"type":"book"}]')).toThrow("title is required");
     });
   });
 

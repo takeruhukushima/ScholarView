@@ -49,6 +49,10 @@ describe('file-logic', () => {
       expect(ensureFileExtension('file', 'bib')).toBe('file.bib');
     });
 
+    it('adds .json for CSL-JSON type', () => {
+      expect(ensureFileExtension('references', 'json')).toBe('references.json');
+    });
+
     it('does not add if already present', () => {
       expect(ensureFileExtension('file.tex', 'markdown')).toBe('file.tex');
     });

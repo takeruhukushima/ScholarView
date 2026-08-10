@@ -58,4 +58,26 @@ describe('useWorkspaceCitations hook', () => {
     expect(result.current.resolvedBibliography).toHaveLength(1);
     expect(result.current.resolvedBibliography[0].key).toBe('key1');
   });
+
+  it('uses project CSL-JSON as canonical citation data', () => {
+    const jsonFile = {
+      id: 'json',
+      name: 'references.json',
+      kind: 'file' as const,
+      content: '[{"id":"json-key","type":"book","title":"JSON Book"}]',
+      parentId: null,
+      sortOrder: 0,
+      lastModified: '',
+    };
+    const { result } = renderHook(() => useWorkspaceCitations({
+      ...defaultProps,
+      files: [jsonFile],
+      sourceText: 'See [@json-key]',
+    }));
+    expect(result.current.projectBibEntries[0]).toMatchObject({
+      key: 'json-key',
+      title: 'JSON Book',
+    });
+    expect(result.current.projectBibEntries[0].rawBibtex).toContain('scholarviewcsl');
+  });
 });

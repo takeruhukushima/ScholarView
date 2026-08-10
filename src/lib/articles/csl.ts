@@ -32,6 +32,54 @@ export interface CslReference {
   url?: string;
 }
 
+export interface AuthoredCslReference {
+  reference: CslReference;
+  citationKey?: string;
+}
+
+/** Parse a code-authored CSL document: one object, an array, or {references:[...]}. */
+export function parseCslReferenceDocument(source: string): AuthoredCslReference[] {
+  if (!source.trim()) return [];
+  const decoded = JSON.parse(source) as unknown;
+  const candidates = Array.isArray(decoded)
+    ? decoded
+    : decoded && typeof decoded === "object" && Array.isArray((decoded as { references?: unknown }).references)
+      ? (decoded as { references: unknown[] }).references
+      : [decoded];
+  return candidates.map((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") {
+      throw new Error(`references[${index}] must be an object`);
+    }
+    const value = candidate as Record<string, unknown>;
+    if (typeof value.type !== "string" || !value.type.trim()) {
+      throw new Error(`references[${index}].type is required`);
+    }
+    if (typeof value.title !== "string" || !value.title.trim()) {
+      throw new Error(`references[${index}].title is required`);
+    }
+    const citationKey = [value.id, value.citationKey, value["citation-key"]]
+      .find((item) => typeof item === "string" && item.trim());
+    const reference: CslReference = {
+      type: value.type,
+      title: value.title,
+      ...(typeof value.containerTitle === "string" ? { containerTitle: value.containerTitle } : {}),
+      ...(value.issued && typeof value.issued === "object"
+        ? { issued: value.issued as CslReference["issued"] }
+        : {}),
+      ...(Array.isArray(value.contributors)
+        ? { contributors: value.contributors as CslReference["contributors"] }
+        : {}),
+      ...(typeof value.doi === "string" ? { doi: value.doi } : {}),
+      ...(typeof value.arxivId === "string" ? { arxivId: value.arxivId } : {}),
+      ...(typeof value.url === "string" ? { url: value.url } : {}),
+    };
+    return {
+      reference,
+      ...(typeof citationKey === "string" ? { citationKey: citationKey.trim() } : {}),
+    };
+  });
+}
+
 /** Map a CSL `type` to the closest BibTeX entry type. */
 export function cslTypeToBibtexType(cslType: string | undefined): string {
   switch ((cslType ?? "").trim()) {

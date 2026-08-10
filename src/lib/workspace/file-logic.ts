@@ -55,6 +55,7 @@ export function ensureFileExtension(name: string, type: NewFileType): string {
   if (/\.[A-Za-z0-9]+$/.test(trimmed)) return trimmed;
   if (type === "tex") return `${trimmed}.tex`;
   if (type === "bib") return `${trimmed}.bib`;
+  if (type === "json") return `${trimmed}.json`;
   return `${trimmed}.md`;
 }
 
@@ -88,12 +89,24 @@ export function isDescendantOfFolder(
 }
 
 export function collectProjectBibFiles(files: WorkspaceFile[], activeFileId: string | null): WorkspaceFile[] {
+  return collectProjectFilesByExtension(files, activeFileId, ".bib");
+}
+
+export function collectProjectJsonFiles(files: WorkspaceFile[], activeFileId: string | null): WorkspaceFile[] {
+  return collectProjectFilesByExtension(files, activeFileId, ".json");
+}
+
+function collectProjectFilesByExtension(
+  files: WorkspaceFile[],
+  activeFileId: string | null,
+  extension: string,
+): WorkspaceFile[] {
   const byId = new Map<string, WorkspaceFile>();
   for (const file of files) {
     byId.set(file.id, file);
   }
   const bibFiles = files
-    .filter((file) => file.kind === "file" && file.name.toLowerCase().endsWith(".bib"))
+    .filter((file) => file.kind === "file" && file.name.toLowerCase().endsWith(extension))
     .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   if (bibFiles.length === 0) return [];
 
