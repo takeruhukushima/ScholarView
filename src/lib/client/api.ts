@@ -942,6 +942,54 @@ async function releasePaperProject(input: {
   });
 }
 
+async function deleteReleasedPaperProject(input: {
+  did: string;
+  lex: Client;
+  projectRoot: WorkspaceFileNode;
+  files: WorkspaceFileNode[];
+}): Promise<void> {
+  const projectPath = buildWorkspaceFilePath(input.projectRoot, input.files);
+  if (!projectPath) return;
+  const [projects, collections, items] = await Promise.all([
+    listOwnRepoRecords(WORKSPACE_PROJECT),
+    listOwnRepoRecords(PAPER_COLLECTION),
+    listOwnRepoRecords(PAPER_COLLECTION_ITEM),
+  ]);
+  const existing = findExistingProjectRecords({
+    path: projectPath,
+    projects,
+    collections,
+  });
+  if (!existing) return;
+
+  const collectionUri = existing.collection.uri;
+  const stale = findStaleProjectReferenceRecords({
+    collectionUri,
+    desiredReferenceUris: [],
+    items,
+  });
+  for (const row of stale.items) {
+    await input.lex.delete(pub.paper.collectionItem.main, {
+      rkey: new AtUri(row.uri).rkey,
+    });
+  }
+  for (const uri of stale.orphanReferenceUris) {
+    await input.lex.delete(pub.paper.reference.main, { rkey: new AtUri(uri).rkey });
+  }
+  await input.lex.delete(sci.peer.workspaceProject.main, {
+    rkey: new AtUri(existing.project.uri).rkey,
+  });
+  await input.lex.delete(pub.paper.collection.main, {
+    rkey: new AtUri(existing.collection.uri).rkey,
+  });
+  await deletePaperRecordBindingsByUris(input.did, [
+    existing.project.uri,
+    existing.collection.uri,
+    ...stale.items.map((row) => row.uri),
+    ...stale.orphanReferenceUris,
+  ]);
+}
+
 async function requireDid(): Promise<string> {
   const did = await getActiveDid();
   if (!did) throw new HttpError(401, "Unauthorized");
@@ -2875,6 +2923,44 @@ async function handleWorkspaceFilesPath(
         const existing = await getWorkspaceFileById(id, did);
         if (!existing) throw new HttpError(404, "file not found");
         const allFiles = await listWorkspaceFiles(did);
+        const byId = new Map(allFiles.map((file) => [file.id, file]));
+        const isInDeletedSubtree = (file: WorkspaceFileNode) => {
+          if (file.id === existing.id) return true;
+          let parentId = file.parentId;
+          while (parentId) {
+            if (parentId === existing.id) return true;
+            parentId = byId.get(parentId)?.parentId ?? null;
+          }
+          return false;
+        };
+        const deletedArticles = allFiles.filter(
+          (file) => file.kind === "file" && Boolean(file.linkedArticleUri) && isInDeletedSubtree(file),
+        );
+        const affectedProjectRootIds = new Set(
+          deletedArticles.map((file) => file.parentId).filter((value): value is string => Boolean(value)),
+        );
+        for (const articleFile of deletedArticles) {
+          if (articleFile.linkedArticleDid && articleFile.linkedArticleRkey) {
+            await deleteArticle(articleFile.linkedArticleDid, articleFile.linkedArticleRkey);
+          }
+        }
+        if (affectedProjectRootIds.size > 0) {
+          const lex = await getLexClientForCurrentSession();
+          if (!lex) throw new HttpError(401, "Unauthorized");
+          for (const rootId of affectedProjectRootIds) {
+            const hasRemainingPublishedArticle = allFiles.some(
+              (file) =>
+                file.kind === "file" &&
+                Boolean(file.linkedArticleUri) &&
+                file.parentId === rootId &&
+                !isInDeletedSubtree(file),
+            );
+            const projectRoot = byId.get(rootId);
+            if (!hasRemainingPublishedArticle && projectRoot?.kind === "folder") {
+              await deleteReleasedPaperProject({ did, lex, projectRoot, files: allFiles });
+            }
+          }
+        }
         const projectRootId = findPublishedProjectRootForNode(allFiles, existing.id);
         if (projectRootId) {
           const published = await getPaperRecordBinding(

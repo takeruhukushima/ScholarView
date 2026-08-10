@@ -43,6 +43,7 @@ import { Sidebar } from "./UI/Sidebar";
 import { EditorPanel } from "./UI/EditorPanel";
 import { RightPanel } from "./UI/RightPanel";
 import { MobileNavBar } from "./UI/MobileNavBar";
+import { PublishedDeleteModal } from "./UI/PublishedDeleteModal";
 import { OnboardingTour } from "./OnboardingTour";
 import { useWorkspaceFiles } from "./hooks/useWorkspaceFiles";
 import { useWorkspaceEditor } from "./hooks/useWorkspaceEditor";
@@ -85,6 +86,10 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   const [statusMessage, setStatusMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncConflicts, setSyncConflicts] = useState<SyncConflict[]>([]);
+  const [publishedDelete, setPublishedDelete] = useState<{
+    file: WorkspaceFile;
+    articleCount: number;
+  } | null>(null);
 
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [savingFile, setSavingFile] = useState(false);
@@ -517,11 +522,8 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
     }
   };
 
-  const deleteWorkspaceItem = async (file: WorkspaceFile) => {
-    const label = file.kind === "folder" ? "folder and all children" : "file";
-    const confirmed = window.confirm(`Delete this ${label}?`);
-    if (!confirmed) return;
-
+  const performWorkspaceDelete = async (file: WorkspaceFile) => {
+    setPublishedDelete(null);
     const latestFiles = await apiDeleteItem(
       file.id,
       sessionDid,
@@ -541,7 +543,32 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
           setQuoteComment("");
         }
       }
+      await refreshArticles();
     }
+  };
+
+  const deleteWorkspaceItem = async (file: WorkspaceFile) => {
+    const byId = new Map(files.map((item) => [item.id, item]));
+    const isWithinTarget = (candidate: WorkspaceFile) => {
+      if (candidate.id === file.id) return true;
+      let parentId = candidate.parentId;
+      while (parentId) {
+        if (parentId === file.id) return true;
+        parentId = byId.get(parentId)?.parentId ?? null;
+      }
+      return false;
+    };
+    const articleCount = files.filter(
+      (item) => Boolean(item.linkedArticleUri) && isWithinTarget(item),
+    ).length;
+    if (articleCount > 0) {
+      setPublishedDelete({ file, articleCount });
+      return;
+    }
+    const label = file.kind === "folder" ? "folder and all children" : "file";
+    const confirmed = window.confirm(`Delete this ${label}?`);
+    if (!confirmed) return;
+    await performWorkspaceDelete(file);
   };
 
   const renameWorkspaceItem = async (file: WorkspaceFile) => {
@@ -759,6 +786,15 @@ export function WorkspaceApp({ initialArticles, sessionDid, accountHandle }: Wor
   return (
     <div className="h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top_right,_#E9F4FF_0%,_#F8FAFC_45%)] p-4 md:p-6 pb-24 lg:pb-6 flex flex-col">
       <OnboardingTour storageKey={TUTORIAL_STORAGE_KEY} />
+      {publishedDelete ? (
+        <PublishedDeleteModal
+          name={publishedDelete.file.name}
+          articleCount={publishedDelete.articleCount}
+          busy={busy}
+          onCancel={() => setPublishedDelete(null)}
+          onConfirm={() => void performWorkspaceDelete(publishedDelete.file)}
+        />
+      ) : null}
 
       {shouldShowStatus ? (
         <p className="mb-3 shrink-0 rounded-md border bg-white px-3 py-2 text-sm text-slate-600">
