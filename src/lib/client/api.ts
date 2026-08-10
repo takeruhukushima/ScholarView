@@ -844,8 +844,8 @@ async function releasePaperProject(input: {
   const referenceRefs: Array<{ key: string; ref: StrongRef }> = [];
   for (const entry of input.bibliography) {
     const csl = cslFromScholarBibtex(entry.rawBibtex);
-    // Existing hand-authored BibTeX remains local/article bibliography data.
-    // Only references authored as CSL are released as pub.paper.reference.
+    // Empty templates and malformed entries remain local until they contain
+    // enough data to form a pub.paper.reference.
     if (!csl) continue;
     const localId = `${projectRoot.id}:${entry.key}`;
     const key = bindingKey(did, "reference", localId);
