@@ -12,10 +12,10 @@ export const OAUTH_SCOPE =
   "repo:sci.peer.article?action=create&action=update&action=delete " +
   "repo:sci.peer.encVault?action=create&action=update&action=delete " +
   "repo:sci.peer.encNote?action=create&action=update&action=delete " +
-  "repo:pub.paper.collection?action=create&action=update " +
-  "repo:pub.paper.reference?action=create&action=update " +
-  "repo:pub.paper.collectionItem?action=create&action=update " +
-  "repo:sci.peer.workspaceProject?action=create&action=update " +
+  "repo:pub.paper.collection?action=create&action=update&action=delete " +
+  "repo:pub.paper.reference?action=create&action=update&action=delete " +
+  "repo:pub.paper.collectionItem?action=create&action=update&action=delete " +
+  "repo:sci.peer.workspaceProject?action=create&action=update&action=delete " +
   "repo:app.bsky.feed.post?action=create&action=delete " +
   "repo:app.bsky.feed.like?action=create " +
   "repo:app.bsky.feed.repost?action=create";
