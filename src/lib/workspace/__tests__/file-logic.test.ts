@@ -7,6 +7,7 @@ import {
   dirnameWorkspacePath,
   makeFileTree,
   findProjectRootFolderId,
+  isPublishedProjectDataFile,
 } from '../file-logic';
 import { WorkspaceFile } from '../types';
 
@@ -95,6 +96,28 @@ describe('file-logic', () => {
         { id: 'main', kind: 'file', parentId: 'paper-a' },
       ] as WorkspaceFile[];
       expect(findProjectRootFolderId(files, 'main')).toBe('paper-a');
+    });
+  });
+
+  describe('isPublishedProjectDataFile', () => {
+    it('marks bib/json descendants of a folder containing a published article', () => {
+      const files = [
+        { id: 'project', kind: 'folder', parentId: null, name: 'P' },
+        { id: 'article', kind: 'file', parentId: 'project', name: 'paper.md', linkedArticleUri: 'at://article' },
+        { id: 'refs', kind: 'folder', parentId: 'project', name: 'refs' },
+        { id: 'json', kind: 'file', parentId: 'refs', name: 'references.json' },
+        { id: 'bib', kind: 'file', parentId: 'project', name: 'references.bib' },
+      ] as WorkspaceFile[];
+      expect(isPublishedProjectDataFile(files, files[3])).toBe(true);
+      expect(isPublishedProjectDataFile(files, files[4])).toBe(true);
+    });
+
+    it('does not mark data files before the project article is broadcast', () => {
+      const files = [
+        { id: 'project', kind: 'folder', parentId: null, name: 'P' },
+        { id: 'json', kind: 'file', parentId: 'project', name: 'references.json' },
+      ] as WorkspaceFile[];
+      expect(isPublishedProjectDataFile(files, files[1])).toBe(false);
     });
   });
 });

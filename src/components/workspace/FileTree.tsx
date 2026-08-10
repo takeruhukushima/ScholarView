@@ -1,6 +1,6 @@
 import { useMemo, useState, DragEvent } from "react";
 import { WorkspaceFile, TreeDropPosition } from "@/lib/workspace/types";
-import { makeFileTree } from "@/lib/workspace/file-logic";
+import { isPublishedProjectDataFile, makeFileTree } from "@/lib/workspace/file-logic";
 
 interface FileTreeProps {
   files: WorkspaceFile[];
@@ -34,6 +34,7 @@ export function FileTree({
     const isFolder = node.file.kind === "folder";
     const isActive = activeFileId === node.file.id;
     const expanded = node.file.expanded === 1;
+    const isPublished = Boolean(node.file.linkedArticleUri) || isPublishedProjectDataFile(files, node.file);
 
     const getDropPosition = (event: DragEvent<HTMLDivElement>): TreeDropPosition => {
       const rect = event.currentTarget.getBoundingClientRect();
@@ -115,7 +116,7 @@ export function FileTree({
             {node.file.name}
           </button>
 
-          {node.file.kind === "file" && node.file.linkedArticleUri ? (
+          {node.file.kind === "file" && isPublished ? (
             <span className="shrink-0 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">pub</span>
           ) : null}
 
