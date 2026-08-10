@@ -5,7 +5,8 @@ import {
   ensureFileExtension,
   normalizeWorkspacePath,
   dirnameWorkspacePath,
-  makeFileTree
+  makeFileTree,
+  findProjectRootFolderId,
 } from '../file-logic';
 import { WorkspaceFile } from '../types';
 
@@ -79,6 +80,17 @@ describe('file-logic', () => {
       expect(tree[0].children[0].file.name).toBe('file.md');
       expect(tree[0].children[0].path).toBe('/folder/file.md');
       expect(tree[1].file.name).toBe('root.md');
+    });
+  });
+
+  describe('findProjectRootFolderId', () => {
+    it('uses the paper file immediate parent rather than a shared ancestor', () => {
+      const files = [
+        { id: 'research', kind: 'folder', parentId: null },
+        { id: 'paper-a', kind: 'folder', parentId: 'research' },
+        { id: 'main', kind: 'file', parentId: 'paper-a' },
+      ] as WorkspaceFile[];
+      expect(findProjectRootFolderId(files, 'main')).toBe('paper-a');
     });
   });
 });

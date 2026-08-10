@@ -68,16 +68,10 @@ export function findProjectRootFolderId(files: WorkspaceFile[], activeFileId: st
   const activeFile = byId.get(activeFileId);
   if (!activeFile) return null;
 
-  let folderId: string | null = activeFile.kind === "folder" ? activeFile.id : activeFile.parentId;
-  if (!folderId) return null;
-
-  while (folderId) {
-    const nextParentId: string | null = byId.get(folderId)?.parentId ?? null;
-    if (!nextParentId) return folderId;
-    folderId = nextParentId;
-  }
-
-  return null;
+  // The project boundary used by releasePaperProject is the paper file's
+  // immediate parent folder. Keep bibliography discovery on that same boundary
+  // so sibling paper projects never leak references into one another.
+  return activeFile.kind === "folder" ? activeFile.id : activeFile.parentId;
 }
 
 export function isDescendantOfFolder(
