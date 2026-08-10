@@ -3,3 +3,4 @@
  */
 
 export * as article from './peer/article'
+export * as workspaceProject from './peer/workspaceProject'
