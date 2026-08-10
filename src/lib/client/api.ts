@@ -47,6 +47,7 @@ import {
   findStaleProjectReferenceRecords,
   referenceHash,
   selectLatestWorkspaceProjects,
+  workspaceTargetsForDeletedArticles,
   type StrongRef,
 } from "@/lib/client/paper";
 import type { BibliographyEntry } from "@/lib/articles/citations";
@@ -467,6 +468,7 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
 
     let cursor: string | null = null;
     const seenUris = new Set<string>();
+    let complete = false;
 
     for (let page = 0; page < 20; page += 1) {
       const query = new URLSearchParams({
@@ -489,7 +491,10 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
         cursor?: unknown;
       };
       const records = Array.isArray(payload.records) ? payload.records : [];
-      if (records.length === 0) break;
+      if (records.length === 0) {
+        complete = true;
+        break;
+      }
 
       for (const record of records) {
         const row = asObject(record);
@@ -535,7 +540,31 @@ async function syncOwnArticlesFromRepo(options?: { force?: boolean }): Promise<v
       }
 
       cursor = typeof payload.cursor === "string" ? payload.cursor : null;
-      if (!cursor) break;
+      if (!cursor) {
+        complete = true;
+        break;
+      }
+    }
+
+    if (complete) {
+      const [cachedArticles, workspaceFiles] = await Promise.all([
+        getRecentArticles(500),
+        listWorkspaceFiles(did),
+      ]);
+      const deletedArticles = cachedArticles.filter(
+        (article) => article.authorDid === did && !seenUris.has(article.uri),
+      );
+      const targets = workspaceTargetsForDeletedArticles(
+        workspaceFiles,
+        deletedArticles.map((article) => article.uri),
+        seenUris,
+      );
+      for (const targetId of targets) {
+        await deleteWorkspaceFileById(targetId, did);
+      }
+      for (const article of deletedArticles) {
+        await deleteArticleCascade(article.uri);
+      }
     }
 
     ownArticleSyncedAt.set(did, Date.now());

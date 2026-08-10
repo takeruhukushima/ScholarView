@@ -73,6 +73,30 @@ export function findPublishedProjectRootForNode(
   return null;
 }
 
+/** Workspace subtrees to remove after PDS article tombstones are observed. */
+export function workspaceTargetsForDeletedArticles(
+  files: WorkspaceFileLike[],
+  deletedArticleUris: Iterable<string>,
+  liveArticleUris: Iterable<string>,
+): string[] {
+  const deleted = new Set(deletedArticleUris);
+  const live = new Set(liveArticleUris);
+  const targets = new Set<string>();
+  for (const file of files) {
+    if (!file.linkedArticleUri || !deleted.has(file.linkedArticleUri)) continue;
+    const hasLiveProjectArticle = Boolean(
+      file.parentId && files.some(
+        (candidate) =>
+          candidate.id !== file.id &&
+          candidate.parentId === file.parentId &&
+          Boolean(candidate.linkedArticleUri && live.has(candidate.linkedArticleUri)),
+      ),
+    );
+    targets.add(!hasLiveProjectArticle && file.parentId ? file.parentId : file.id);
+  }
+  return [...targets];
+}
+
 function absolutePathOf(byId: Map<string, WorkspaceFileLike>, id: string): string {
   const parts: string[] = [];
   let cursor: string | null = id;

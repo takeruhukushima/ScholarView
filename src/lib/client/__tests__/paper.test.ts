@@ -14,6 +14,7 @@ import {
   findPublishedProjectRootForNode,
   findStaleProjectReferenceRecords,
   selectLatestWorkspaceProjects,
+  workspaceTargetsForDeletedArticles,
   type ProjectSnapshot,
   type WorkspaceFileLike,
 } from "../paper";
@@ -177,6 +178,32 @@ describe("buildProjectSnapshotFromWorkspace", () => {
   it("finds the published project that owns a nested file deletion", () => {
     expect(findPublishedProjectRootForNode(files, "f1")).toBe("a");
     expect(findPublishedProjectRootForNode(files, "r0")).toBeNull();
+  });
+
+  it("removes a deleted article project across browser-local caches", () => {
+    expect(workspaceTargetsForDeletedArticles(
+      files,
+      ["at://did:plc:x/sci.peer.article/rk"],
+      [],
+    )).toEqual(["a"]);
+  });
+
+  it("keeps a project root when another published article remains", () => {
+    const withSibling = [
+      ...files,
+      {
+        id: "p2",
+        parentId: "a",
+        name: "appendix.md",
+        kind: "file" as const,
+        linkedArticleUri: "at://did:plc:x/sci.peer.article/rk2",
+      },
+    ];
+    expect(workspaceTargetsForDeletedArticles(
+      withSibling,
+      ["at://did:plc:x/sci.peer.article/rk"],
+      ["at://did:plc:x/sci.peer.article/rk2"],
+    )).toEqual(["p"]);
   });
 });
 
