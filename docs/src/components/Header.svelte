@@ -1,4 +1,10 @@
-<script>
+<script lang="ts">
+	import { languages, localizePath, useTranslations, type Lang } from '../i18n/ui';
+
+	let { lang = 'ja', altHref = '/en/' }: { lang?: Lang; altHref?: string } = $props();
+	const t = $derived(useTranslations(lang));
+	const otherLang: Lang = $derived(lang === 'ja' ? 'en' : 'ja');
+
 	let menuOpen = $state(false);
 
 	function handleKeydown(event) {
@@ -13,7 +19,7 @@
 <header class="sticky top-0 z-50 w-full border-b border-slate-200/60 bg-white/80 backdrop-blur-md transition-all">
 	<div class="mx-auto flex max-w-5xl items-center px-4 py-3.5">
 		<!-- Logo -->
-		<a href="/" class="group flex items-center gap-2.5 outline-none">
+		<a href={localizePath('/', lang)} class="group flex items-center gap-2.5 outline-none">
 			<div class="relative flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-md shadow-indigo-200 transition-transform group-hover:scale-110">
 				<svg
 					width="20"
@@ -35,8 +41,8 @@
 
 		<!-- Desktop Nav -->
 		<nav class="ml-10 hidden items-center gap-8 md:flex">
-			<a href="/introduction/" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Manual</a>
-			<a href="/blog/" class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">Blog</a>
+			<a href={localizePath('/introduction/', lang)} class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">{t('nav.manual')}</a>
+			<a href={localizePath('/blog/', lang)} class="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors">{t('nav.blog')}</a>
 			<a
 				href="https://github.com/takeruhukushima/ScholarView"
 				target="_blank"
@@ -50,12 +56,24 @@
 		<!-- Right side -->
 		<div class="ml-auto hidden items-center gap-4 md:flex">
 			<a
+				href={altHref}
+				hreflang={otherLang}
+				lang={otherLang}
+				class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition-colors"
+				aria-label={`${t('nav.language')}: ${languages[otherLang]}`}
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+				</svg>
+				{languages[otherLang]}
+			</a>
+			<a
 				href="https://github.com/takeruhukushima/ScholarView/discussions"
 				target="_blank"
 				rel="noopener noreferrer"
 				class="rounded-full bg-slate-900 px-4 py-2 text-xs font-bold text-white transition-all hover:bg-slate-800 hover:shadow-lg active:scale-95"
 			>
-				Community &rarr;
+				{t('nav.community')} &rarr;
 			</a>
 		</div>
 
@@ -63,7 +81,7 @@
 		<button
 			class="ml-auto flex h-10 w-10 items-center justify-center rounded-full hover:bg-slate-100 md:hidden transition-colors"
 			onclick={() => (menuOpen = !menuOpen)}
-			aria-label="Toggle menu"
+			aria-label={t('nav.toggleMenu')}
 			aria-expanded={menuOpen}
 		>
 			{#if menuOpen}
@@ -82,9 +100,10 @@
 	{#if menuOpen}
 		<nav class="border-t border-slate-100 bg-white/95 px-4 py-4 md:hidden backdrop-blur-md">
 			<div class="flex flex-col gap-2">
-				<a href="/introduction/" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>Manual</a>
-				<a href="/blog/" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>Blog</a>
+				<a href={localizePath('/introduction/', lang)} class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>{t('nav.manual')}</a>
+				<a href={localizePath('/blog/', lang)} class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>{t('nav.blog')}</a>
 				<a href="https://github.com/takeruhukushima/ScholarView" target="_blank" class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all" onclick={() => (menuOpen = false)}>GitHub</a>
+				<a href={altHref} hreflang={otherLang} lang={otherLang} class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-all">🌐 {languages[otherLang]}</a>
 			</div>
 		</nav>
 	{/if}

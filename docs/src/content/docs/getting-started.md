@@ -1,5 +1,5 @@
 ---
-title: Getting Started
+title: はじめかた
 description: ScholarViewの開発環境セットアップと基本的なワークフロー
 ---
 
