@@ -1,5 +1,5 @@
 ---
-title: Architecture
+title: アーキテクチャ
 description: ScholarViewのクライアントサイド設計とAT Protocolの統合について
 ---
 

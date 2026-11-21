@@ -1,5 +1,5 @@
 ---
-title: Features
+title: 機能
 description: ScholarViewの強力な編集・熟議機能について
 ---
 

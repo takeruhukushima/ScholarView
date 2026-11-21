@@ -1,5 +1,5 @@
 ---
-title: Introduction
+title: はじめに
 description: ScholarViewのコンセプトとDeSci（分散型サイエンス）への取り組みについて
 ---
 

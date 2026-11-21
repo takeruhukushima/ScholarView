@@ -1,26 +1,30 @@
 /* Specific overrides for Starlight documentation pages */
 
 /* 1. Fix Theme Toggle Icon Overlap */
-starlight-theme-select {
+starlight-theme-select,
+starlight-lang-select {
   display: flex !important;
   align-items: center !important;
   gap: 0.5rem !important;
 }
 
-starlight-theme-select label {
+starlight-theme-select label,
+starlight-lang-select label {
   position: relative !important;
   display: flex !important;
   align-items: center !important;
 }
 
-starlight-theme-select select {
+starlight-theme-select select,
+starlight-lang-select select {
   padding-inline-start: 2.25rem !important;
   padding-inline-end: 2rem !important;
   border-radius: 0.5rem !important;
   min-width: 7rem !important;
 }
 
-starlight-theme-select .label-icon {
+starlight-theme-select .label-icon,
+starlight-lang-select .label-icon {
   position: absolute !important;
   inset-inline-start: 0.75rem !important;
   pointer-events: none !important;
@@ -46,9 +50,11 @@ starlight-theme-select .label-icon {
 
 /* 3. Responsive Header & TOC Fixes */
 @media (max-width: 50rem) {
+  /* Keep Starlight's own padding-inline-end: it reserves room for the fixed
+     mobile menu button so the search button isn't hidden underneath it. */
   header.header {
     height: 4rem !important;
-    padding-inline: 1rem !important;
+    padding-inline-start: 1rem !important;
   }
 
   /* Ensure the mobile menu is above everything else */
